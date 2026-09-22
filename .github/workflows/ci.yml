@@ -32,6 +32,13 @@ jobs:
         run: |
           flutter create --platforms=android --org com.potv --project-name potv .
           cp tool/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          cp tool/icons/mipmap-mdpi/ic_launcher.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          cp tool/icons/mipmap-hdpi/ic_launcher.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          cp tool/icons/mipmap-xhdpi/ic_launcher.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp tool/icons/mipmap-xxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp tool/icons/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          mkdir -p android/app/src/main/res/drawable
+          cp tool/tv_banner.png android/app/src/main/res/drawable/tv_banner.png
 
       - name: Dependencies
         run: flutter pub get
@@ -42,11 +49,11 @@ jobs:
       - name: Test
         run: flutter test
 
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build alpha APK
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: potv-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: potv-alpha-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
