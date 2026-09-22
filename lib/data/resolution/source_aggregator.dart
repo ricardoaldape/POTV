@@ -89,21 +89,26 @@ class SourceAggregator {
   Future<_ProviderBatch> _resolveProvider(
     ProviderResolver provider,
     ProviderResolveRequest request,
-  ) async {
+  ) {
+    late final Future<List<StreamCandidate>> providerFuture;
     try {
-      final candidates = await Future<List<StreamCandidate>>.sync(
-        () => provider.resolve(request),
-      ).timeout(
-        providerTimeout,
-        onTimeout: () => const <StreamCandidate>[],
-      );
-      return _ProviderBatch(candidates: candidates);
+      providerFuture = provider.resolve(request);
     } catch (_) {
-      return const _ProviderBatch(
-        candidates: [],
-        failed: true,
+      return Future.value(
+        const _ProviderBatch(candidates: [], failed: true),
       );
     }
+
+    return providerFuture
+        .timeout(
+          providerTimeout,
+          onTimeout: () => const <StreamCandidate>[],
+        )
+        .then<_ProviderBatch>(
+          (candidates) => _ProviderBatch(candidates: candidates),
+          onError: (Object _, StackTrace __) =>
+              const _ProviderBatch(candidates: [], failed: true),
+        );
   }
 
   String _cacheKey(ProviderResolveRequest request) {
