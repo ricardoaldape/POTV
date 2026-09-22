@@ -7,11 +7,13 @@ import '../../../domain/models/media_item.dart';
 class TopTenRail extends StatelessWidget {
   final String title;
   final List<MediaItem> items;
+  final ValueChanged<MediaItem> onPlay;
 
   const TopTenRail({
     super.key,
     required this.title,
     required this.items,
+    required this.onPlay,
   });
 
   @override
@@ -45,6 +47,7 @@ class TopTenRail extends StatelessWidget {
             itemBuilder: (context, index) => _TopTenCard(
               rank: index + 1,
               item: top[index],
+              onPlay: () => onPlay(top[index]),
             ),
           ),
         ),
@@ -56,10 +59,12 @@ class TopTenRail extends StatelessWidget {
 class _TopTenCard extends StatefulWidget {
   final int rank;
   final MediaItem item;
+  final VoidCallback onPlay;
 
   const _TopTenCard({
     required this.rank,
     required this.item,
+    required this.onPlay,
   });
 
   @override
@@ -115,7 +120,8 @@ class _TopTenCardState extends State<_TopTenCard> {
                 child: InkWell(
                   onFocusChange: (value) =>
                       setState(() => focused = value),
-                  onTap: () =>
+                  onTap: widget.onPlay,
+                  onLongPress: () =>
                       context.push('/detail', extra: widget.item),
                   child: Container(
                     decoration: BoxDecoration(

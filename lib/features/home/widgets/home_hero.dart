@@ -6,10 +6,12 @@ import '../../../domain/models/media_item.dart';
 
 class HomeHero extends StatelessWidget {
   final MediaItem item;
+  final VoidCallback onPlay;
 
   const HomeHero({
     super.key,
     required this.item,
+    required this.onPlay,
   });
 
   @override
@@ -133,15 +135,19 @@ class HomeHero extends StatelessWidget {
                       runSpacing: 10,
                       children: [
                         FilledButton.icon(
-                          onPressed: () =>
-                              context.push('/detail', extra: item),
+                          onPressed: onPlay,
                           icon: const Icon(Icons.play_arrow_rounded),
-                          label: const Text('Ver detalles'),
+                          label: Text(
+                            item.type == MediaType.movie
+                                ? 'Reproducir'
+                                : 'Elegir episodio',
+                          ),
                         ),
                         OutlinedButton.icon(
-                          onPressed: () => context.go('/search'),
-                          icon: const Icon(Icons.search_rounded),
-                          label: const Text('Buscar'),
+                          onPressed: () =>
+                              context.push('/detail', extra: item),
+                          icon: const Icon(Icons.info_outline_rounded),
+                          label: const Text('Más información'),
                         ),
                       ],
                     ),

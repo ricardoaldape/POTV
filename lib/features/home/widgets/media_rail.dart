@@ -7,11 +7,13 @@ import '../../../domain/models/media_item.dart';
 class MediaRail extends StatelessWidget {
   final String title;
   final List<MediaItem> items;
+  final ValueChanged<MediaItem> onPlay;
 
   const MediaRail({
     super.key,
     required this.title,
     required this.items,
+    required this.onPlay,
   });
 
   @override
@@ -43,6 +45,7 @@ class MediaRail extends StatelessWidget {
                 const SizedBox(width: 12),
             itemBuilder: (context, index) => PotvMediaCard(
               item: items[index],
+              onPlay: () => onPlay(items[index]),
             ),
           ),
         ),
@@ -53,10 +56,12 @@ class MediaRail extends StatelessWidget {
 
 class PotvMediaCard extends StatefulWidget {
   final MediaItem item;
+  final VoidCallback onPlay;
 
   const PotvMediaCard({
     super.key,
     required this.item,
+    required this.onPlay,
   });
 
   @override
@@ -84,7 +89,8 @@ class _PotvMediaCardState extends State<PotvMediaCard> {
             if (focused == value) return;
             setState(() => focused = value);
           },
-          onTap: () => context.push('/detail', extra: widget.item),
+          onTap: widget.onPlay,
+          onLongPress: () => context.push('/detail', extra: widget.item),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             decoration: BoxDecoration(

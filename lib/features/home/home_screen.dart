@@ -6,6 +6,7 @@ import '../../app/app_theme.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../domain/models/media_item.dart';
+import '../player/media_playback_coordinator.dart';
 import 'widgets/home_hero.dart';
 import 'widgets/media_rail.dart';
 import 'widgets/top_ten_rail.dart';
@@ -126,7 +127,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           if (hero != null)
             SliverToBoxAdapter(
-              child: HomeHero(item: hero),
+              child: HomeHero(
+                item: hero,
+                onPlay: () => MediaPlaybackCoordinator.play(
+                  context,
+                  ref,
+                  hero,
+                ),
+              ),
             )
           else
             SliverToBoxAdapter(
@@ -166,6 +174,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     MediaType.anime => 'Top 10 anime popular',
                   },
                   items: popularItems,
+                  onPlay: (item) => MediaPlaybackCoordinator.play(
+                    context,
+                    ref,
+                    item,
+                  ),
                 ),
               ),
             ),
@@ -176,6 +189,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 child: MediaRail(
                   title: 'Tendencias ahora',
                   items: trendingItems.skip(1).toList(growable: false),
+                  onPlay: (item) => MediaPlaybackCoordinator.play(
+                    context,
+                    ref,
+                    item,
+                  ),
                 ),
               ),
             ),
@@ -352,6 +370,11 @@ class _GenreSection extends ConsumerWidget {
       child: MediaRail(
         title: genre.title,
         items: items,
+        onPlay: (item) => MediaPlaybackCoordinator.play(
+          context,
+          ref,
+          item,
+        ),
       ),
     );
   }

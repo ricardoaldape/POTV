@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/catalog/tmdb_repository.dart';
 import '../../domain/models/media_item.dart';
+import '../player/media_playback_coordinator.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -59,7 +60,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             child: query.length < 2
                 ? const _SearchHint()
                 : results.when(
-                    data: (items) => _ResultGrid(items: items),
+                    data: (items) => _ResultGrid(
+                      items: items,
+                      onPlay: (item) => MediaPlaybackCoordinator.play(
+                        context,
+                        ref,
+                        item,
+                      ),
+                    ),
                     loading: () => const Center(
                       child: CircularProgressIndicator(),
                     ),
@@ -100,8 +108,12 @@ class _SearchHint extends StatelessWidget {
 
 class _ResultGrid extends StatelessWidget {
   final List<MediaItem> items;
+  final ValueChanged<MediaItem> onPlay;
 
-  const _ResultGrid({required this.items});
+  const _ResultGrid({
+    required this.items,
+    required this.onPlay,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +134,8 @@ class _ResultGrid extends StatelessWidget {
         final item = items[index];
         return Card(
           child: InkWell(
-            onTap: () => context.push('/detail', extra: item),
+            onTap: () => onPlay(item),
+            onLongPress: () => context.push('/detail', extra: item),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

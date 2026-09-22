@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/local/local_config_bundle.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sources/http_source_repository.dart';
+import '../../domain/models/playback_session.dart';
+import '../../domain/models/stream_candidate.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -92,6 +94,28 @@ class SettingsScreen extends ConsumerWidget {
             title: Text('Sincronizar dispositivos'),
             subtitle: Text(
               'Siguiente etapa: transferencia local cifrada móvil ↔ Android TV.',
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.play_circle_outline_rounded),
+            title: const Text('Probar reproductor'),
+            subtitle: const Text(
+              'Abre un stream público de prueba para verificar video, controles y audio.',
+            ),
+            onTap: () => context.push(
+              '/player',
+              extra: PlaybackSession.single(
+                StreamCandidate(
+                  id: 'potv-demo-hls',
+                  label: 'POTV Demo · HLS 1080p',
+                  uri: Uri.parse(
+                    'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+                  ),
+                  language: 'demo',
+                  quality: '1080p',
+                ),
+              ),
             ),
           ),
           const Divider(),
