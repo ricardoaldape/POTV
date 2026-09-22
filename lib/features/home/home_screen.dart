@@ -675,41 +675,70 @@ class _PlaybackSetupCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            const CircleAvatar(
-              radius: 24,
-              child: Icon(Icons.play_circle_outline_rounded),
-            ),
-            const SizedBox(width: 14),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Conecta tus fuentes de reproducción',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const copy = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Conecta tus fuentes de reproducción',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    'El catálogo ya está listo. Añade una fuente POTV o un addon compatible para reproducir películas y series.',
-                    style: TextStyle(
-                      color: Colors.white60,
-                      fontSize: 12,
-                    ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'El catálogo ya está listo. Añade una fuente POTV o un addon compatible para reproducir películas y series.',
+                  style: TextStyle(
+                    color: Colors.white60,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            );
+
+            if (constraints.maxWidth < 500) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        child: Icon(Icons.play_circle_outline_rounded),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(child: copy),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton.tonal(
+                    onPressed: onConfigure,
+                    child: const Text('Configurar fuentes'),
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            FilledButton.tonal(
-              onPressed: onConfigure,
-              child: const Text('Configurar'),
-            ),
-          ],
+              );
+            }
+
+            return Row(
+              children: [
+                const CircleAvatar(
+                  radius: 24,
+                  child: Icon(Icons.play_circle_outline_rounded),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(child: copy),
+                const SizedBox(width: 10),
+                FilledButton.tonal(
+                  onPressed: onConfigure,
+                  child: const Text('Configurar'),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
