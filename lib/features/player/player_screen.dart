@@ -55,7 +55,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     currentIndex = widget.session.initialIndex
         .clamp(0, widget.session.candidates.length - 1)
         .toInt();
-    _openCurrent(notify: false);
+    unawaited(_openCurrent(notify: false));
     _armAutoHide();
   }
 
@@ -66,8 +66,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
-  void _openCurrent({bool notify = true}) {
-    player?.dispose();
+  Future<void> _openCurrent({
+    bool notify = true,
+    Duration? resumeAt,
+  }) async {
+    await player?.dispose();
     player = null;
     videoController = null;
 
@@ -75,13 +78,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final nextPlayer = Player();
       player = nextPlayer;
       videoController = VideoController(nextPlayer);
-      nextPlayer.open(
+      await nextPlayer.open(
         Media(
           currentStream.uri.toString(),
           httpHeaders: currentStream.headers,
         ),
         play: true,
       );
+      if (resumeAt != null && resumeAt > Duration.zero) {
+        await nextPlayer.seek(resumeAt);
+      }
     }
 
     if (notify && mounted) setState(() {});
@@ -110,9 +116,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted) Navigator.of(context).pop();
       return;
     }
+
+    final resumeAt = player?.state.position;
     if (mounted) Navigator.of(context).pop();
     currentIndex = index;
-    _openCurrent();
+    await _openCurrent(resumeAt: resumeAt);
     _showControls();
   }
 
@@ -270,10 +278,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.mediaPlayPause ||
-        key == LogicalKeyboardKey.space) {
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter) {
       player?.playOrPause();
       return KeyEventResult.handled;
     }
+
+    final p = player;
+    if (p != null && key == LogicalKeyboardKey.arrowLeft) {
+      final target = p.state.position - const Duration(seconds: 10);
+      p.seek(target.isNegative ? Duration.zero : target);
+      return KeyEventResult.handled;
+    }
+    if (p != null && key == LogicalKeyboardKey.arrowRight) {
+      final target = p.state.position + const Duration(seconds: 10);
+      p.seek(target);
+      return KeyEventResult.handled;
+    }
+
     return KeyEventResult.ignored;
   }
 
@@ -410,32 +433,52 @@ class _PlayerOverlay extends StatelessWidget {
                 ),
               ),
             const Spacer(),
-            Container(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                alignment: WrapAlignment.center,
+            if (player != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: _Timeline(player: player!),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+              child: Column(
                 children: [
-                  _ActionButton(
-                    icon: Icons.audiotrack,
-                    label: 'Audio',
-                    onPressed: onAudio,
+                  Text(
+                    [
+                      stream.label,
+                      stream.language,
+                      stream.quality,
+                    ].whereType<String>().join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70),
                   ),
-                  _ActionButton(
-                    icon: Icons.subtitles,
-                    label: 'Subtítulos',
-                    onPressed: onSubtitles,
-                  ),
-                  _ActionButton(
-                    icon: Icons.high_quality,
-                    label: 'Calidad',
-                    onPressed: onQuality,
-                  ),
-                  _ActionButton(
-                    icon: Icons.dns_outlined,
-                    label: 'Servidores',
-                    onPressed: onServers,
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      _ActionButton(
+                        icon: Icons.audiotrack,
+                        label: 'Audio',
+                        onPressed: onAudio,
+                      ),
+                      _ActionButton(
+                        icon: Icons.subtitles,
+                        label: 'Subtítulos',
+                        onPressed: onSubtitles,
+                      ),
+                      _ActionButton(
+                        icon: Icons.high_quality,
+                        label: 'Calidad',
+                        onPressed: onQuality,
+                      ),
+                      _ActionButton(
+                        icon: Icons.dns_outlined,
+                        label: 'Servidores',
+                        onPressed: onServers,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -443,6 +486,61 @@ class _PlayerOverlay extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _Timeline extends StatelessWidget {
+  final Player player;
+
+  const _Timeline({required this.player});
+
+  String _format(Duration value) {
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Duration>(
+      stream: player.stream.duration,
+      initialData: player.state.duration,
+      builder: (context, durationSnapshot) {
+        final duration = durationSnapshot.data ?? Duration.zero;
+        return StreamBuilder<Duration>(
+          stream: player.stream.position,
+          initialData: player.state.position,
+          builder: (context, positionSnapshot) {
+            final position = positionSnapshot.data ?? Duration.zero;
+            final durationMs = duration.inMilliseconds;
+            final max = durationMs <= 0 ? 1.0 : durationMs.toDouble();
+            final value = position.inMilliseconds
+                .clamp(0, durationMs <= 0 ? 0 : durationMs)
+                .toDouble();
+
+            return Row(
+              children: [
+                Text(_format(position)),
+                Expanded(
+                  child: Slider(
+                    min: 0,
+                    max: max,
+                    value: value.clamp(0, max),
+                    onChanged: durationMs <= 0
+                        ? null
+                        : (next) => player.seek(
+                              Duration(milliseconds: next.round()),
+                            ),
+                  ),
+                ),
+                Text(durationMs <= 0 ? 'EN VIVO' : _format(duration)),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

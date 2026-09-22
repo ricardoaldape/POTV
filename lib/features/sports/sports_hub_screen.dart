@@ -7,6 +7,7 @@ import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sports/sports_repository.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
+import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
 import '../../domain/services/sports_channel_resolver.dart';
 
@@ -248,8 +249,22 @@ class _SportsEventCard extends StatelessWidget {
         trailing: FilledButton(
           onPressed: best == null
               ? null
-              : () => context.push('/player', extra: best.channel.stream),
-          child: Text(best == null ? 'SIN FUENTE' : 'VER'),
+              : () {
+                  final session = PlaybackSession(
+                    title: event.title,
+                    candidates: [
+                      for (final match in matches) match.channel.stream,
+                    ],
+                  );
+                  context.push('/player', extra: session);
+                },
+          child: Text(
+            best == null
+                ? 'SIN FUENTE'
+                : matches.length > 1
+                    ? 'VER · ${matches.length}'
+                    : 'VER',
+          ),
         ),
       ),
     );
