@@ -4,7 +4,7 @@ import 'package:potv/data/sports/addon_sports_protocol.dart';
 import 'package:potv/domain/models/stremio_addon_config.dart';
 
 void main() {
-  const addon = StremioAddonConfig(
+  final addon = StremioAddonConfig(
     id: 'sports.test',
     name: 'Sports Test',
     manifestUri: Uri.parse('https://addon.example/manifest.json'),
