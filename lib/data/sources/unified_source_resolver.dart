@@ -4,7 +4,6 @@ import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/source_resolver.dart';
 import '../addons/stremio_source_resolver.dart';
 import '../anime/anime_id_mapping_service.dart';
-import '../anime/anime_official_streaming_resolver.dart';
 import 'http_source_resolver.dart';
 import 'public_domain_movie_resolver.dart';
 import 'public_domain_series_resolver.dart';
@@ -14,7 +13,6 @@ final unifiedSourceResolverProvider = Provider<UnifiedSourceResolver>((ref) {
     http: ref.read(httpSourceResolverProvider),
     stremio: ref.read(stremioSourceResolverProvider),
     animeMapping: ref.read(animeIdMappingServiceProvider),
-    animeOfficial: ref.read(animeOfficialStreamingProvider),
     publicDomainMovies: ref.read(publicDomainMovieResolverProvider),
     publicDomainSeries: ref.read(publicDomainSeriesResolverProvider),
   );
@@ -24,7 +22,6 @@ class UnifiedSourceResolver implements SourceResolver {
   final HttpSourceResolver http;
   final StremioSourceResolver stremio;
   final AnimeIdMappingService animeMapping;
-  final AnimeOfficialStreamingResolver animeOfficial;
   final PublicDomainMovieResolver publicDomainMovies;
   final PublicDomainSeriesResolver publicDomainSeries;
 
@@ -32,7 +29,6 @@ class UnifiedSourceResolver implements SourceResolver {
     required this.http,
     required this.stremio,
     required this.animeMapping,
-    required this.animeOfficial,
     required this.publicDomainMovies,
     required this.publicDomainSeries,
   });
@@ -66,11 +62,6 @@ class UnifiedSourceResolver implements SourceResolver {
         season: season,
         episode: episode,
       ),
-      _resolveOfficialAnime(
-        mediaType: mediaType,
-        mediaId: mediaId,
-        episode: episode,
-      ),
       publicDomainMovies.resolve(
         mediaType: mediaType,
         title: title,
@@ -87,21 +78,6 @@ class UnifiedSourceResolver implements SourceResolver {
     return [
       for (final batch in batches) ...batch,
     ];
-  }
-
-  Future<List<StreamCandidate>> _resolveOfficialAnime({
-    required String mediaType,
-    required String mediaId,
-    required int? episode,
-  }) async {
-    if (mediaType != 'anime' || episode == null) return const [];
-    final anilistId = int.tryParse(mediaId);
-    if (anilistId == null) return const [];
-
-    return animeOfficial.resolve(
-      anilistId: anilistId,
-      episode: episode,
-    );
   }
 
   Future<List<StreamCandidate>> _resolveStremio({
