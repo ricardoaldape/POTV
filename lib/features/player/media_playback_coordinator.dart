@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/sources/http_source_resolver.dart';
+import '../../data/sources/unified_source_resolver.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/services/stream_candidate_ranker.dart';
@@ -71,9 +71,11 @@ class MediaPlaybackCoordinator {
     );
 
     try {
-      final candidates = await ref.read(httpSourceResolverProvider).resolve(
+      final candidates = await ref.read(unifiedSourceResolverProvider).resolve(
             mediaType: item.mediaTypeName,
             mediaId: item.id.toString(),
+            externalId: item.externalId,
+            title: item.title,
             season: season,
             episode: episode,
           );
@@ -106,6 +108,7 @@ class MediaPlaybackCoordinator {
             mediaId: item.id,
             mediaType: item.mediaTypeName,
             title: item.title,
+            externalId: item.externalId,
             season: season,
             episode: episode,
             poster: item.poster?.toString(),

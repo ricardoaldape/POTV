@@ -4,6 +4,7 @@ class PlaybackContext {
   final int mediaId;
   final String mediaType;
   final String title;
+  final String? externalId;
   final int? season;
   final int? episode;
   final String? poster;
@@ -12,6 +13,7 @@ class PlaybackContext {
     required this.mediaId,
     required this.mediaType,
     required this.title,
+    this.externalId,
     this.season,
     this.episode,
     this.poster,

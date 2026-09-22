@@ -94,6 +94,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       id: history.mediaId,
       type: type,
       title: history.title,
+      externalId: history.externalId,
       poster: history.poster == null ? null : Uri.tryParse(history.poster!),
     );
 

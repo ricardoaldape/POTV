@@ -28,6 +28,8 @@ class HttpSourceResolver implements SourceResolver {
   Future<List<StreamCandidate>> resolve({
     required String mediaType,
     required String mediaId,
+    String? externalId,
+    String? title,
     int? season,
     int? episode,
   }) async {

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
+import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sources/http_source_repository.dart';
@@ -62,6 +63,7 @@ class SettingsScreen extends ConsumerWidget {
       ref.invalidate(liveChannelsProvider);
       ref.invalidate(epgProgramsProvider);
       ref.invalidate(httpSourcesProvider);
+      ref.invalidate(stremioAddonsProvider);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -82,6 +84,7 @@ class SettingsScreen extends ConsumerWidget {
     final tvState = ref.watch(liveChannelsProvider);
     final sportsState = ref.watch(builtInSportsChannelsProvider);
     final vodSourcesState = ref.watch(httpSourcesProvider);
+    final addonState = ref.watch(stremioAddonsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
@@ -127,6 +130,12 @@ class SettingsScreen extends ConsumerWidget {
                       icon: Icons.hub_outlined,
                       label: 'Fuentes VOD locales',
                       value: _countLabel(vodSourcesState),
+                    ),
+                    const SizedBox(height: 8),
+                    _StatusRow(
+                      icon: Icons.extension_rounded,
+                      label: 'Addons Stremio / Nuvio',
+                      value: _countLabel(addonState),
                     ),
                   ],
                 ),
@@ -188,12 +197,13 @@ class SettingsScreen extends ConsumerWidget {
             ),
             onTap: () => context.push('/sources'),
           ),
-          const ListTile(
-            leading: Icon(Icons.extension),
-            title: Text('Addons'),
-            subtitle: Text(
-              'Stremio, Nuvio y Kodi se implementarán después de Live TV y Sports Hub.',
+          ListTile(
+            leading: const Icon(Icons.extension_rounded),
+            title: const Text('Addons Stremio / Nuvio'),
+            subtitle: const Text(
+              'Instala addons remotos compatibles. Kodi seguirá en una etapa posterior.',
             ),
+            onTap: () => context.push('/sources'),
           ),
           const Divider(),
           ListTile(

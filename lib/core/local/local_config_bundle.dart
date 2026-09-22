@@ -9,6 +9,7 @@ class LocalConfigBundle {
   static const _m3uKey = 'live_tv_m3u_url';
   static const _epgKey = 'live_tv_xmltv_url';
   static const _httpSourcesKey = 'potv_http_sources';
+  static const _stremioAddonsKey = 'potv_stremio_addons';
 
   static Future<String> exportJson() async {
     final prefs = await SharedPreferences.getInstance();
@@ -21,6 +22,7 @@ class LocalConfigBundle {
         'xmltv_url': prefs.getString(_epgKey),
       },
       'http_sources': _decodeSources(prefs.getString(_httpSourcesKey)),
+      'stremio_addons': _decodeSources(prefs.getString(_stremioAddonsKey)),
     };
 
     return jsonEncode(data);
@@ -51,6 +53,11 @@ class LocalConfigBundle {
     final httpSources = decoded['http_sources'];
     if (httpSources is List) {
       await prefs.setString(_httpSourcesKey, jsonEncode(httpSources));
+    }
+
+    final stremioAddons = decoded['stremio_addons'];
+    if (stremioAddons is List) {
+      await prefs.setString(_stremioAddonsKey, jsonEncode(stremioAddons));
     }
   }
 

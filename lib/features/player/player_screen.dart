@@ -135,6 +135,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         mediaId: playbackContext.mediaId,
         mediaType: playbackContext.mediaType,
         title: playbackContext.title,
+        externalId: playbackContext.externalId,
         season: playbackContext.season,
         episode: playbackContext.episode,
         poster: playbackContext.poster,

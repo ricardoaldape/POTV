@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/addons/stremio_addon_client.dart';
+import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/sources/http_source_repository.dart';
 import '../../domain/models/http_source_config.dart';
+import '../../domain/models/stremio_addon_config.dart';
 
 class SourcesScreen extends ConsumerWidget {
   const SourcesScreen({super.key});
@@ -17,7 +20,7 @@ class SourcesScreen extends ConsumerWidget {
     final result = await showDialog<({String name, String endpoint})>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Añadir fuente HTTP'),
+        title: const Text('Añadir fuente POTV'),
         content: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
           child: Column(
@@ -87,7 +90,98 @@ class SourcesScreen extends ConsumerWidget {
     ref.invalidate(httpSourcesProvider);
   }
 
-  Future<void> _toggle(
+  Future<void> _addStremioAddon(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final controller = TextEditingController();
+
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Añadir addon Stremio / Nuvio'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Pega la URL del addon o de su manifest.json. POTV la guarda únicamente en este dispositivo.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'URL del addon',
+                  hintText: 'https://addon.example/manifest.json',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Comprobar y añadir'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (value == null || value.isEmpty) return;
+
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('URL HTTP/HTTPS inválida.')),
+      );
+      return;
+    }
+
+    try {
+      final manifest = await ref.read(stremioAddonClientProvider).inspect(uri);
+      if (!manifest.supportsStreams) {
+        throw const FormatException(
+          'El addon no declara soporte para streams.',
+        );
+      }
+
+      await ref.read(stremioAddonRepositoryProvider).add(
+            name: manifest.name,
+            manifestUri: manifest.manifestUri,
+          );
+      ref.invalidate(stremioAddonsProvider);
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${manifest.name} · v${manifest.version} añadido a POTV.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No pudimos añadir el addon: $error'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleHttp(
     WidgetRef ref,
     HttpSourceConfig source,
     bool enabled,
@@ -98,7 +192,7 @@ class SourcesScreen extends ConsumerWidget {
     ref.invalidate(httpSourcesProvider);
   }
 
-  Future<void> _remove(
+  Future<void> _removeHttp(
     WidgetRef ref,
     String id,
   ) async {
@@ -106,95 +200,323 @@ class SourcesScreen extends ConsumerWidget {
     ref.invalidate(httpSourcesProvider);
   }
 
+  Future<void> _toggleAddon(
+    WidgetRef ref,
+    StremioAddonConfig addon,
+    bool enabled,
+  ) async {
+    await ref.read(stremioAddonRepositoryProvider).update(
+          addon.copyWith(enabled: enabled),
+        );
+    ref.invalidate(stremioAddonsProvider);
+  }
+
+  Future<void> _removeAddon(
+    WidgetRef ref,
+    String id,
+  ) async {
+    await ref.read(stremioAddonRepositoryProvider).remove(id);
+    ref.invalidate(stremioAddonsProvider);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sources = ref.watch(httpSourcesProvider);
+    final httpSources = ref.watch(httpSourcesProvider);
+    final addons = ref.watch(stremioAddonsProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fuentes'),
+        title: const Text('Fuentes y addons'),
         actions: [
-          IconButton(
-            tooltip: 'Añadir fuente',
-            onPressed: () => _addSource(context, ref),
-            icon: const Icon(Icons.add),
+          PopupMenuButton<String>(
+            tooltip: 'Añadir',
+            onSelected: (value) {
+              if (value == 'potv') {
+                _addSource(context, ref);
+              } else if (value == 'stremio') {
+                _addStremioAddon(context, ref);
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'potv',
+                child: ListTile(
+                  leading: Icon(Icons.hub_outlined),
+                  title: Text('Fuente POTV'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'stremio',
+                child: ListTile(
+                  leading: Icon(Icons.extension_rounded),
+                  title: Text('Addon Stremio / Nuvio'),
+                ),
+              ),
+            ],
+            icon: const Icon(Icons.add_rounded),
           ),
         ],
       ),
-      body: sources.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
-          child: Text(error.toString()),
-        ),
-        data: (items) {
-          if (items.isEmpty) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
+        children: [
+          const _InfoCard(),
+          const SizedBox(height: 22),
+          _SectionHeader(
+            icon: Icons.extension_rounded,
+            title: 'Stremio / Nuvio',
+            subtitle:
+                'POTV consulta el addon directamente desde tu dispositivo.',
+            onAdd: () => _addStremioAddon(context, ref),
+          ),
+          const SizedBox(height: 10),
+          addons.when(
+            loading: () => const LinearProgressIndicator(minHeight: 2),
+            error: (error, stack) => _ErrorCard(error: error),
+            data: (items) => items.isEmpty
+                ? const _EmptySection(
+                    text: 'No hay addons configurados.',
+                  )
+                : Column(
                     children: [
-                      const Icon(Icons.hub_outlined, size: 72),
-                      const SizedBox(height: 18),
-                      const Text(
-                        'No hay fuentes configuradas',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
+                      for (final addon in items)
+                        _AddonTile(
+                          addon: addon,
+                          onToggle: (value) =>
+                              _toggleAddon(ref, addon, value),
+                          onRemove: () => _removeAddon(ref, addon.id),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Las fuentes se guardan únicamente en este dispositivo. POTV consulta directamente el endpoint configurado.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white60),
-                      ),
-                      const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: () => _addSource(context, ref),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Añadir fuente'),
-                      ),
                     ],
                   ),
+          ),
+          const SizedBox(height: 28),
+          _SectionHeader(
+            icon: Icons.hub_outlined,
+            title: 'Fuentes POTV',
+            subtitle:
+                'Endpoints compatibles con el protocolo nativo de fuentes POTV.',
+            onAdd: () => _addSource(context, ref),
+          ),
+          const SizedBox(height: 10),
+          httpSources.when(
+            loading: () => const LinearProgressIndicator(minHeight: 2),
+            error: (error, stack) => _ErrorCard(error: error),
+            data: (items) => items.isEmpty
+                ? const _EmptySection(
+                    text: 'No hay fuentes POTV configuradas.',
+                  )
+                : Column(
+                    children: [
+                      for (final source in items)
+                        _HttpSourceTile(
+                          source: source,
+                          onToggle: (value) =>
+                              _toggleHttp(ref, source, value),
+                          onRemove: () => _removeHttp(ref, source.id),
+                        ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.shield_outlined),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Las URLs, respuestas y servidores de estas integraciones permanecen en el dispositivo. POTV no los sincroniza con su servidor.',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onAdd;
+
+  const _SectionHeader({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onAdd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(icon),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-            );
-          }
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: 'Añadir',
+          onPressed: onAdd,
+          icon: const Icon(Icons.add_circle_outline_rounded),
+        ),
+      ],
+    );
+  }
+}
 
-          return ListView.separated(
-            itemCount: items.length,
-            separatorBuilder: (context, index) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final source = items[index];
-              return ListTile(
-                leading: const Icon(Icons.hub_outlined),
-                title: Text(source.name),
-                subtitle: Text(
-                  source.endpoint.toString(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Switch(
-                      value: source.enabled,
-                      onChanged: (value) => _toggle(ref, source, value),
-                    ),
-                    IconButton(
-                      tooltip: 'Eliminar',
-                      onPressed: () => _remove(ref, source.id),
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
+class _AddonTile extends StatelessWidget {
+  final StremioAddonConfig addon;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onRemove;
+
+  const _AddonTile({
+    required this.addon,
+    required this.onToggle,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.extension_rounded),
+        title: Text(addon.name),
+        subtitle: Text(
+          addon.manifestUri.toString(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(
+              value: addon.enabled,
+              onChanged: onToggle,
+            ),
+            IconButton(
+              tooltip: 'Eliminar',
+              onPressed: onRemove,
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HttpSourceTile extends StatelessWidget {
+  final HttpSourceConfig source;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onRemove;
+
+  const _HttpSourceTile({
+    required this.source,
+    required this.onToggle,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.hub_outlined),
+        title: Text(source.name),
+        subtitle: Text(
+          source.endpoint.toString(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(
+              value: source.enabled,
+              onChanged: onToggle,
+            ),
+            IconButton(
+              tooltip: 'Eliminar',
+              onPressed: onRemove,
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptySection extends StatelessWidget {
+  final String text;
+
+  const _EmptySection({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          text,
+          style: const TextStyle(color: Colors.white60),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  final Object error;
+
+  const _ErrorCard({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          'No pudimos cargar esta sección. $error',
+          style: const TextStyle(color: Colors.redAccent),
+        ),
       ),
     );
   }

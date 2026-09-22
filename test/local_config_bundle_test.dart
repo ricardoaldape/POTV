@@ -9,6 +9,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'live_tv_m3u_url': 'https://example.com/list.m3u',
       'live_tv_xmltv_url': 'https://example.com/guide.xml',
+      'potv_stremio_addons': '[{"id":"a1","name":"Demo","manifest_uri":"https://example.com/manifest.json","enabled":true}]',
     });
 
     final exported = await LocalConfigBundle.exportJson();
@@ -24,6 +25,10 @@ void main() {
     expect(
       prefs.getString('live_tv_xmltv_url'),
       'https://example.com/guide.xml',
+    );
+    expect(
+      prefs.getString('potv_stremio_addons'),
+      contains('https://example.com/manifest.json'),
     );
   });
 

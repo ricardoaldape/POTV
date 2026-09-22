@@ -3,6 +3,7 @@ class PlaybackHistoryEntry {
   final int mediaId;
   final String mediaType;
   final String title;
+  final String? externalId;
   final int? season;
   final int? episode;
   final String? poster;
@@ -15,6 +16,7 @@ class PlaybackHistoryEntry {
     required this.mediaId,
     required this.mediaType,
     required this.title,
+    this.externalId,
     this.season,
     this.episode,
     this.poster,
@@ -33,6 +35,7 @@ class PlaybackHistoryEntry {
         'media_id': mediaId,
         'media_type': mediaType,
         'title': title,
+        'external_id': externalId,
         'season': season,
         'episode': episode,
         'poster': poster,
@@ -47,6 +50,7 @@ class PlaybackHistoryEntry {
       mediaId: int.tryParse(json['media_id']?.toString() ?? '') ?? 0,
       mediaType: json['media_type']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
+      externalId: json['external_id']?.toString(),
       season: int.tryParse(json['season']?.toString() ?? ''),
       episode: int.tryParse(json['episode']?.toString() ?? ''),
       poster: json['poster']?.toString(),
