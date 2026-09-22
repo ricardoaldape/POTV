@@ -3,14 +3,10 @@ import 'package:potv/data/addons/stremio_protocol.dart';
 import 'package:potv/domain/models/stremio_addon_config.dart';
 
 void main() {
-  const addon = StremioAddonConfig(
+  final addon = StremioAddonConfig(
     id: 'demo-addon',
     name: 'Addon Demo',
-    manifestUri: Uri(
-      scheme: 'https',
-      host: 'addon.example',
-      path: '/manifest.json',
-    ),
+    manifestUri: Uri.parse('https://addon.example/manifest.json'),
   );
 
   test('parses direct streams without requiring network access', () {
