@@ -9,10 +9,11 @@ final sportsRepositoryProvider = Provider<SportsRepository>((ref) {
 });
 
 final sportsEventsProvider = FutureProvider.autoDispose
-    .family<List<SportsEvent>, String?>((ref, sport) async {
+    .family<List<SportsEvent>, ({DateTime day, String? sport})>(
+        (ref, query) async {
   return ref.read(sportsRepositoryProvider).eventsForDay(
-        DateTime.now(),
-        sport: sport,
+        query.day,
+        sport: query.sport,
       );
 });
 

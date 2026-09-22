@@ -39,10 +39,24 @@ class SportsHubScreen extends ConsumerStatefulWidget {
 
 class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
   String selectedSport = 'Soccer';
+  DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
+
+  Future<void> _pickDate() async {
+    final value = await showDatePicker(
+      context: context,
+      initialDate: selectedDay,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (value != null) {
+      setState(() => selectedDay = DateUtils.dateOnly(value));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final eventsState = ref.watch(sportsEventsProvider(selectedSport));
+    final query = (day: selectedDay, sport: selectedSport);
+    final eventsState = ref.watch(sportsEventsProvider(query));
     final events = eventsState.asData?.value ?? const <SportsEvent>[];
     final channels = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
@@ -56,7 +70,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
           IconButton(
             tooltip: 'Actualizar eventos',
             onPressed: () => ref.invalidate(
-              sportsEventsProvider(selectedSport),
+              sportsEventsProvider(query),
             ),
             icon: const Icon(Icons.refresh),
           ),
@@ -65,9 +79,12 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text(
-            'Deportes de hoy',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+          Text(
+            'Deportes · ' + DateFormat('EEE d MMM').format(selectedDay),
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 6),
           const Text(
@@ -75,6 +92,45 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             style: TextStyle(color: Colors.white60),
           ),
           const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ChoiceChip(
+                label: const Text('Hoy'),
+                selected: DateUtils.isSameDay(
+                  selectedDay,
+                  DateTime.now(),
+                ),
+                onSelected: (_) {
+                  setState(() {
+                    selectedDay = DateUtils.dateOnly(DateTime.now());
+                  });
+                },
+              ),
+              ChoiceChip(
+                label: const Text('Mañana'),
+                selected: DateUtils.isSameDay(
+                  selectedDay,
+                  DateTime.now().add(const Duration(days: 1)),
+                ),
+                onSelected: (_) {
+                  setState(() {
+                    selectedDay = DateUtils.dateOnly(
+                      DateTime.now().add(const Duration(days: 1)),
+                    );
+                  });
+                },
+              ),
+              OutlinedButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.calendar_month),
+                label: const Text('Calendario'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
