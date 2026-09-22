@@ -3,7 +3,7 @@ import 'package:potv/data/resolution/source_aggregator.dart';
 import 'package:potv/domain/models/stream_candidate.dart';
 import 'package:potv/domain/resolution/provider_resolver.dart';
 
-class _FakeProvider implements ProviderResolver {
+class _FakeProvider extends ProviderResolver {
   @override
   final String id;
 

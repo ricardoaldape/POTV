@@ -6,7 +6,7 @@ import '../sources/http_source_resolver.dart';
 import '../sources/public_domain_movie_resolver.dart';
 import '../sources/public_domain_series_resolver.dart';
 
-class HttpProviderResolver implements ProviderResolver {
+class HttpProviderResolver extends ProviderResolver {
   final HttpSourceResolver resolver;
 
   const HttpProviderResolver(this.resolver);
@@ -36,7 +36,7 @@ class HttpProviderResolver implements ProviderResolver {
     );
   }
 }
-class StremioProviderResolver implements ProviderResolver {
+class StremioProviderResolver extends ProviderResolver {
   final StremioSourceResolver resolver;
   final AnimeIdMappingService animeMapping;
 
@@ -93,7 +93,7 @@ class StremioProviderResolver implements ProviderResolver {
     );
   }
 }
-class PublicDomainMovieProviderResolver implements ProviderResolver {
+class PublicDomainMovieProviderResolver extends ProviderResolver {
   final PublicDomainMovieResolver resolver;
 
   const PublicDomainMovieProviderResolver(this.resolver);
@@ -120,7 +120,7 @@ class PublicDomainMovieProviderResolver implements ProviderResolver {
   }
 }
 
-class PublicDomainSeriesProviderResolver implements ProviderResolver {
+class PublicDomainSeriesProviderResolver extends ProviderResolver {
   final PublicDomainSeriesResolver resolver;
 
   const PublicDomainSeriesProviderResolver(this.resolver);

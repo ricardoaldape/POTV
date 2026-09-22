@@ -5,4 +5,9 @@ class AppConfig {
     'POTV_CONTROL_URL',
     defaultValue: 'https://control.invalid',
   );
+
+  static const resolverEndpointsJson = String.fromEnvironment(
+    'POTV_RESOLVER_ENDPOINTS_JSON',
+    defaultValue: '[]',
+  );
 }

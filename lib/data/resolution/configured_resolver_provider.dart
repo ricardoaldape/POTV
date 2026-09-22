@@ -1,0 +1,155 @@
+import 'package:dio/dio.dart';
+
+import '../../domain/models/stream_candidate.dart';
+import '../../domain/resolution/provider_resolver.dart';
+import '../../domain/resolution/resolver_endpoint_config.dart';
+
+class ConfiguredResolverProvider extends ProviderResolver {
+  final ResolverEndpointConfig config;
+  final Dio dio;
+
+  ConfiguredResolverProvider(
+    this.config, {
+    Dio? dio,
+  }) : dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 8),
+                receiveTimeout: const Duration(seconds: 14),
+                headers: const {
+                  'Accept': 'application/json',
+                  'User-Agent': 'POTV/0.6 (Android)',
+                },
+              ),
+            );
+
+  @override
+  String get id => config.id;
+
+  @override
+  String get displayName => config.name;
+
+  @override
+  int get priority => config.priority;
+
+  @override
+  Set<String> get supportedMediaTypes => config.mediaTypes;
+
+  @override
+  Future<List<StreamCandidate>> resolve(ProviderResolveRequest request) async {
+    final query = <String, String>{
+      ...config.endpoint.queryParameters,
+      'type': request.mediaType,
+      if (request.isAnime) 'anilist_id': request.mediaId,
+      if (!request.isAnime) 'tmdb_id': request.mediaId,
+      if (request.externalId?.trim().isNotEmpty == true)
+        'external_id': request.externalId!.trim(),
+      if (request.title?.trim().isNotEmpty == true)
+        'title': request.title!.trim(),
+      if (request.year?.trim().isNotEmpty == true) 'year': request.year!.trim(),
+      if (request.season != null) 'season': '${request.season}',
+      if (request.episode != null) 'episode': '${request.episode}',
+    };
+
+    try {
+      final response = await dio.getUri<Object?>(
+        config.endpoint.replace(queryParameters: query),
+        options: Options(responseType: ResponseType.json),
+      );
+      return _parse(response.data);
+    } on DioException {
+      return const [];
+    } on FormatException {
+      return const [];
+    }
+  }
+  List<StreamCandidate> _parse(Object? raw) {
+    Object? streamsRaw;
+    if (raw is Map<String, dynamic>) {
+      streamsRaw = raw['streams'] ?? raw['results'];
+    } else if (raw is List) {
+      streamsRaw = raw;
+    }
+    if (streamsRaw is! List) return const [];
+
+    final result = <StreamCandidate>[];
+    for (var index = 0; index < streamsRaw.length; index++) {
+      final value = streamsRaw[index];
+      if (value is! Map) continue;
+
+      final item = value.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+      final uri = Uri.tryParse(
+        item['url']?.toString() ??
+            item['stream_url']?.toString() ??
+            item['uri']?.toString() ??
+            '',
+      );
+      if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+        continue;
+      }
+
+      result.add(
+        StreamCandidate(
+          id: '${config.id}:$index',
+          label: '${config.name} · ${_name(item, index)}',
+          uri: uri,
+          language: _text(item['language']) ?? _text(item['idioma']),
+          quality: _text(item['quality']) ?? _text(item['calidad']),
+          backend: _backend(item['backend']),
+          headers: _headers(item['headers']),
+          allowedHosts:
+              _stringSet(item['allowed_hosts'] ?? item['allowedHosts']),
+          directWebView:
+              item['direct_webview'] == true || item['directWebView'] == true,
+        ),
+      );
+    }
+    return result;
+  }
+
+  String _name(Map<String, dynamic> item, int index) {
+    return _text(item['name']) ??
+        _text(item['server']) ??
+        _text(item['servidor_nombre']) ??
+        'Servidor ${index + 1}';
+  }
+
+  PlaybackBackend _backend(Object? value) {
+    switch (value?.toString().trim().toLowerCase()) {
+      case 'webview':
+      case 'web':
+        return PlaybackBackend.webView;
+      case 'external':
+        return PlaybackBackend.external;
+      default:
+        return PlaybackBackend.native;
+    }
+  }
+  Map<String, String> _headers(Object? value) {
+    if (value is! Map) return const {};
+    final result = <String, String>{};
+    for (final entry in value.entries) {
+      final key = entry.key.toString().trim();
+      final item = entry.value?.toString().trim();
+      if (key.isEmpty || item == null || item.isEmpty) continue;
+      result[key] = item;
+    }
+    return result;
+  }
+
+  Set<String> _stringSet(Object? value) {
+    if (value is! List) return const {};
+    return value
+        .map((item) => item?.toString().trim())
+        .whereType<String>()
+        .where((item) => item.isNotEmpty)
+        .toSet();
+  }
+
+  String? _text(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+}

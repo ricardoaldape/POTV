@@ -24,7 +24,7 @@ class ProviderResolveRequest {
   bool get isAnime => mediaType == 'anime';
 }
 
-abstract interface class ProviderResolver {
+abstract class ProviderResolver {
   String get id;
   String get displayName;
   int get priority;
