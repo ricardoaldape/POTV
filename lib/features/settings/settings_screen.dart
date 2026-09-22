@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/local/local_config_bundle.dart';
 import '../../data/live_tv/live_tv_repository.dart';
+import '../../data/sources/http_source_repository.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -39,6 +41,7 @@ class SettingsScreen extends ConsumerWidget {
       await LocalConfigBundle.importJson(raw);
       ref.invalidate(liveChannelsProvider);
       ref.invalidate(epgProgramsProvider);
+      ref.invalidate(httpSourcesProvider);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -92,6 +95,14 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const Divider(),
+          ListTile(
+            leading: const Icon(Icons.hub_outlined),
+            title: const Text('Fuentes locales'),
+            subtitle: const Text(
+              'Administra endpoints POTV guardados únicamente en este dispositivo.',
+            ),
+            onTap: () => context.push('/sources'),
+          ),
           const ListTile(
             leading: Icon(Icons.extension),
             title: Text('Addons'),

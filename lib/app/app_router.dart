@@ -8,6 +8,7 @@ import '../features/live_tv/live_tv_screen.dart';
 import '../features/player/player_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/sources/sources_screen.dart';
 import '../features/sports/sports_hub_screen.dart';
 import 'app_shell.dart';
 
@@ -24,6 +25,10 @@ final potvRouter = GoRouter(
         GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
         GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
       ],
+    ),
+    GoRoute(
+      path: '/sources',
+      builder: (context, state) => const SourcesScreen(),
     ),
     GoRoute(
       path: '/detail',

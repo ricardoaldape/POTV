@@ -8,6 +8,7 @@ class LocalConfigBundle {
 
   static const _m3uKey = 'live_tv_m3u_url';
   static const _epgKey = 'live_tv_xmltv_url';
+  static const _httpSourcesKey = 'potv_http_sources';
 
   static Future<String> exportJson() async {
     final prefs = await SharedPreferences.getInstance();
@@ -19,6 +20,7 @@ class LocalConfigBundle {
         'm3u_url': prefs.getString(_m3uKey),
         'xmltv_url': prefs.getString(_epgKey),
       },
+      'http_sources': _decodeSources(prefs.getString(_httpSourcesKey)),
     };
 
     return jsonEncode(data);
@@ -38,12 +40,28 @@ class LocalConfigBundle {
       throw const FormatException('Versión de configuración no compatible');
     }
 
-    final liveTv = decoded['live_tv'];
-    if (liveTv is! Map<String, dynamic>) return;
-
     final prefs = await SharedPreferences.getInstance();
-    await _writeOptionalString(prefs, _m3uKey, liveTv['m3u_url']);
-    await _writeOptionalString(prefs, _epgKey, liveTv['xmltv_url']);
+
+    final liveTv = decoded['live_tv'];
+    if (liveTv is Map<String, dynamic>) {
+      await _writeOptionalString(prefs, _m3uKey, liveTv['m3u_url']);
+      await _writeOptionalString(prefs, _epgKey, liveTv['xmltv_url']);
+    }
+
+    final httpSources = decoded['http_sources'];
+    if (httpSources is List) {
+      await prefs.setString(_httpSourcesKey, jsonEncode(httpSources));
+    }
+  }
+
+  static List<Object?> _decodeSources(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is List ? decoded : const [];
+    } catch (_) {
+      return const [];
+    }
   }
 
   static Future<void> _writeOptionalString(
