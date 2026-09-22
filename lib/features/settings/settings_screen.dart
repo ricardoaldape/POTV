@@ -153,7 +153,7 @@ class SettingsScreen extends ConsumerWidget {
                       data: (status) => Padding(
                         padding: const EdgeInsets.only(top: 4, left: 30),
                         child: Text(
-                          'Integradas ${status.builtInResolvers} · build ${status.buildResolvers} · locales ${status.localHttpSources} · addons ${status.addons}. Disponibilidad varía por título.',
+                          'Integradas ${status.builtInResolvers} · build ${status.buildResolvers} · locales ${status.localHttpSources} · addons ${status.addons} · plugins ${status.nuvioPlugins}. Disponibilidad varía por título.',
                           style: const TextStyle(
                             color: Colors.white54,
                             fontSize: 11,
