@@ -13,15 +13,21 @@ final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
 class SourceAggregator {
   final List<ProviderResolver> providers;
   final Duration providerTimeout;
+  final Duration resolutionTimeout;
+  final Duration firstCandidateGrace;
   final Duration cacheTtl;
+  final Duration negativeCacheTtl;
 
   final Map<String, _CachedResolution> _cache = {};
   final Map<String, Future<ProviderResolutionResult>> _inFlight = {};
 
   SourceAggregator(
     this.providers, {
-    this.providerTimeout = const Duration(seconds: 18),
+    this.providerTimeout = const Duration(seconds: 12),
+    this.resolutionTimeout = const Duration(seconds: 9),
+    this.firstCandidateGrace = const Duration(milliseconds: 900),
     this.cacheTtl = const Duration(minutes: 5),
+    this.negativeCacheTtl = const Duration(seconds: 30),
   });
 
   Future<ProviderResolutionResult> resolve(
@@ -29,9 +35,12 @@ class SourceAggregator {
   ) {
     final key = _cacheKey(request);
     final cached = _cache[key];
-    if (cached != null &&
-        DateTime.now().difference(cached.createdAt) <= cacheTtl) {
-      return Future.value(cached.result);
+    if (cached != null) {
+      final ttl = cached.result.candidates.isEmpty ? negativeCacheTtl : cacheTtl;
+      if (DateTime.now().difference(cached.createdAt) <= ttl) {
+        return Future.value(cached.result);
+      }
+      _cache.remove(key);
     }
 
     final running = _inFlight[key];
@@ -56,34 +65,78 @@ class SourceAggregator {
 
   Future<ProviderResolutionResult> _resolveFresh(
     ProviderResolveRequest request,
-  ) async {
+  ) {
     final eligible = providers
         .where((provider) => provider.supports(request))
         .toList(growable: false);
 
-    final batches = await Future.wait([
-      for (final provider in eligible) _resolveProvider(provider, request),
-    ]);
+    if (eligible.isEmpty) {
+      return Future.value(
+        const ProviderResolutionResult(
+          candidates: [],
+          providersEligible: 0,
+          providersCompleted: 0,
+          providersFailed: 0,
+        ),
+      );
+    }
 
+    final completer = Completer<ProviderResolutionResult>();
     final candidates = <StreamCandidate>[];
     var completed = 0;
     var failed = 0;
+    var remaining = eligible.length;
+    Timer? graceTimer;
+    late final Timer globalTimer;
 
-    for (final batch in batches) {
-      if (batch.failed) {
-        failed++;
-        continue;
-      }
-      completed++;
-      candidates.addAll(batch.candidates);
+    ProviderResolutionResult snapshot() {
+      return ProviderResolutionResult(
+        candidates: List<StreamCandidate>.unmodifiable(candidates),
+        providersEligible: eligible.length,
+        providersCompleted: completed,
+        providersFailed: failed,
+      );
     }
 
-    return ProviderResolutionResult(
-      candidates: candidates,
-      providersEligible: eligible.length,
-      providersCompleted: completed,
-      providersFailed: failed,
-    );
+    void finish() {
+      if (completer.isCompleted) return;
+      graceTimer?.cancel();
+      globalTimer.cancel();
+      completer.complete(snapshot());
+    }
+
+    globalTimer = Timer(resolutionTimeout, finish);
+
+    for (final provider in eligible) {
+      unawaited(
+        _resolveProvider(provider, request).then((batch) {
+          if (completer.isCompleted) return;
+
+          remaining--;
+          if (batch.failed) {
+            failed++;
+          } else {
+            completed++;
+            if (batch.candidates.isNotEmpty) {
+              final firstCandidate = candidates.isEmpty;
+              candidates.addAll(batch.candidates);
+              if (firstCandidate && firstCandidateGrace > Duration.zero) {
+                graceTimer = Timer(firstCandidateGrace, finish);
+              }
+            }
+          }
+
+          if (remaining == 0) {
+            finish();
+          } else if (candidates.isNotEmpty &&
+              firstCandidateGrace <= Duration.zero) {
+            finish();
+          }
+        }),
+      );
+    }
+
+    return completer.future;
   }
 
   Future<_ProviderBatch> _resolveProvider(

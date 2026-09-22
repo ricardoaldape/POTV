@@ -283,4 +283,57 @@ void main() {
     expect(result.candidates.single.id, 'sync-stream');
   });
 
+
+  test('returns shortly after first candidate instead of waiting for slow resolver',
+      () async {
+    final aggregator = SourceAggregator(
+      [
+        _FakeProvider(
+          id: 'fast-playable',
+          displayName: 'Fast Playable',
+          priority: 10,
+          supportedMediaTypes: const {'movie'},
+          handler: (_) async => [
+            StreamCandidate(
+              id: 'fast-playable-stream',
+              label: 'Fast Playable',
+              uri: Uri.parse('https://example.com/fast.m3u8'),
+            ),
+          ],
+        ),
+        _FakeProvider(
+          id: 'very-slow',
+          displayName: 'Very Slow',
+          priority: 20,
+          supportedMediaTypes: const {'movie'},
+          handler: (_) async {
+            await Future<void>.delayed(const Duration(milliseconds: 400));
+            return [
+              StreamCandidate(
+                id: 'late-stream',
+                label: 'Late',
+                uri: Uri.parse('https://example.com/late.m3u8'),
+              ),
+            ];
+          },
+        ),
+      ],
+      providerTimeout: const Duration(seconds: 2),
+      resolutionTimeout: const Duration(seconds: 2),
+      firstCandidateGrace: const Duration(milliseconds: 25),
+    );
+
+    final stopwatch = Stopwatch()..start();
+    final result = await aggregator.resolve(
+      const ProviderResolveRequest(
+        mediaType: 'movie',
+        mediaId: 'fast-start',
+      ),
+    );
+    stopwatch.stop();
+
+    expect(result.candidates.single.id, 'fast-playable-stream');
+    expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 250)));
+  });
+
 }
