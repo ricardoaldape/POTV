@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+- Provider Registry unificado para películas, series y anime.
+- Source Aggregator paralelo con aislamiento de errores y timeouts por resolver.
+- Arranque rápido: POTV deja de esperar resolvers lentos después de encontrar candidatos reproducibles.
+- Caché local de resolución y deduplicación de consultas simultáneas.
+- Resolvers preconfigurables por build con `POTV_RESOLVER_ENDPOINTS_JSON`.
+- Contrato compatible con respuestas `streams`, `results` y `servidores`.
+- Clasificación automática de candidatos directos vs WebView.
+- Reproducción VOD restringida a backends dentro de POTV; enlaces externos ya no se abren automáticamente.
+- Precarga de resolución desde la pantalla de detalle.
+- Eliminado definitivamente el fallback de anime que abría proveedores externos.
+
 ## 0.1.0-alpha.2
 
 - Redesigned first-run source setup.
