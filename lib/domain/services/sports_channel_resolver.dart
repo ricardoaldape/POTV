@@ -25,7 +25,7 @@ class SportsChannelResolver {
     final windowStart = event.startsAt.subtract(const Duration(hours: 2));
     final windowEnd = event.startsAt.add(const Duration(hours: 4));
     final eventTokens = _tokens(
-      event.home + ' ' + event.away + ' ' + event.competition,
+      '${event.home} ${event.away} ${event.competition}',
     );
 
     final matches = <SportsChannelMatch>[];

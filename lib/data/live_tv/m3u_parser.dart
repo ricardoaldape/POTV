@@ -55,7 +55,7 @@ class M3uParser {
 
       result.add(
         LiveChannel(
-          id: index.toString() + '-' + parsed.uri.toString(),
+          id: '$index-${parsed.uri}',
           name: name,
           group: attrs['group-title'],
           epgId: attrs['tvg-id'],

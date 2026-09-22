@@ -1,5 +1,7 @@
 import 'package:go_router/go_router.dart';
 
+import '../domain/models/media_item.dart';
+import '../features/content/media_detail_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/live_tv/live_tv_screen.dart';
@@ -22,6 +24,16 @@ final potvRouter = GoRouter(
         GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
         GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
       ],
+    ),
+    GoRoute(
+      path: '/detail',
+      builder: (context, state) {
+        final item = state.extra;
+        if (item is! MediaItem) {
+          throw StateError('Media item missing');
+        }
+        return MediaDetailScreen(item: item);
+      },
     ),
     GoRoute(
       path: '/player',

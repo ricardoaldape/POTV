@@ -81,7 +81,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           Text(
-            'Deportes · ' + DateFormat('EEE d MMM').format(selectedDay),
+            'Deportes · ${DateFormat('EEE d MMM').format(selectedDay)}',
             style: const TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w800,
@@ -162,8 +162,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Text(
-                  'No pudimos cargar los eventos deportivos.\n' +
-                      eventsState.error.toString(),
+                  'No pudimos cargar los eventos deportivos.\n${eventsState.error}',
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -239,7 +238,7 @@ class _SportsEventCard extends StatelessWidget {
               ),
             if (best != null)
               Text(
-                best.program?.title ?? 'Disponible en ' + best.channel.name,
+                best.program?.title ?? 'Disponible en ${best.channel.name}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white70),

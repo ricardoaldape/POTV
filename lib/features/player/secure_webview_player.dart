@@ -91,7 +91,7 @@ html,body,iframe{margin:0;padding:0;width:100%;height:100%;background:#000;borde
 </style>
 </head>
 <body>
-<iframe src="''' + escaped + '''"
+<iframe src="$escaped"
   sandbox="allow-scripts allow-same-origin allow-presentation"
   allow="autoplay; fullscreen; picture-in-picture"
   allowfullscreen></iframe>

@@ -184,7 +184,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       : Icons.circle_outlined,
                 ),
                 title: Text(
-                  track.title ?? track.language ?? 'Pista ' + track.id,
+                  track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
                   p.setAudioTrack(track);
@@ -221,7 +221,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 title: Text(
                   track.id == 'no'
                       ? 'Desactivados'
-                      : track.title ?? track.language ?? 'Pista ' + track.id,
+                      : track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
                   p.setSubtitleTrack(track);
@@ -258,8 +258,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 title: Text(
                   track.title ??
                       (track.h == null
-                          ? 'Pista ' + track.id
-                          : track.h.toString() + 'p'),
+                          ? 'Pista ${track.id}'
+                          : '${track.h}p'),
                 ),
                 onTap: () {
                   p.setVideoTrack(track);

@@ -36,7 +36,7 @@ class SportsRepository {
 
     final uri = Uri.https(
       'www.thesportsdb.com',
-      '/api/v1/json/' + _apiKey + '/eventsday.php',
+      '/api/v1/json/$_apiKey/eventsday.php',
       query,
     );
 
@@ -83,7 +83,7 @@ class SportsRepository {
 
     final date = _text(raw['dateEvent']);
     final time = _text(raw['strTime']) ?? '00:00:00';
-    final parsed = date == null ? null : DateTime.tryParse(date + 'T' + time);
+    final parsed = date == null ? null : DateTime.tryParse('${date}T$time');
     return parsed?.toLocal() ?? DateTime.now();
   }
 
