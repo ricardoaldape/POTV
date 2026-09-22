@@ -49,8 +49,39 @@ jobs:
       - name: Test
         run: flutter test
 
+      - name: Validate resolver build config
+        env:
+          POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          raw = os.environ.get('POTV_RESOLVER_ENDPOINTS_JSON', '').strip()
+          if not raw:
+              print('POTV resolver endpoints: 0 (runtime/local providers only)')
+          else:
+              data = json.loads(raw)
+              if not isinstance(data, list):
+                  raise SystemExit('POTV_RESOLVER_ENDPOINTS_JSON must be a JSON list')
+              print(f'POTV resolver endpoints configured: {len(data)}')
+          PY
+
       - name: Build V6 APK
-        run: flutter build apk --release
+        env:
+          POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
+          POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          args=()
+          if [ -n "$POTV_RESOLVER_ENDPOINTS_JSON" ]; then
+            args+=("--dart-define=POTV_RESOLVER_ENDPOINTS_JSON=$POTV_RESOLVER_ENDPOINTS_JSON")
+          fi
+          if [ -n "$POTV_CONTROL_URL" ]; then
+            args+=("--dart-define=POTV_CONTROL_URL=$POTV_CONTROL_URL")
+          fi
+          if [ -n "$TMDB_API_KEY" ]; then
+            args+=("--dart-define=TMDB_API_KEY=$TMDB_API_KEY")
+          fi
+          flutter build apk --release "${args[@]}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
