@@ -174,4 +174,48 @@ void main() {
     expect(streams.first.language, 'es_MX');
   });
 
+
+  test('non media resolver URL defaults to in-app webView', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response<Object?>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'streams': [
+                  {
+                    'name': 'Embed',
+                    'url': 'https://embed.example/player/123',
+                  },
+                ],
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final provider = ConfiguredResolverProvider(
+      ResolverEndpointConfig.fromJson({
+        'id': 'embed-demo',
+        'name': 'Embed Demo',
+        'endpoint': 'https://resolver.example/resolve',
+        'media_types': ['movie'],
+      }),
+      dio: dio,
+    );
+
+    final streams = await provider.resolve(
+      const ProviderResolveRequest(
+        mediaType: 'movie',
+        mediaId: '1',
+      ),
+    );
+
+    expect(streams.single.backend.name, 'webView');
+  });
+
 }

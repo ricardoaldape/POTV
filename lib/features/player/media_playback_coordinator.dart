@@ -6,6 +6,7 @@ import '../../data/sources/stream_candidate_probe.dart';
 import '../../data/sources/unified_source_resolver.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
+import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/stream_candidate_ranker.dart';
 
 class MediaPlaybackCoordinator {
@@ -82,7 +83,10 @@ class MediaPlaybackCoordinator {
             episode: episode,
           );
 
-      final ranked = _ranker.rank(candidates);
+      final inAppCandidates = candidates
+          .where((candidate) => candidate.backend != PlaybackBackend.external)
+          .toList(growable: false);
+      final ranked = _ranker.rank(inAppCandidates);
       final playable = ranked.isEmpty
           ? ranked
           : await ref.read(streamCandidateProbeProvider).preferReachable(ranked);

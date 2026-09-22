@@ -99,7 +99,7 @@ class ConfiguredResolverProvider extends ProviderResolver {
           uri: uri,
           language: _text(item['language']) ?? _text(item['idioma']),
           quality: _text(item['quality']) ?? _text(item['calidad']),
-          backend: _backend(item['backend']),
+          backend: _backend(item, uri),
           headers: _headers(item['headers']),
           allowedHosts:
               _stringSet(item['allowed_hosts'] ?? item['allowedHosts']),
@@ -118,16 +118,34 @@ class ConfiguredResolverProvider extends ProviderResolver {
         'Servidor ${index + 1}';
   }
 
-  PlaybackBackend _backend(Object? value) {
-    switch (value?.toString().trim().toLowerCase()) {
+  PlaybackBackend _backend(Map<String, dynamic> item, Uri uri) {
+    final explicit = item['backend']?.toString().trim().toLowerCase();
+    switch (explicit) {
+      case 'native':
+        return PlaybackBackend.native;
       case 'webview':
       case 'web':
         return PlaybackBackend.webView;
       case 'external':
         return PlaybackBackend.external;
-      default:
-        return PlaybackBackend.native;
     }
+
+    if (_text(item['resolved_m3u8']) != null ||
+        _text(item['stream_url']) != null ||
+        _looksLikeDirectMedia(uri)) {
+      return PlaybackBackend.native;
+    }
+
+    return PlaybackBackend.webView;
+  }
+
+  bool _looksLikeDirectMedia(Uri uri) {
+    final value = uri.toString().toLowerCase();
+    return value.contains('.m3u8') ||
+        value.contains('.mp4') ||
+        value.contains('.m4v') ||
+        value.contains('.webm') ||
+        value.contains('manifest');
   }
   Map<String, String> _headers(Object? value) {
     if (value is! Map) return const {};

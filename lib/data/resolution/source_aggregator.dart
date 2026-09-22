@@ -91,9 +91,12 @@ class SourceAggregator {
     ProviderResolveRequest request,
   ) async {
     try {
-      final candidates = await provider
-          .resolve(request)
-          .timeout(providerTimeout, onTimeout: () => const []);
+      final candidates = await Future<List<StreamCandidate>>.sync(
+        () => provider.resolve(request),
+      ).timeout(
+        providerTimeout,
+        onTimeout: () => const <StreamCandidate>[],
+      );
       return _ProviderBatch(candidates: candidates);
     } catch (_) {
       return const _ProviderBatch(
