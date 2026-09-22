@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/sources/stream_candidate_probe.dart';
 import '../../data/sources/unified_source_resolver.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
@@ -81,12 +82,15 @@ class MediaPlaybackCoordinator {
           );
 
       final ranked = _ranker.rank(candidates);
+      final playable = ranked.isEmpty
+          ? ranked
+          : await ref.read(streamCandidateProbeProvider).preferReachable(ranked);
 
       if (!context.mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       await loading;
 
-      if (ranked.isEmpty) {
+      if (playable.isEmpty) {
         if (!context.mounted) return;
         await _showNoSource(context, item);
         return;
@@ -103,7 +107,7 @@ class MediaPlaybackCoordinator {
         '/player',
         extra: PlaybackSession(
           title: title,
-          candidates: ranked,
+          candidates: playable,
           playbackContext: PlaybackContext(
             mediaId: item.id,
             mediaType: item.mediaTypeName,

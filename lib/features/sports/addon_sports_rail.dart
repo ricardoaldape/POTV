@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/sources/stream_candidate_probe.dart';
 import '../../data/sports/addon_sports_repository.dart';
 import '../../domain/models/addon_sports_item.dart';
 import '../../domain/models/playback_session.dart';
@@ -41,11 +42,14 @@ class AddonSportsRail extends ConsumerWidget {
     final streams =
         await ref.read(addonSportsRepositoryProvider).streamsFor(item);
     final ranked = const StreamCandidateRanker().rank(streams);
+    final playable = ranked.isEmpty
+        ? ranked
+        : await ref.read(streamCandidateProbeProvider).preferReachable(ranked);
 
     if (!context.mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
 
-    if (ranked.isEmpty) {
+    if (playable.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -60,7 +64,7 @@ class AddonSportsRail extends ConsumerWidget {
       '/player',
       extra: PlaybackSession(
         title: item.name,
-        candidates: ranked,
+        candidates: playable,
       ),
     );
   }
