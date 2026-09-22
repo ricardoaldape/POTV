@@ -114,7 +114,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'POTV obtiene únicamente el calendario deportivo. La reproducción se resuelve con las fuentes configuradas localmente en tu dispositivo.',
+            'POTV combina el calendario deportivo con canales públicos disponibles y con tus propias fuentes locales. Nada de esto se proxifica por nuestros servidores.',
             style: TextStyle(color: Colors.white60),
           ),
           const SizedBox(height: 16),

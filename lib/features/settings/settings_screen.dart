@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
+import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sources/http_source_repository.dart';
 import '../../domain/models/playback_session.dart';
@@ -78,6 +79,10 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final tvState = ref.watch(liveChannelsProvider);
+    final sportsState = ref.watch(builtInSportsChannelsProvider);
+    final vodSourcesState = ref.watch(httpSourcesProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
       body: ListView(
@@ -87,6 +92,45 @@ class SettingsScreen extends ConsumerWidget {
             title: Text('Privacidad local-first'),
             subtitle: Text(
               'Fuentes, historial y credenciales permanecen en el dispositivo.',
+            ),
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Estado de contenido',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _StatusRow(
+                      icon: Icons.live_tv_rounded,
+                      label: 'Canales TV',
+                      value: _countLabel(tvState),
+                    ),
+                    const SizedBox(height: 8),
+                    _StatusRow(
+                      icon: Icons.sports_soccer_rounded,
+                      label: 'Canales deportivos',
+                      value: _countLabel(sportsState),
+                    ),
+                    const SizedBox(height: 8),
+                    _StatusRow(
+                      icon: Icons.hub_outlined,
+                      label: 'Fuentes VOD locales',
+                      value: _countLabel(vodSourcesState),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           const Divider(),
@@ -163,6 +207,44 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+String _countLabel<T>(AsyncValue<List<T>> state) {
+  return state.when(
+    data: (items) => items.length.toString(),
+    loading: () => '…',
+    error: (error, stack) => 'Error',
+  );
+}
+
+class _StatusRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _StatusRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Colors.white70),
+        const SizedBox(width: 10),
+        Expanded(child: Text(label)),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
     );
   }
 }

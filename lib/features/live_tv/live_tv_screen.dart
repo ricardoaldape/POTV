@@ -402,7 +402,7 @@ class _EmptyTv extends StatelessWidget {
               const Icon(Icons.live_tv_rounded, size: 72),
               const SizedBox(height: 20),
               const Text(
-                'Añade tu televisión',
+                'Sin canales disponibles',
                 style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
@@ -410,7 +410,7 @@ class _EmptyTv extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               const Text(
-                'POTV guarda la configuración en este dispositivo y consulta la fuente directamente. La lista no se envía a nuestros servidores.',
+                'No pudimos cargar los canales públicos en este momento. También puedes añadir tu propia lista M3U; se guarda y consulta directamente desde este dispositivo.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70),
               ),

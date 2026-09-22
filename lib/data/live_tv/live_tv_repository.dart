@@ -158,15 +158,14 @@ final epgProgramsProvider =
 
 class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
   static const _sourceKey = 'live_tv_xmltv_url';
-  static const _defaultMexicoEpg =
-      'https://dearbulut.github.io/iptv/epg/mx.xml';
   final Dio _dio = Dio();
 
   @override
   Future<List<EpgProgram>> build() async {
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString(_sourceKey);
-    return _load(url == null || url.isEmpty ? _defaultMexicoEpg : url);
+    if (url == null || url.trim().isEmpty) return const [];
+    return _load(url);
   }
 
   Future<void> setSource(String url) async {
@@ -179,10 +178,12 @@ class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
   Future<void> refresh() async {
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString(_sourceKey);
+    if (url == null || url.trim().isEmpty) {
+      state = const AsyncData([]);
+      return;
+    }
     state = const AsyncLoading();
-    state = await AsyncValue.guard(
-      () => _load(url == null || url.isEmpty ? _defaultMexicoEpg : url),
-    );
+    state = await AsyncValue.guard(() => _load(url));
   }
 
   Future<List<EpgProgram>> _load(String url) async {

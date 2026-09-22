@@ -44,29 +44,27 @@ class BuiltInLiveSourceRegistry {
   BuiltInLiveSourceRegistry(this._dio);
 
   Future<List<LiveChannel>> mexico() {
-    return _loadWithFallback(
-      primary: _dearbulutMexico,
-      fallback: _iptvOrgMexico,
-    );
+    return _loadMerged([
+      _dearbulutMexico,
+      _iptvOrgMexico,
+    ]);
   }
 
   Future<List<LiveChannel>> sports() {
-    return _loadWithFallback(
-      primary: _dearbulutSports,
-      fallback: _iptvOrgSports,
-    );
+    return _loadMerged([
+      _dearbulutSports,
+      _iptvOrgSports,
+    ]);
   }
 
-  Future<List<LiveChannel>> _loadWithFallback({
-    required String primary,
-    required String fallback,
-  }) async {
-    final primaryChannels = await _tryLoad(primary);
-    if (primaryChannels.isNotEmpty) {
-      return _dedupe(primaryChannels);
-    }
+  Future<List<LiveChannel>> _loadMerged(List<String> urls) async {
+    final results = await Future.wait([
+      for (final url in urls) _tryLoad(url),
+    ]);
 
-    return _dedupe(await _tryLoad(fallback));
+    return _dedupe([
+      for (final channels in results) ...channels,
+    ]);
   }
 
   Future<List<LiveChannel>> _tryLoad(String url) async {
@@ -77,10 +75,39 @@ class BuiltInLiveSourceRegistry {
       );
       final raw = response.data ?? '';
       if (raw.trim().isEmpty) return const [];
-      return M3uParser.parse(raw);
+
+      return M3uParser.parse(raw)
+          .where((channel) => _isSafePublicStream(channel.stream.uri))
+          .toList(growable: false);
     } on DioException {
       return const [];
     }
+  }
+
+  bool _isSafePublicStream(Uri uri) {
+    if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+
+    final host = uri.host.toLowerCase();
+    if (host.isEmpty ||
+        host == 'localhost' ||
+        host == '0.0.0.0' ||
+        host == '::1') {
+      return false;
+    }
+
+    final ipv4 = host.split('.');
+    if (ipv4.length == 4 && ipv4.every((part) => int.tryParse(part) != null)) {
+      final octets = ipv4.map(int.parse).toList(growable: false);
+      if (octets[0] == 10 ||
+          octets[0] == 127 ||
+          (octets[0] == 169 && octets[1] == 254) ||
+          (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+          (octets[0] == 192 && octets[1] == 168)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   List<LiveChannel> _dedupe(List<LiveChannel> channels) {
@@ -88,15 +115,14 @@ class BuiltInLiveSourceRegistry {
     final result = <LiveChannel>[];
 
     for (final channel in channels) {
-      final key = [
-        channel.epgId?.trim().toLowerCase() ?? '',
-        channel.name.trim().toLowerCase(),
-        channel.stream.uri.toString(),
-      ].join('|');
+      final epg = channel.epgId?.trim().toLowerCase() ?? '';
+      final name = channel.name.trim().toLowerCase();
+      final key = epg.isNotEmpty ? 'epg:$epg' : 'name:$name';
 
       if (seen.add(key)) result.add(channel);
     }
 
+    result.sort((a, b) => a.name.compareTo(b.name));
     return result;
   }
 }
