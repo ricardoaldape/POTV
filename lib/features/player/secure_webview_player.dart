@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -40,6 +42,10 @@ class _SecureWebViewPlayerState extends State<SecureWebViewPlayer> {
             final uri = Uri.tryParse(request.url);
             if (uri == null) return NavigationDecision.prevent;
 
+            if (uri.scheme == 'about' || uri.scheme == 'data') {
+              return NavigationDecision.navigate;
+            }
+
             if (uri.scheme != 'http' && uri.scheme != 'https') {
               return NavigationDecision.prevent;
             }
@@ -52,10 +58,6 @@ class _SecureWebViewPlayerState extends State<SecureWebViewPlayer> {
           },
           onPageFinished: (_) => _hardenPage(),
         ),
-      )
-      ..loadRequest(
-        widget.stream.uri,
-        headers: widget.stream.headers,
       );
 
     final platform = controller.platform;
@@ -66,6 +68,35 @@ class _SecureWebViewPlayerState extends State<SecureWebViewPlayer> {
       platform.setAllowContentAccess(false);
       platform.setOnShowFileSelector((params) async => const <String>[]);
     }
+
+    if (!widget.stream.directWebView && widget.stream.headers.isEmpty) {
+      controller.loadHtmlString(_sandboxHtml(widget.stream.uri));
+    } else {
+      controller.loadRequest(
+        widget.stream.uri,
+        headers: widget.stream.headers,
+      );
+    }
+  }
+
+  String _sandboxHtml(Uri uri) {
+    final escaped = const HtmlEscape(HtmlEscapeMode.attribute)
+        .convert(uri.toString());
+    return '''<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+html,body,iframe{margin:0;padding:0;width:100%;height:100%;background:#000;border:0;overflow:hidden}
+</style>
+</head>
+<body>
+<iframe src="''' + escaped + '''"
+  sandbox="allow-scripts allow-same-origin allow-presentation"
+  allow="autoplay; fullscreen; picture-in-picture"
+  allowfullscreen></iframe>
+</body>
+</html>''';
   }
 
   Future<void> _hardenPage() async {

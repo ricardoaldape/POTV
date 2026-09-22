@@ -9,6 +9,7 @@ class StreamCandidate {
   final PlaybackBackend backend;
   final Map<String, String> headers;
   final Set<String> allowedHosts;
+  final bool directWebView;
 
   const StreamCandidate({
     required this.id,
@@ -19,5 +20,6 @@ class StreamCandidate {
     this.backend = PlaybackBackend.native,
     this.headers = const {},
     this.allowedHosts = const {},
+    this.directWebView = false,
   });
 }
