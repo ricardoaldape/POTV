@@ -138,10 +138,49 @@ class TmdbRepository {
       _cinemetaRequest('/catalog/series/top/search=$encoded.json'),
     ]);
 
+    final enriched = await Future.wait([
+      _enrichCinemetaSearch(results[0], MediaType.movie),
+      _enrichCinemetaSearch(results[1], MediaType.tv),
+    ]);
+
     return [
-      ..._mapCinemetaList(results[0], MediaType.movie),
-      ..._mapCinemetaList(results[1], MediaType.tv),
+      ...enriched[0],
+      ...enriched[1],
     ];
+  }
+
+  Future<List<MediaItem>> _enrichCinemetaSearch(
+    Object? raw,
+    MediaType type,
+  ) async {
+    if (raw is! List) return const [];
+
+    final resource = type == MediaType.movie ? 'movie' : 'series';
+    final futures = <Future<MediaItem?>>[];
+
+    for (final value in raw.take(8)) {
+      if (value is! Map<String, dynamic>) continue;
+      final imdbId = _text(value['imdb_id']) ?? _text(value['id']);
+      if (imdbId == null || !imdbId.startsWith('tt')) continue;
+
+      futures.add(() async {
+        try {
+          final response = await _dio.get<Map<String, dynamic>>(
+            '$_cinemetaBase/meta/$resource/$imdbId.json',
+            options: _cinemetaOptions(),
+          );
+          final meta = response.data?['meta'];
+          if (meta is! Map<String, dynamic>) return null;
+          final mapped = _mapCinemetaList([meta], type);
+          return mapped.isEmpty ? null : mapped.first;
+        } on DioException {
+          return null;
+        }
+      }());
+    }
+
+    final items = await Future.wait(futures);
+    return items.whereType<MediaItem>().toList(growable: false);
   }
 
   Future<List<MediaItem>> _cinemetaCatalog(
@@ -165,13 +204,7 @@ class TmdbRepository {
   Future<Object?> _cinemetaRequest(String path) async {
     final response = await _dio.get<Object?>(
       '$_cinemetaBase$path',
-      options: Options(
-        responseType: ResponseType.json,
-        headers: const {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 POTV/0.1',
-        },
-      ),
+      options: _cinemetaOptions(),
     );
 
     if (response.data is Map<String, dynamic>) {
@@ -179,6 +212,14 @@ class TmdbRepository {
     }
     return null;
   }
+
+  Options _cinemetaOptions() => Options(
+        responseType: ResponseType.json,
+        headers: const {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 POTV/0.1',
+        },
+      );
 
   List<MediaItem> _mapCinemetaList(
     Object? raw,

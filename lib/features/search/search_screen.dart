@@ -97,7 +97,7 @@ class _SearchHint extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.all(24),
         child: Text(
-          'Busca películas y series. POTV usa TMDB únicamente para metadatos.',
+          'Busca películas y series. POTV usa catálogos externos únicamente para metadatos.',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.white60),
         ),

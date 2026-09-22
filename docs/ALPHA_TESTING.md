@@ -4,7 +4,7 @@ This build is for private functional testing on Android phones and Android TV.
 
 ## What should work without configuration
 
-- Home catalog for Movies and Series through the metadata fallback.
+- Home catalog for Movies and Series through the no-key metadata fallback; a TMDB key is optional for this alpha.
 - Anime catalog through AniList.
 - POTV navigation on touch and TV layouts.
 - Search for Movies and Series.
