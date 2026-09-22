@@ -20,7 +20,8 @@ class SportsHubScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final events = ref.watch(sportsEventsProvider);
+    final eventsState = ref.watch(sportsEventsProvider);
+    final events = eventsState.asData?.value ?? const <SportsEvent>[];
     final channels = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
@@ -41,13 +42,29 @@ class SportsHubScreen extends ConsumerWidget {
             style: TextStyle(color: Colors.white60),
           ),
           const SizedBox(height: 22),
+          if (eventsState.isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          if (eventsState.hasError)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'No pudimos cargar los eventos deportivos.\n' +
+                      eventsState.error.toString(),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
           for (final event in events)
             _SportsEventCard(
               event: event,
               channels: channels,
               programs: programs,
             ),
-          if (events.isEmpty)
+          if (!eventsState.isLoading && !eventsState.hasError && events.isEmpty)
             const Card(
               child: Padding(
                 padding: EdgeInsets.all(20),
