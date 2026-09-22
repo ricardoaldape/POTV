@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/local/resolver_pack_bundle.dart';
 import '../../data/addons/stremio_addon_client.dart';
 import '../../data/addons/stremio_addon_repository.dart';
+import '../../data/resolution/resolver_status.dart';
 import '../../data/sources/http_source_repository.dart';
 import '../../domain/models/http_source_config.dart';
 import '../../domain/models/stremio_addon_config.dart';
@@ -88,6 +91,7 @@ class SourcesScreen extends ConsumerWidget {
           endpoint: uri,
         );
     ref.invalidate(httpSourcesProvider);
+    ref.invalidate(resolverStatusProvider);
   }
 
   Future<void> _addStremioAddon(
@@ -162,6 +166,7 @@ class SourcesScreen extends ConsumerWidget {
             manifestUri: manifest.manifestUri,
           );
       ref.invalidate(stremioAddonsProvider);
+      ref.invalidate(resolverStatusProvider);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -190,6 +195,7 @@ class SourcesScreen extends ConsumerWidget {
           source.copyWith(enabled: enabled),
         );
     ref.invalidate(httpSourcesProvider);
+    ref.invalidate(resolverStatusProvider);
   }
 
   Future<void> _removeHttp(
@@ -198,6 +204,7 @@ class SourcesScreen extends ConsumerWidget {
   ) async {
     await ref.read(httpSourceRepositoryProvider).remove(id);
     ref.invalidate(httpSourcesProvider);
+    ref.invalidate(resolverStatusProvider);
   }
 
   Future<void> _toggleAddon(
@@ -209,6 +216,7 @@ class SourcesScreen extends ConsumerWidget {
           addon.copyWith(enabled: enabled),
         );
     ref.invalidate(stremioAddonsProvider);
+    ref.invalidate(resolverStatusProvider);
   }
 
   Future<void> _removeAddon(
@@ -217,6 +225,57 @@ class SourcesScreen extends ConsumerWidget {
   ) async {
     await ref.read(stremioAddonRepositoryProvider).remove(id);
     ref.invalidate(stremioAddonsProvider);
+    ref.invalidate(resolverStatusProvider);
+  }
+
+  Future<void> _exportResolverPack(
+    BuildContext context,
+  ) async {
+    final raw = await ResolverPackBundle.exportJson();
+    await Clipboard.setData(ClipboardData(text: raw));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Resolver Pack copiado al portapapeles.'),
+      ),
+    );
+  }
+
+  Future<void> _importResolverPack(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final raw = data?.text?.trim();
+    if (raw == null || raw.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El portapapeles está vacío.')),
+      );
+      return;
+    }
+
+    try {
+      final result = await ResolverPackBundle.importJson(raw);
+      ref.invalidate(httpSourcesProvider);
+    ref.invalidate(resolverStatusProvider);
+      ref.invalidate(stremioAddonsProvider);
+      ref.invalidate(resolverStatusProvider);
+      ref.invalidate(resolverStatusProvider);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Resolver Pack importado: ${result.httpSourcesAdded} fuentes y ${result.addonsAdded} addons nuevos.',
+          ),
+        ),
+      );
+    } on FormatException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    }
   }
 
   @override
@@ -261,6 +320,46 @@ class SourcesScreen extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
         children: [
           const _InfoCard(),
+          const SizedBox(height: 14),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Resolver Pack',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Importa o comparte un paquete de endpoints POTV y addons compatibles sin recompilar la app.',
+                    style: TextStyle(color: Colors.white60, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => _importResolverPack(context, ref),
+                        icon: const Icon(Icons.content_paste_rounded),
+                        label: const Text('Importar pack'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _exportResolverPack(context),
+                        icon: const Icon(Icons.copy_all_rounded),
+                        label: const Text('Copiar pack'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 22),
           _SectionHeader(
             icon: Icons.extension_rounded,

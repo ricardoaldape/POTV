@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1
+
+- Añade Resolver Packs locales para importar/exportar endpoints POTV y addons compatibles sin recompilar.
+- Ajustes muestra rutas de resolución VOD reales con desglose de integradas, build, locales y addons.
+- El contador de fuentes locales deja de ser el único indicador del motor de resolución.
+- La importación de Resolver Packs deduplica endpoints y manifests equivalentes.
+
 ## 0.6.0
 
 - Provider Registry unificado para películas, series y anime.

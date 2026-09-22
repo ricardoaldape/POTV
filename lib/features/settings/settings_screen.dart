@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
+import '../../data/resolution/resolver_status.dart';
 import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
@@ -85,6 +86,7 @@ class SettingsScreen extends ConsumerWidget {
     final sportsState = ref.watch(builtInSportsChannelsProvider);
     final vodSourcesState = ref.watch(httpSourcesProvider);
     final addonState = ref.watch(stremioAddonsProvider);
+    final resolverStatus = ref.watch(resolverStatusProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
@@ -136,6 +138,30 @@ class SettingsScreen extends ConsumerWidget {
                       icon: Icons.extension_rounded,
                       label: 'Addons Stremio / Nuvio',
                       value: _countLabel(addonState),
+                    ),
+                    const SizedBox(height: 8),
+                    _StatusRow(
+                      icon: Icons.account_tree_outlined,
+                      label: 'Rutas de resolución VOD',
+                      value: resolverStatus.when(
+                        data: (status) => status.totalRoutes.toString(),
+                        loading: () => '…',
+                        error: (error, stack) => 'Error',
+                      ),
+                    ),
+                    resolverStatus.when(
+                      data: (status) => Padding(
+                        padding: const EdgeInsets.only(top: 4, left: 30),
+                        child: Text(
+                          'Integradas ${status.builtInResolvers} · build ${status.buildResolvers} · locales ${status.localHttpSources} · addons ${status.addons}. Disponibilidad varía por título.',
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      loading: () => const SizedBox.shrink(),
+                      error: (error, stack) => const SizedBox.shrink(),
                     ),
                   ],
                 ),
