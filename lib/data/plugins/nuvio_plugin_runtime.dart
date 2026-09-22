@@ -80,7 +80,7 @@ class NuvioPluginRuntime {
     var index = 0;
     for (final value in decoded) {
       if (value is! Map) continue;
-      final map = Map<String, dynamic>.from(value as Map);
+      final map = Map<String, dynamic>.from(value);
       final rawUrl = map['url'];
       String? url;
       if (rawUrl is String) {
@@ -131,7 +131,7 @@ var __POTV_CALL = ${jsonEncode(callJson)};
 if (typeof atob === 'undefined') {
   globalThis.atob = function(input) {
     var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-    var str = String(input).replace(/=+$/, '');
+    var str = String(input).replace(/=+\$/, '');
     var output = '', bc = 0, bs, buffer, idx = 0;
     if (str.length % 4 === 1) throw new Error('Invalid base64');
     while ((buffer = str.charAt(idx++))) {

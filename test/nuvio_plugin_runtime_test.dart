@@ -5,7 +5,7 @@ import 'package:potv/data/plugins/nuvio_plugin_runtime.dart';
 import 'package:potv/domain/models/nuvio_plugin_config.dart';
 
 void main() {
-  const plugin = NuvioPluginConfig(
+  final plugin = NuvioPluginConfig(
     id: 'demo',
     repositoryName: 'Demo Repo',
     repositoryUri: Uri(scheme: 'https', host: 'example.test', path: '/manifest.json'),
