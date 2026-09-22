@@ -211,6 +211,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             _SportsEventCard(
               event: event,
               channels: channels,
+              fallbackChannels: sportsChannels,
               programs: programs,
             ),
           if (!eventsState.isLoading &&
@@ -234,13 +235,75 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
 class _SportsEventCard extends StatelessWidget {
   final SportsEvent event;
   final List<LiveChannel> channels;
+  final List<LiveChannel> fallbackChannels;
   final List<EpgProgram> programs;
 
   const _SportsEventCard({
     required this.event,
     required this.channels,
+    required this.fallbackChannels,
     required this.programs,
   });
+
+  Future<void> _openFallbackChannels(BuildContext context) async {
+    final visible = fallbackChannels.take(24).toList(growable: false);
+    if (visible.isEmpty) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          children: [
+            const Text(
+              'Canales deportivos disponibles',
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'No encontramos una coincidencia automática para este evento. Elige un canal disponible para comprobar su programación.',
+              style: TextStyle(color: Colors.white60),
+            ),
+            const SizedBox(height: 14),
+            for (final channel in visible)
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: channel.logo == null
+                      ? const CircleAvatar(child: Icon(Icons.live_tv_rounded))
+                      : CircleAvatar(
+                          backgroundImage: NetworkImage(channel.logo.toString()),
+                        ),
+                  title: Text(channel.name),
+                  subtitle: channel.group == null
+                      ? null
+                      : Text(
+                          channel.group!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                  trailing: const Icon(Icons.play_arrow_rounded),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push(
+                      '/player',
+                      extra: PlaybackSession(
+                        title: channel.name,
+                        candidates: [channel.stream],
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -287,7 +350,9 @@ class _SportsEventCard extends StatelessWidget {
         ),
         trailing: FilledButton(
           onPressed: best == null
-              ? null
+              ? fallbackChannels.isEmpty
+                  ? null
+                  : () => _openFallbackChannels(context)
               : () {
                   final session = PlaybackSession(
                     title: event.title,
@@ -299,7 +364,9 @@ class _SportsEventCard extends StatelessWidget {
                 },
           child: Text(
             best == null
-                ? 'SIN FUENTE'
+                ? fallbackChannels.isEmpty
+                    ? 'SIN CANALES'
+                    : 'CANALES'
                 : matches.length > 1
                     ? 'VER · ${matches.length}'
                     : 'VER',

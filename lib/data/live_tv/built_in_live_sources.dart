@@ -43,18 +43,30 @@ class BuiltInLiveSourceRegistry {
 
   BuiltInLiveSourceRegistry(this._dio);
 
-  Future<List<LiveChannel>> mexico() {
-    return _loadMerged([
+  Future<List<LiveChannel>> mexico() async {
+    final channels = await _loadMerged([
       _dearbulutMexico,
       _iptvOrgMexico,
     ]);
+    channels.sort((a, b) {
+      final score = _mexicoPriority(b).compareTo(_mexicoPriority(a));
+      if (score != 0) return score;
+      return a.name.compareTo(b.name);
+    });
+    return channels;
   }
 
-  Future<List<LiveChannel>> sports() {
-    return _loadMerged([
+  Future<List<LiveChannel>> sports() async {
+    final channels = await _loadMerged([
       _dearbulutSports,
       _iptvOrgSports,
     ]);
+    channels.sort((a, b) {
+      final score = _sportsPriority(b).compareTo(_sportsPriority(a));
+      if (score != 0) return score;
+      return a.name.compareTo(b.name);
+    });
+    return channels;
   }
 
   Future<List<LiveChannel>> _loadMerged(List<String> urls) async {
@@ -77,15 +89,88 @@ class BuiltInLiveSourceRegistry {
       if (raw.trim().isEmpty) return const [];
 
       return M3uParser.parse(raw)
-          .where((channel) => _isSafePublicStream(channel.stream.uri))
+          .where(_isBuiltInAllowed)
           .toList(growable: false);
     } on DioException {
       return const [];
     }
   }
 
+  bool _isBuiltInAllowed(LiveChannel channel) {
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
+
+    final name = channel.name.toLowerCase();
+    const excluded = <String>[
+      'hbo',
+      'cinemax',
+      'disney channel',
+      'disney jr',
+      'espn',
+      'fox sports',
+      'fox deportes',
+      'bein sports',
+      'sky sports',
+      'dazn',
+      'tnt sports',
+      'movistar deportes',
+      'tudn',
+      'national geographic',
+      'comedy central',
+      'axn',
+    ];
+
+    return !excluded.any(name.contains);
+  }
+
+  int _mexicoPriority(LiveChannel channel) {
+    final name = channel.name.toLowerCase();
+    const preferred = <String, int>{
+      'azteca uno': 100,
+      'azteca 7': 98,
+      'canal 5': 96,
+      'las estrellas': 94,
+      'imagen tv': 92,
+      'adn 40': 90,
+      'milenio': 88,
+      'canal 22': 84,
+      'capital 21': 82,
+      'tv unam': 80,
+      'mexiquense': 78,
+      'jalisco tv': 76,
+    };
+
+    var score = 0;
+    for (final entry in preferred.entries) {
+      if (name.contains(entry.key)) score = entry.value;
+    }
+    return score;
+  }
+
+  int _sportsPriority(LiveChannel channel) {
+    final name = channel.name.toLowerCase();
+    const preferred = <String, int>{
+      'fifa+ hispanic': 110,
+      'fifa+': 106,
+      'red bull tv es': 104,
+      'red bull tv': 100,
+      'azteca deportes': 98,
+      'claro sports': 96,
+      'itv deportes': 92,
+      'pluto tv deportes': 90,
+      'tv cuatro 4.3': 86,
+      'onefootball': 84,
+    };
+
+    var score = 0;
+    for (final entry in preferred.entries) {
+      if (name.contains(entry.key)) score = entry.value;
+    }
+    if (name.contains('hispanic') || name.contains('españ')) score += 8;
+    return score;
+  }
+
   bool _isSafePublicStream(Uri uri) {
-    if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+    if (uri.scheme != 'https') return false;
 
     final host = uri.host.toLowerCase();
     if (host.isEmpty ||
