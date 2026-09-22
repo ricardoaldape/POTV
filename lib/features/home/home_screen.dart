@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/app_theme.dart';
+import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../data/history/playback_history_repository.dart';
+import '../../data/sources/http_source_repository.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../browse/genre_browse_screen.dart';
@@ -143,6 +145,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final historyState = ref.watch(playbackHistoryProvider);
     final historyItems =
         historyState.asData?.value ?? const <PlaybackHistoryEntry>[];
+    final httpSources = ref.watch(httpSourcesProvider).asData?.value ?? const [];
+    final stremioAddons =
+        ref.watch(stremioAddonsProvider).asData?.value ?? const [];
+    final hasPlaybackSources = httpSources.any((source) => source.enabled) ||
+        stremioAddons.any((addon) => addon.enabled);
 
     final trendingItems = trending.asData?.value ?? const <MediaItem>[];
     final popularItems = popular.asData?.value ?? const <MediaItem>[];
@@ -231,6 +238,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: _HeroFallback(
                 loading: trending.isLoading,
                 error: trending.hasError ? trending.error : null,
+              ),
+            ),
+          if (!hasPlaybackSources)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+                child: _PlaybackSetupCard(
+                  onConfigure: () => context.push('/sources'),
+                ),
               ),
             ),
           if (historyItems.isNotEmpty)
@@ -642,6 +658,60 @@ class _UtilityButton extends StatelessWidget {
       onPressed: onTap,
       icon: Icon(icon),
       label: Text(label),
+    );
+  }
+}
+
+
+class _PlaybackSetupCard extends StatelessWidget {
+  final VoidCallback onConfigure;
+
+  const _PlaybackSetupCard({
+    required this.onConfigure,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 24,
+              child: Icon(Icons.play_circle_outline_rounded),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Conecta tus fuentes de reproducción',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'El catálogo ya está listo. Añade una fuente POTV o un addon compatible para reproducir películas y series.',
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            FilledButton.tonal(
+              onPressed: onConfigure,
+              child: const Text('Configurar'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
