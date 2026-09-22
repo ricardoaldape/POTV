@@ -41,9 +41,44 @@ class LiveTvScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _addEpgSource(BuildContext context, WidgetRef ref) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Añadir guía EPG'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'URL XMLTV',
+            hintText: 'https://proveedor.example/guide.xml',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => context.pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => context.pop(controller.text.trim()),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (value != null && value.isNotEmpty) {
+      await ref.read(epgProgramsProvider.notifier).setSource(value);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final channels = ref.watch(liveChannelsProvider);
+    final epg = ref.watch(epgProgramsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -53,6 +88,11 @@ class LiveTvScreen extends ConsumerWidget {
             tooltip: 'Actualizar',
             onPressed: () => ref.read(liveChannelsProvider.notifier).refresh(),
             icon: const Icon(Icons.refresh),
+          ),
+          IconButton(
+            tooltip: 'Añadir guía EPG',
+            onPressed: () => _addEpgSource(context, ref),
+            icon: const Icon(Icons.calendar_month),
           ),
           IconButton(
             tooltip: 'Añadir lista',
@@ -79,6 +119,18 @@ class LiveTvScreen extends ConsumerWidget {
             itemCount: items.length,
             itemBuilder: (context, index) {
               final channel = items[index];
+              final programs = epg.asData?.value ?? const [];
+              final now = DateTime.now();
+              String? currentProgram;
+              for (final program in programs) {
+                final matches = program.channelId == channel.epgId ||
+                    program.channelId == channel.name;
+                if (matches && program.isOnAir(now)) {
+                  currentProgram = program.title;
+                  break;
+                }
+              }
+
               return Card(
                 child: InkWell(
                   onTap: () => context.push('/player', extra: channel.stream),
@@ -112,6 +164,16 @@ class LiveTvScreen extends ConsumerWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                     color: Colors.white54,
+                                  ),
+                                ),
+                              if (currentProgram != null)
+                                Text(
+                                  currentProgram,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
                                   ),
                                 ),
                             ],
