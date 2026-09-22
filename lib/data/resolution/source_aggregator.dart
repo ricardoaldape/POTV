@@ -99,16 +99,16 @@ class SourceAggregator {
       );
     }
 
-    return providerFuture
-        .timeout(
-          providerTimeout,
-          onTimeout: () => const <StreamCandidate>[],
-        )
-        .then<_ProviderBatch>(
-          (candidates) => _ProviderBatch(candidates: candidates),
-          onError: (Object _, StackTrace _) =>
-              const _ProviderBatch(candidates: [], failed: true),
-        );
+    final normalized = providerFuture.then<_ProviderBatch>(
+      (candidates) => _ProviderBatch(candidates: candidates),
+      onError: (Object _, StackTrace _) =>
+          const _ProviderBatch(candidates: [], failed: true),
+    );
+
+    return normalized.timeout(
+      providerTimeout,
+      onTimeout: () => const _ProviderBatch(candidates: [], failed: true),
+    );
   }
 
   String _cacheKey(ProviderResolveRequest request) {
