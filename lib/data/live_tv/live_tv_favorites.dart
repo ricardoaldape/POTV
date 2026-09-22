@@ -10,7 +10,7 @@ final liveTvFavoritesProvider =
 
 String liveChannelFavoriteKey(LiveChannel channel) {
   final epgId = channel.epgId?.trim();
-  if (epgId != null && epgId.isNotEmpty) return 'epg:${epgId}';
+  if (epgId != null && epgId.isNotEmpty) return 'epg:$epgId';
   return 'name:${channel.name.trim().toLowerCase()}';
 }
 
