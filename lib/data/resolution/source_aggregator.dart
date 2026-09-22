@@ -106,7 +106,7 @@ class SourceAggregator {
         )
         .then<_ProviderBatch>(
           (candidates) => _ProviderBatch(candidates: candidates),
-          onError: (Object _, StackTrace __) =>
+          onError: (Object _, StackTrace _) =>
               const _ProviderBatch(candidates: [], failed: true),
         );
   }
