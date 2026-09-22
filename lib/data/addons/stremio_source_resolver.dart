@@ -37,6 +37,7 @@ class StremioSourceResolver implements SourceResolver {
     required String mediaId,
     String? externalId,
     String? title,
+    String? year,
     int? season,
     int? episode,
   }) async {

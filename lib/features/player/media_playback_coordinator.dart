@@ -77,6 +77,7 @@ class MediaPlaybackCoordinator {
             mediaId: item.id.toString(),
             externalId: item.externalId,
             title: item.title,
+            year: item.year,
             season: season,
             episode: episode,
           );

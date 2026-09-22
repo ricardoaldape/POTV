@@ -6,6 +6,7 @@ import '../addons/stremio_source_resolver.dart';
 import '../anime/anime_id_mapping_service.dart';
 import '../anime/anime_official_streaming_resolver.dart';
 import 'http_source_resolver.dart';
+import 'public_domain_movie_resolver.dart';
 
 final unifiedSourceResolverProvider = Provider<UnifiedSourceResolver>((ref) {
   return UnifiedSourceResolver(
@@ -13,6 +14,7 @@ final unifiedSourceResolverProvider = Provider<UnifiedSourceResolver>((ref) {
     stremio: ref.read(stremioSourceResolverProvider),
     animeMapping: ref.read(animeIdMappingServiceProvider),
     animeOfficial: ref.read(animeOfficialStreamingProvider),
+    publicDomainMovies: ref.read(publicDomainMovieResolverProvider),
   );
 });
 
@@ -21,12 +23,14 @@ class UnifiedSourceResolver implements SourceResolver {
   final StremioSourceResolver stremio;
   final AnimeIdMappingService animeMapping;
   final AnimeOfficialStreamingResolver animeOfficial;
+  final PublicDomainMovieResolver publicDomainMovies;
 
   const UnifiedSourceResolver({
     required this.http,
     required this.stremio,
     required this.animeMapping,
     required this.animeOfficial,
+    required this.publicDomainMovies,
   });
 
   @override
@@ -35,6 +39,7 @@ class UnifiedSourceResolver implements SourceResolver {
     required String mediaId,
     String? externalId,
     String? title,
+    String? year,
     int? season,
     int? episode,
   }) async {
@@ -44,6 +49,7 @@ class UnifiedSourceResolver implements SourceResolver {
         mediaId: mediaId,
         externalId: externalId,
         title: title,
+        year: year,
         season: season,
         episode: episode,
       ),
@@ -52,6 +58,7 @@ class UnifiedSourceResolver implements SourceResolver {
         mediaId: mediaId,
         externalId: externalId,
         title: title,
+        year: year,
         season: season,
         episode: episode,
       ),
@@ -59,6 +66,11 @@ class UnifiedSourceResolver implements SourceResolver {
         mediaType: mediaType,
         mediaId: mediaId,
         episode: episode,
+      ),
+      publicDomainMovies.resolve(
+        mediaType: mediaType,
+        title: title,
+        year: year,
       ),
     ]);
 
@@ -87,6 +99,7 @@ class UnifiedSourceResolver implements SourceResolver {
     required String mediaId,
     String? externalId,
     String? title,
+    String? year,
     int? season,
     int? episode,
   }) async {
@@ -96,6 +109,7 @@ class UnifiedSourceResolver implements SourceResolver {
         mediaId: mediaId,
         externalId: externalId,
         title: title,
+        year: year,
         season: season,
         episode: episode,
       );

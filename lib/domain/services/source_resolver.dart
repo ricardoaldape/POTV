@@ -6,6 +6,7 @@ abstract interface class SourceResolver {
     required String mediaId,
     String? externalId,
     String? title,
+    String? year,
     int? season,
     int? episode,
   });
