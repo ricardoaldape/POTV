@@ -90,6 +90,7 @@ class AniListRepository {
         headers: const {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'User-Agent': 'POTV/0.1 (Android)',
         },
       ),
     );
