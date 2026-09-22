@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
+import 'built_in_live_sources.dart';
 import 'm3u_parser.dart';
 import 'xmltv_parser.dart';
 
@@ -93,15 +94,19 @@ class LiveTvRepository {
 
 class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
   @override
-  Future<List<LiveChannel>> build() {
-    return ref.read(liveTvRepositoryProvider).loadChannels();
+  Future<List<LiveChannel>> build() async {
+    final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+    final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+    return _mergeChannels(builtIn, custom);
   }
 
   Future<void> setSource(String url) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       await ref.read(liveTvRepositoryProvider).saveSource(url);
-      return ref.read(liveTvRepositoryProvider).loadChannels();
+      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+      return _mergeChannels(builtIn, custom);
     });
     ref.invalidate(epgProgramsProvider);
   }
@@ -110,16 +115,39 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       await ref.read(liveTvRepositoryProvider).saveLocalPlaylist(raw);
-      return ref.read(liveTvRepositoryProvider).loadChannels();
+      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+      return _mergeChannels(builtIn, custom);
     });
     ref.invalidate(epgProgramsProvider);
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(
-      () => ref.read(liveTvRepositoryProvider).loadChannels(),
-    );
+    state = await AsyncValue.guard(() async {
+      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+      return _mergeChannels(builtIn, custom);
+    });
+  }
+
+  List<LiveChannel> _mergeChannels(
+    List<LiveChannel> builtIn,
+    List<LiveChannel> custom,
+  ) {
+    final seen = <String>{};
+    final result = <LiveChannel>[];
+
+    for (final channel in [...builtIn, ...custom]) {
+      final key = [
+        channel.epgId?.trim().toLowerCase() ?? '',
+        channel.name.trim().toLowerCase(),
+        channel.stream.uri.toString(),
+      ].join('|');
+      if (seen.add(key)) result.add(channel);
+    }
+
+    return result;
   }
 }
 
@@ -130,14 +158,15 @@ final epgProgramsProvider =
 
 class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
   static const _sourceKey = 'live_tv_xmltv_url';
+  static const _defaultMexicoEpg =
+      'https://dearbulut.github.io/iptv/epg/mx.xml';
   final Dio _dio = Dio();
 
   @override
   Future<List<EpgProgram>> build() async {
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString(_sourceKey);
-    if (url == null || url.isEmpty) return const [];
-    return _load(url);
+    return _load(url == null || url.isEmpty ? _defaultMexicoEpg : url);
   }
 
   Future<void> setSource(String url) async {
@@ -150,12 +179,10 @@ class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
   Future<void> refresh() async {
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString(_sourceKey);
-    if (url == null || url.isEmpty) {
-      state = const AsyncData([]);
-      return;
-    }
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _load(url));
+    state = await AsyncValue.guard(
+      () => _load(url == null || url.isEmpty ? _defaultMexicoEpg : url),
+    );
   }
 
   Future<List<EpgProgram>> _load(String url) async {

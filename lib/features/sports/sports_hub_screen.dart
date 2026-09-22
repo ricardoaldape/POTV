@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sports/sports_repository.dart';
 import '../../domain/models/epg_program.dart';
@@ -10,6 +11,7 @@ import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
 import '../../domain/services/sports_channel_resolver.dart';
+import 'sports_channel_rail.dart';
 
 const _sports = <({String label, String api, IconData icon})>[
   (label: 'Fútbol', api: 'Soccer', icon: Icons.sports_soccer),
@@ -42,6 +44,25 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
   String selectedSport = 'Soccer';
   DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
 
+  List<LiveChannel> _mergeChannels(
+    List<LiveChannel> primary,
+    List<LiveChannel> secondary,
+  ) {
+    final seen = <String>{};
+    final result = <LiveChannel>[];
+
+    for (final channel in [...primary, ...secondary]) {
+      final key = [
+        channel.epgId?.trim().toLowerCase() ?? '',
+        channel.name.trim().toLowerCase(),
+        channel.stream.uri.toString(),
+      ].join('|');
+      if (seen.add(key)) result.add(channel);
+    }
+
+    return result;
+  }
+
   Future<void> _pickDate() async {
     final value = await showDatePicker(
       context: context,
@@ -59,8 +80,12 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     final query = (day: selectedDay, sport: selectedSport);
     final eventsState = ref.watch(sportsEventsProvider(query));
     final events = eventsState.asData?.value ?? const <SportsEvent>[];
-    final channels = ref.watch(liveChannelsProvider).asData?.value ??
+    final liveChannels = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
+    final sportsChannelsState = ref.watch(builtInSportsChannelsProvider);
+    final sportsChannels =
+        sportsChannelsState.asData?.value ?? const <LiveChannel>[];
+    final channels = _mergeChannels(liveChannels, sportsChannels);
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
         const <EpgProgram>[];
 
@@ -151,6 +176,21 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 18),
+          if (sportsChannelsState.isLoading)
+            const LinearProgressIndicator(minHeight: 2),
+          if (sportsChannels.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Canales deportivos disponibles',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SportsChannelRail(channels: sportsChannels),
+          ],
           const SizedBox(height: 22),
           if (eventsState.isLoading)
             const Padding(
