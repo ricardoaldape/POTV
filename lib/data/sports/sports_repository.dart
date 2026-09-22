@@ -8,9 +8,12 @@ final sportsRepositoryProvider = Provider<SportsRepository>((ref) {
   return SportsRepository(Dio());
 });
 
-final sportsEventsProvider =
-    FutureProvider.autoDispose<List<SportsEvent>>((ref) async {
-  return ref.read(sportsRepositoryProvider).eventsForDay(DateTime.now());
+final sportsEventsProvider = FutureProvider.autoDispose
+    .family<List<SportsEvent>, String?>((ref, sport) async {
+  return ref.read(sportsRepositoryProvider).eventsForDay(
+        DateTime.now(),
+        sport: sport,
+      );
 });
 
 class SportsRepository {
@@ -22,12 +25,18 @@ class SportsRepository {
   final Dio _dio;
   SportsRepository(this._dio);
 
-  Future<List<SportsEvent>> eventsForDay(DateTime day) async {
+  Future<List<SportsEvent>> eventsForDay(
+    DateTime day, {
+    String? sport,
+  }) async {
     final date = DateFormat('yyyy-MM-dd').format(day);
+    final query = <String, String>{'d': date};
+    if (sport != null && sport.isNotEmpty) query['s'] = sport;
+
     final uri = Uri.https(
       'www.thesportsdb.com',
       '/api/v1/json/' + _apiKey + '/eventsday.php',
-      {'d': date},
+      query,
     );
 
     final response = await _dio.getUri<Map<String, dynamic>>(uri);
