@@ -95,11 +95,12 @@ class NuvioPluginRuntime {
       if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) continue;
       final headers = <String, String>{};
       final rawHeaders = map['headers'];
-      if (rawHeaders is Map) {
-        for (final entry in rawHeaders.entries) {
-          final key = entry.key.toString().trim();
-          final val = entry.value?.toString().trim();
-          if (key.isNotEmpty && val != null && val.isNotEmpty) headers[key] = val;
+      _mergeHeaders(headers, rawHeaders);
+      final behaviorHints = map['behaviorHints'];
+      if (behaviorHints is Map) {
+        final proxyHeaders = behaviorHints['proxyHeaders'];
+        if (proxyHeaders is Map) {
+          _mergeHeaders(headers, proxyHeaders['request']);
         }
       }
       final name = _text(map['name']) ?? _text(map['title']) ?? _text(map['provider']) ?? plugin.name;
@@ -115,6 +116,17 @@ class NuvioPluginRuntime {
     }
     final seen = <String>{};
     return result.where((item) => seen.add(item.uri.toString())).toList(growable: false);
+  }
+
+  static void _mergeHeaders(Map<String, String> target, Object? raw) {
+    if (raw is! Map) return;
+    for (final entry in raw.entries) {
+      final key = entry.key.toString().trim();
+      final value = entry.value?.toString().trim();
+      if (key.isNotEmpty && value != null && value.isNotEmpty) {
+        target[key] = value;
+      }
+    }
   }
 
   static String? _text(Object? value) {
@@ -139,7 +151,7 @@ if ((!TMDB_API_KEY || String(TMDB_API_KEY).length === 0) && __POTV_FETCH) {
     if (target.indexOf('https://api.themoviedb.org/3/movie/') === 0 ||
         target.indexOf('https://api.themoviedb.org/3/tv/') === 0) {
       var title = __POTV_META.title || '';
-      var year = String(__POTV_META.year || '').match(/\d{4}/);
+      var year = String(__POTV_META.year || '').match(/[0-9]{4}/);
       var date = year ? year[0] + '-01-01' : '';
       var payload = {
         id: parseInt(__POTV_META.tmdbId || '0', 10) || 0,

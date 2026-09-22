@@ -22,7 +22,12 @@ void main() {
         'url': 'https://cdn.example.test/master.m3u8',
         'quality': '1080p',
         'language': 'Latino',
-        'headers': {'Referer': 'https://example.test/'},
+        'headers': {'X-Test': 'yes'},
+        'behaviorHints': {
+          'proxyHeaders': {
+            'request': {'Referer': 'https://example.test/'},
+          },
+        },
       },
       {
         'name': 'Duplicado',
@@ -35,6 +40,7 @@ void main() {
     expect(result.single.label, 'Servidor A');
     expect(result.single.quality, '1080p');
     expect(result.single.language, 'Latino');
+    expect(result.single.headers['X-Test'], 'yes');
     expect(result.single.headers['Referer'], 'https://example.test/');
   });
 }
