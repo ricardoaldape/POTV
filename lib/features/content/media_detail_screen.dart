@@ -106,11 +106,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
       }
 
       final title = widget.item.type == MediaType.tv
-          ? widget.item.title +
-              ' · T' +
-              season.toString() +
-              ' E' +
-              episode.toString()
+          ? '${widget.item.title} · T$season E$episode'
           : widget.item.title;
 
       await context.push(
@@ -183,7 +179,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                       ),
                     ),
                     if (item.year != null) Chip(label: Text(item.year!)),
-                    Chip(label: Text('TMDB ' + item.id.toString())),
+                    Chip(label: Text('TMDB ${item.id}')),
                   ],
                 ),
                 const SizedBox(height: 18),

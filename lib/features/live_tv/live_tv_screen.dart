@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -50,6 +53,36 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
       await ref.read(liveChannelsProvider.notifier).setSource(value);
       if (mounted) setState(() => selectedGroup = null);
     }
+  }
+
+  Future<void> _importPlaylistFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['m3u', 'm3u8', 'txt'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final bytes = result.files.single.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No pudimos leer el archivo.')),
+      );
+      return;
+    }
+
+    final raw = utf8.decode(bytes, allowMalformed: true);
+    if (!raw.contains('#EXTM3U')) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El archivo no parece una lista M3U.')),
+      );
+      return;
+    }
+
+    await ref.read(liveChannelsProvider.notifier).setLocalPlaylist(raw);
+    if (mounted) setState(() => selectedGroup = null);
   }
 
   Future<void> _addEpgSource() async {
@@ -116,6 +149,11 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
               ref.read(epgProgramsProvider.notifier).refresh();
             },
             icon: const Icon(Icons.refresh),
+          ),
+          IconButton(
+            tooltip: 'Importar archivo M3U',
+            onPressed: _importPlaylistFile,
+            icon: const Icon(Icons.file_open_outlined),
           ),
           IconButton(
             tooltip: 'Añadir guía EPG',
