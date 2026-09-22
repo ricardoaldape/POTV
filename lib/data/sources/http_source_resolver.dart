@@ -62,7 +62,8 @@ class HttpSourceResolver implements SourceResolver {
       final query = <String, String>{
         ...source.endpoint.queryParameters,
         'type': mediaType,
-        'tmdb_id': mediaId,
+        if (mediaType == 'anime') 'anilist_id': mediaId,
+        if (mediaType != 'anime') 'tmdb_id': mediaId,
         if (season != null) 'season': '$season',
         if (episode != null) 'episode': '$episode',
       };

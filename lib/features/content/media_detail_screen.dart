@@ -71,6 +71,43 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     return result;
   }
 
+  Future<int?> _askAnimeEpisode() async {
+    final episode = TextEditingController(text: '1');
+
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Selecciona episodio'),
+        content: TextField(
+          controller: episode,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Episodio absoluto',
+            helperText: 'POTV usa AniList ID + episodio absoluto.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => context.pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = int.tryParse(episode.text.trim());
+              if (value == null || value < 1) return;
+              context.pop(value);
+            },
+            child: const Text('Continuar'),
+          ),
+        ],
+      ),
+    );
+
+    episode.dispose();
+    return result;
+  }
+
   Future<void> _resolveAndPlay() async {
     if (resolving) return;
 
@@ -81,6 +118,9 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
       if (selected == null) return;
       season = selected.season;
       episode = selected.episode;
+    } else if (widget.item.type == MediaType.anime) {
+      episode = await _askAnimeEpisode();
+      if (episode == null) return;
     }
 
     setState(() => resolving = true);
@@ -105,9 +145,11 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
         return;
       }
 
-      final title = widget.item.type == MediaType.tv
-          ? '${widget.item.title} · T$season E$episode'
-          : widget.item.title;
+      final title = switch (widget.item.type) {
+        MediaType.movie => widget.item.title,
+        MediaType.tv => '${widget.item.title} · T$season E$episode',
+        MediaType.anime => '${widget.item.title} · E$episode',
+      };
 
       await context.push(
         '/player',
@@ -173,13 +215,15 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
+                    Chip(label: Text(item.typeLabel)),
+                    if (item.year != null) Chip(label: Text(item.year!)),
                     Chip(
                       label: Text(
-                        item.type == MediaType.movie ? 'Película' : 'Serie',
+                        item.type == MediaType.anime
+                            ? 'AniList ${item.id}'
+                            : 'TMDB ${item.id}',
                       ),
                     ),
-                    if (item.year != null) Chip(label: Text(item.year!)),
-                    Chip(label: Text('TMDB ${item.id}')),
                   ],
                 ),
                 const SizedBox(height: 18),
@@ -205,9 +249,11 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   label: Text(
                     resolving
                         ? 'Buscando en tus fuentes…'
-                        : item.type == MediaType.movie
-                            ? 'Buscar servidores'
-                            : 'Elegir episodio y buscar',
+                        : switch (item.type) {
+                            MediaType.movie => 'Buscar servidores',
+                            MediaType.tv => 'Elegir episodio y buscar',
+                            MediaType.anime => 'Elegir episodio y buscar',
+                          },
                   ),
                 ),
                 const SizedBox(height: 10),

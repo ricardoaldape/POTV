@@ -1,4 +1,4 @@
-enum MediaType { movie, tv }
+enum MediaType { movie, tv, anime }
 
 class MediaItem {
   final int id;
@@ -22,5 +22,12 @@ class MediaItem {
   String get mediaTypeName => switch (type) {
         MediaType.movie => 'movie',
         MediaType.tv => 'tv',
+        MediaType.anime => 'anime',
+      };
+
+  String get typeLabel => switch (type) {
+        MediaType.movie => 'Película',
+        MediaType.tv => 'Serie',
+        MediaType.anime => 'Anime',
       };
 }

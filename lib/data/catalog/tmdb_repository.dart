@@ -61,7 +61,7 @@ class TmdbRepository {
 
   Future<List<MediaItem>> trending(MediaType type) async {
     final key = _requireKey();
-    final endpoint = type == MediaType.movie ? 'movie' : 'tv';
+    final endpoint = _endpoint(type);
 
     final response = await _dio.get<Map<String, dynamic>>(
       '$_apiBase/trending/$endpoint/week',
@@ -79,7 +79,7 @@ class TmdbRepository {
 
   Future<List<MediaItem>> popular(MediaType type) async {
     final key = _requireKey();
-    final endpoint = type == MediaType.movie ? 'movie' : 'tv';
+    final endpoint = _endpoint(type);
 
     final response = await _dio.get<Map<String, dynamic>>(
       '$_apiBase/$endpoint/popular',
@@ -102,7 +102,7 @@ class TmdbRepository {
     int genreId,
   ) async {
     final key = _requireKey();
-    final endpoint = type == MediaType.movie ? 'movie' : 'tv';
+    final endpoint = _endpoint(type);
 
     final response = await _dio.get<Map<String, dynamic>>(
       '$_apiBase/discover/$endpoint',
@@ -122,6 +122,14 @@ class TmdbRepository {
       forcedType: type,
     );
   }
+
+  String _endpoint(MediaType type) => switch (type) {
+        MediaType.movie => 'movie',
+        MediaType.tv => 'tv',
+        MediaType.anime => throw ArgumentError(
+            'AniList, not TMDB, is the catalog provider for anime.',
+          ),
+      };
 
   String _requireKey() {
     final key = AppConfig.tmdbApiKey.trim();
@@ -173,7 +181,7 @@ class TmdbRepository {
       }
     }
 
-    if (type == null) return null;
+    if (type == null || type == MediaType.anime) return null;
 
     final title = _text(
       type == MediaType.movie ? raw['title'] : raw['name'],

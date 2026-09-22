@@ -145,9 +145,7 @@ class _PotvMediaCardState extends State<PotvMediaCard> {
                         const SizedBox(height: 4),
                         Text(
                           [
-                            widget.item.type == MediaType.movie
-                                ? 'Película'
-                                : 'Serie',
+                            widget.item.typeLabel,
                             widget.item.year,
                           ].whereType<String>().join(' · '),
                           maxLines: 1,

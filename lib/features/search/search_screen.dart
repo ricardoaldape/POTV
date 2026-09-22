@@ -158,7 +158,7 @@ class _ResultGrid extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         [
-                          item.type == MediaType.movie ? 'Película' : 'Serie',
+                          item.typeLabel,
                           item.year,
                         ].whereType<String>().join(' · '),
                         style: const TextStyle(

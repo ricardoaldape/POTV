@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/app_theme.dart';
+import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../domain/models/media_item.dart';
 import 'widgets/home_hero.dart';
@@ -19,27 +20,44 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   MediaType selectedType = MediaType.movie;
 
-  static const movieGenres = <({String title, int id})>[
-    (title: 'Acción', id: 28),
-    (title: 'Comedia', id: 35),
-    (title: 'Terror', id: 27),
+  static const movieGenres = <_GenreSpec>[
+    _GenreSpec(title: 'Acción', tmdbId: 28),
+    _GenreSpec(title: 'Comedia', tmdbId: 35),
+    _GenreSpec(title: 'Terror', tmdbId: 27),
   ];
 
-  static const tvGenres = <({String title, int id})>[
-    (title: 'Drama', id: 18),
-    (title: 'Comedia', id: 35),
-    (title: 'Ciencia ficción y fantasía', id: 10765),
+  static const tvGenres = <_GenreSpec>[
+    _GenreSpec(title: 'Drama', tmdbId: 18),
+    _GenreSpec(title: 'Comedia', tmdbId: 35),
+    _GenreSpec(title: 'Ciencia ficción y fantasía', tmdbId: 10765),
+  ];
+
+  static const animeGenres = <_GenreSpec>[
+    _GenreSpec(title: 'Acción', anilistGenre: 'Action'),
+    _GenreSpec(title: 'Aventura', anilistGenre: 'Adventure'),
+    _GenreSpec(title: 'Comedia', anilistGenre: 'Comedy'),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final trending = ref.watch(homeTrendingProvider(selectedType));
-    final popular = ref.watch(homePopularProvider(selectedType));
-    final genres = selectedType == MediaType.movie ? movieGenres : tvGenres;
+    final AsyncValue<List<MediaItem>> trending =
+        selectedType == MediaType.anime
+            ? ref.watch(animeTrendingProvider)
+            : ref.watch(homeTrendingProvider(selectedType));
+    final AsyncValue<List<MediaItem>> popular =
+        selectedType == MediaType.anime
+            ? ref.watch(animePopularProvider)
+            : ref.watch(homePopularProvider(selectedType));
+    final genres = switch (selectedType) {
+      MediaType.movie => movieGenres,
+      MediaType.tv => tvGenres,
+      MediaType.anime => animeGenres,
+    };
 
     final trendingItems = trending.asData?.value ?? const <MediaItem>[];
     final popularItems = popular.asData?.value ?? const <MediaItem>[];
     final hero = trendingItems.isEmpty ? null : trendingItems.first;
+    final wideHeader = MediaQuery.sizeOf(context).width >= 760;
 
     return Scaffold(
       body: CustomScrollView(
@@ -49,42 +67,63 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             floating: true,
             backgroundColor: PotvTheme.background.withValues(alpha: 0.96),
             titleSpacing: 24,
-            title: Row(
-              children: [
-                const Text(
-                  'POTV',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.8,
+            title: wideHeader
+                ? Row(
+                    children: [
+                      const Text(
+                        'POTV',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.8,
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      _MediaTypeSwitch(
+                        selected: selectedType,
+                        onChanged: (type) =>
+                            setState(() => selectedType = type),
+                      ),
+                    ],
+                  )
+                : const Text(
+                    'POTV',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.8,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 18),
-                _MediaTypeSwitch(
-                  selected: selectedType,
-                  onChanged: (type) =>
-                      setState(() => selectedType = type),
-                ),
-              ],
-            ),
             actions: [
               IconButton(
                 tooltip: 'Buscar',
                 onPressed: () => context.go('/search'),
                 icon: const Icon(Icons.search_rounded),
               ),
-              IconButton(
-                tooltip: 'Live TV',
-                onPressed: () => context.go('/live'),
-                icon: const Icon(Icons.live_tv_rounded),
-              ),
-              IconButton(
-                tooltip: 'Deportes',
-                onPressed: () => context.go('/sports'),
-                icon: const Icon(Icons.sports_soccer_rounded),
-              ),
-              const SizedBox(width: 12),
+              if (wideHeader)
+                IconButton(
+                  tooltip: 'Live TV',
+                  onPressed: () => context.go('/live'),
+                  icon: const Icon(Icons.live_tv_rounded),
+                ),
+              if (wideHeader)
+                IconButton(
+                  tooltip: 'Deportes',
+                  onPressed: () => context.go('/sports'),
+                  icon: const Icon(Icons.sports_soccer_rounded),
+                ),
+              const SizedBox(width: 8),
             ],
           ),
+          if (!wideHeader)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                child: _MediaTypeSwitch(
+                  selected: selectedType,
+                  onChanged: (type) =>
+                      setState(() => selectedType = type),
+                ),
+              ),
+            ),
           if (hero != null)
             SliverToBoxAdapter(
               child: HomeHero(item: hero),
@@ -100,12 +139,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: Padding(
               padding: const EdgeInsets.only(top: 12),
               child: _SectionHeading(
-                title: selectedType == MediaType.movie
-                    ? 'Películas'
-                    : 'Series',
-                subtitle: selectedType == MediaType.movie
-                    ? 'Elige una película y POTV buscará en tus fuentes locales.'
-                    : 'Explora series sin salir de la misma pantalla.',
+                title: switch (selectedType) {
+                  MediaType.movie => 'Películas',
+                  MediaType.tv => 'Series',
+                  MediaType.anime => 'Anime',
+                },
+                subtitle: switch (selectedType) {
+                  MediaType.movie =>
+                    'Elige una película y POTV buscará en tus fuentes locales.',
+                  MediaType.tv =>
+                    'Explora series sin salir de la misma pantalla.',
+                  MediaType.anime =>
+                    'AniList organiza el catálogo; los episodios se resuelven localmente.',
+                },
               ),
             ),
           ),
@@ -114,9 +160,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: Padding(
                 padding: const EdgeInsets.only(top: 18),
                 child: TopTenRail(
-                  title: selectedType == MediaType.movie
-                      ? 'Top 10 películas populares'
-                      : 'Top 10 series populares',
+                  title: switch (selectedType) {
+                    MediaType.movie => 'Top 10 películas populares',
+                    MediaType.tv => 'Top 10 series populares',
+                    MediaType.anime => 'Top 10 anime popular',
+                  },
                   items: popularItems,
                 ),
               ),
@@ -135,8 +183,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             SliverToBoxAdapter(
               child: _GenreSection(
                 type: selectedType,
-                genreId: genre.id,
-                title: genre.title,
+                genre: genre,
               ),
             ),
           SliverToBoxAdapter(
@@ -178,6 +225,11 @@ class _MediaTypeSwitch extends StatelessWidget {
           value: MediaType.tv,
           label: Text('Series'),
           icon: Icon(Icons.tv_outlined, size: 18),
+        ),
+        ButtonSegment(
+          value: MediaType.anime,
+          label: Text('Anime'),
+          icon: Icon(Icons.auto_awesome_outlined, size: 18),
         ),
       ],
       selected: {selected},
@@ -247,22 +299,43 @@ class _SectionHeading extends StatelessWidget {
   }
 }
 
+class _GenreSpec {
+  final String title;
+  final int? tmdbId;
+  final String? anilistGenre;
+
+  const _GenreSpec({
+    required this.title,
+    this.tmdbId,
+    this.anilistGenre,
+  });
+}
+
 class _GenreSection extends ConsumerWidget {
   final MediaType type;
-  final int genreId;
-  final String title;
+  final _GenreSpec genre;
 
   const _GenreSection({
     required this.type,
-    required this.genreId,
-    required this.title,
+    required this.genre,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(
-      homeGenreProvider((type: type, genreId: genreId)),
-    );
+    final AsyncValue<List<MediaItem>> state;
+
+    if (type == MediaType.anime) {
+      final name = genre.anilistGenre;
+      if (name == null) return const SizedBox.shrink();
+      state = ref.watch(animeGenreProvider(name));
+    } else {
+      final id = genre.tmdbId;
+      if (id == null) return const SizedBox.shrink();
+      state = ref.watch(
+        homeGenreProvider((type: type, genreId: id)),
+      );
+    }
+
     final items = state.asData?.value ?? const <MediaItem>[];
 
     if (state.isLoading && items.isEmpty) {
@@ -277,7 +350,7 @@ class _GenreSection extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 30),
       child: MediaRail(
-        title: title,
+        title: genre.title,
         items: items,
       ),
     );

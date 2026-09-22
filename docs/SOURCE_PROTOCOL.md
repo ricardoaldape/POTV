@@ -8,10 +8,11 @@ A source endpoint receives a direct GET request from the client device.
 
 Query parameters:
 
-- `type`: `movie` or `tv`
-- `tmdb_id`: TMDB identifier
+- `type`: `movie`, `tv` or `anime`
+- `tmdb_id`: TMDB identifier for movies/series
+- `anilist_id`: AniList identifier for anime
 - `season`: optional season number for TV
-- `episode`: optional episode number for TV
+- `episode`: episode number; for anime POTV uses the absolute episode number
 
 Example:
 

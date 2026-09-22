@@ -90,9 +90,11 @@ class HomeHero extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        item.type == MediaType.movie
-                            ? 'DESTACADA · PELÍCULA'
-                            : 'DESTACADA · SERIE',
+                        switch (item.type) {
+                          MediaType.movie => 'DESTACADA · PELÍCULA',
+                          MediaType.tv => 'DESTACADA · SERIE',
+                          MediaType.anime => 'DESTACADO · ANIME',
+                        },
                         style: const TextStyle(
                           color: PotvTheme.cyan,
                           fontSize: 11,
