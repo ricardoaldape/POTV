@@ -221,17 +221,9 @@ class MediaPlaybackCoordinator {
           'POTV no encontró una reproducción disponible para ${item.title}.',
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => context.pop(),
             child: const Text('Cerrar'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              context.pop();
-              context.push('/sources');
-            },
-            icon: const Icon(Icons.hub_outlined),
-            label: const Text('Fuentes'),
           ),
         ],
       ),
