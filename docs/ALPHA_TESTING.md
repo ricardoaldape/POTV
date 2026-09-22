@@ -98,7 +98,7 @@ This alpha only consumes direct HTTP/HTTPS playback URLs returned by compatible 
 - Phone-to-TV configuration transfer is manual in this alpha; encrypted LAN pairing remains pending.
 - Subscription/paywall and the production updater are intentionally disabled in this private testing build.
 - The alpha APK uses temporary test signing; production releases will use the dedicated POTV signing key.
-- The launcher artwork is still temporary until the final approved POTV pirate-play logo is inserted into the Android asset pack.
+- Alpha 2 already uses the approved POTV pirate-play identity: play triangle with crossed bones, adapted for launcher and Android TV.
 
 ## Suggested test order
 
