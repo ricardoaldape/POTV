@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
 import '../../data/live_tv/live_tv_repository.dart';
@@ -10,7 +11,23 @@ import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 
 class SettingsScreen extends ConsumerWidget {
+  static final Uri _telegramUri = Uri.parse('https://t.me/potv_oficial');
+
   const SettingsScreen({super.key});
+
+  Future<void> _openTelegram(BuildContext context) async {
+    final opened = await launchUrl(
+      _telegramUri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No pudimos abrir la comunidad de Telegram.'),
+        ),
+      );
+    }
+  }
 
   Future<void> _copyConfig(BuildContext context) async {
     final raw = await LocalConfigBundle.exportJson();
@@ -133,6 +150,16 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: Text(
               'Stremio, Nuvio y Kodi se implementarán después de Live TV y Sports Hub.',
             ),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.forum_rounded),
+            title: const Text('Comunidad oficial POTV'),
+            subtitle: const Text(
+              'Noticias, soporte, nuevas versiones y comunidad en Telegram.',
+            ),
+            trailing: const Icon(Icons.open_in_new_rounded),
+            onTap: () => _openTelegram(context),
           ),
         ],
       ),
