@@ -1,0 +1,65 @@
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../domain/models/live_channel.dart';
+import 'm3u_parser.dart';
+
+final liveTvRepositoryProvider = Provider<LiveTvRepository>((ref) {
+  return LiveTvRepository(Dio());
+});
+
+final liveChannelsProvider =
+    AsyncNotifierProvider<LiveChannelsController, List<LiveChannel>>(
+  LiveChannelsController.new,
+);
+
+class LiveTvRepository {
+  static const _sourceKey = 'live_tv_m3u_url';
+  final Dio _dio;
+
+  LiveTvRepository(this._dio);
+
+  Future<String?> sourceUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_sourceKey);
+  }
+
+  Future<void> saveSource(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_sourceKey, value.trim());
+  }
+
+  Future<List<LiveChannel>> loadChannels() async {
+    final url = await sourceUrl();
+    if (url == null || url.isEmpty) return const [];
+
+    final response = await _dio.get<String>(
+      url,
+      options: Options(responseType: ResponseType.plain),
+    );
+    return M3uParser.parse(response.data ?? '');
+  }
+}
+
+class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
+  @override
+  Future<List<LiveChannel>> build() {
+    return ref.read(liveTvRepositoryProvider).loadChannels();
+  }
+
+  Future<void> setSource(String url) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      await ref.read(liveTvRepositoryProvider).saveSource(url);
+      return ref.read(liveTvRepositoryProvider).loadChannels();
+    });
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(liveTvRepositoryProvider).loadChannels(),
+    );
+  }
+}
