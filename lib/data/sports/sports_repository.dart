@@ -24,6 +24,8 @@ class SportsRepository {
   );
 
   final Dio _dio;
+  final Map<String, List<SportsEvent>> _cache = {};
+
   SportsRepository(this._dio);
 
   Future<List<SportsEvent>> eventsForDay(
@@ -31,8 +33,13 @@ class SportsRepository {
     String? sport,
   }) async {
     final date = DateFormat('yyyy-MM-dd').format(day);
+    final normalizedSport = sport?.trim() ?? '';
+    final cacheKey = '$date|$normalizedSport';
+    final cached = _cache[cacheKey];
+    if (cached != null) return cached;
+
     final query = <String, String>{'d': date};
-    if (sport != null && sport.isNotEmpty) query['s'] = sport;
+    if (normalizedSport.isNotEmpty) query['s'] = normalizedSport;
 
     final uri = Uri.https(
       'www.thesportsdb.com',
@@ -52,7 +59,8 @@ class SportsRepository {
     }
 
     events.sort((a, b) => a.startsAt.compareTo(b.startsAt));
-    return events;
+    _cache[cacheKey] = List.unmodifiable(events);
+    return _cache[cacheKey]!;
   }
 
   SportsEvent? _mapEvent(Map<String, dynamic> raw) {

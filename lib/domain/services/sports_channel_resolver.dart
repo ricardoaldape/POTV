@@ -87,7 +87,22 @@ class SportsChannelResolver {
         .toSet();
   }
 
-  String _normalize(String value) => value.toLowerCase().trim();
+  String _normalize(String value) {
+    var normalized = value.toLowerCase().trim();
+    const replacements = <String, String>{
+      'á': 'a',
+      'é': 'e',
+      'í': 'i',
+      'ó': 'o',
+      'ú': 'u',
+      'ü': 'u',
+      'ñ': 'n',
+    };
+    for (final entry in replacements.entries) {
+      normalized = normalized.replaceAll(entry.key, entry.value);
+    }
+    return normalized;
+  }
 
   static const _stopWords = <String>{
     'club',

@@ -77,4 +77,44 @@ void main() {
 
     expect(matches, isEmpty);
   });
+
+  test('matches sports names regardless of Spanish accents', () {
+    final starts = DateTime.now().add(const Duration(minutes: 20));
+    final event = SportsEvent(
+      id: 'event-accent',
+      sport: 'Fútbol',
+      competition: 'Liga MX',
+      home: 'América',
+      away: 'Monterrey',
+      startsAt: starts,
+    );
+
+    final channel = LiveChannel(
+      id: 'mx-1',
+      name: 'Canal Deportes MX',
+      epgId: 'mx.sports',
+      stream: StreamCandidate(
+        id: 'mx-stream',
+        label: 'Canal Deportes MX',
+        uri: Uri.parse('https://example.com/mx.m3u8'),
+      ),
+    );
+
+    final program = EpgProgram(
+      channelId: 'mx.sports',
+      title: 'America vs Monterrey',
+      startsAt: starts,
+      endsAt: starts.add(const Duration(hours: 2)),
+    );
+
+    const resolver = SportsChannelResolver();
+    final matches = resolver.resolve(
+      event: event,
+      channels: [channel],
+      programs: [program],
+    );
+
+    expect(matches, isNotEmpty);
+    expect(matches.first.channel.id, 'mx-1');
+  });
 }
