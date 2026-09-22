@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/live_tv/live_tv_favorites.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
@@ -19,6 +20,7 @@ class LiveTvScreen extends ConsumerStatefulWidget {
 class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
   String searchQuery = '';
   String? selectedGroup;
+  bool favoritesOnly = false;
 
   Future<void> _addSource() async {
     final controller = TextEditingController();
@@ -136,7 +138,9 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
   Widget build(BuildContext context) {
     final channelsState = ref.watch(liveChannelsProvider);
     final epgState = ref.watch(epgProgramsProvider);
+    final favoritesState = ref.watch(liveTvFavoritesProvider);
     final programs = epgState.asData?.value ?? const <EpgProgram>[];
+    final favorites = favoritesState.asData?.value ?? const <String>{};
 
     return Scaffold(
       appBar: AppBar(
@@ -186,6 +190,10 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
             final groupMatches =
                 selectedGroup == null || channel.group == selectedGroup;
             if (!groupMatches) return false;
+            if (favoritesOnly &&
+                !favorites.contains(liveChannelFavoriteKey(channel))) {
+              return false;
+            }
             if (query.isEmpty) return true;
 
             final program = _currentProgram(channel, programs);
@@ -210,14 +218,24 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
                   ),
                 ),
               ),
-              if (groups.isNotEmpty)
-                SizedBox(
-                  height: 48,
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      Padding(
+              SizedBox(
+                height: 48,
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        avatar: const Icon(Icons.star_rounded, size: 18),
+                        label: const Text('Favoritos'),
+                        selected: favoritesOnly,
+                        onSelected: (value) {
+                          setState(() => favoritesOnly = value);
+                        },
+                      ),
+                    ),
+                    Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: ChoiceChip(
                           label: const Text('Todos'),
@@ -238,9 +256,9 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
                             },
                           ),
                         ),
-                    ],
-                  ),
+                  ],
                 ),
+              ),
               Expanded(
                 child: filtered.isEmpty
                     ? const Center(
@@ -263,6 +281,9 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
                           final channel = filtered[index];
                           final program =
                               _currentProgram(channel, programs);
+                          final isFavorite = favorites.contains(
+                            liveChannelFavoriteKey(channel),
+                          );
 
                           return Card(
                             child: InkWell(
@@ -323,6 +344,19 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
                                               ),
                                             ),
                                         ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: isFavorite
+                                          ? 'Quitar de favoritos'
+                                          : 'Añadir a favoritos',
+                                      onPressed: () => ref
+                                          .read(liveTvFavoritesProvider.notifier)
+                                          .toggle(channel),
+                                      icon: Icon(
+                                        isFavorite
+                                            ? Icons.star_rounded
+                                            : Icons.star_border_rounded,
                                       ),
                                     ),
                                   ],
