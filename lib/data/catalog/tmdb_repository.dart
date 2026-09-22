@@ -251,6 +251,7 @@ class TmdbRepository {
           year: year,
           poster: _uri(value['poster']),
           backdrop: _uri(value['background']),
+          externalId: _text(value['imdb_id']) ?? _text(value['id']),
         ),
       );
     }

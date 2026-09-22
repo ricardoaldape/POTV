@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../data/history/playback_history_repository.dart';
+import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import 'secure_webview_player.dart';
@@ -43,8 +45,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Player? player;
   VideoController? videoController;
   Timer? hideTimer;
+  Timer? historyTimer;
   bool controlsVisible = true;
   late int currentIndex;
+  final historyRepository = const PlaybackHistoryRepository();
 
   StreamCandidate get currentStream =>
       widget.session.candidates[currentIndex];
@@ -62,6 +66,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     hideTimer?.cancel();
+    historyTimer?.cancel();
+    unawaited(_saveProgress());
     player?.dispose();
     super.dispose();
   }
@@ -70,9 +76,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     bool notify = true,
     Duration? resumeAt,
   }) async {
+    historyTimer?.cancel();
+    await _saveProgress();
     await player?.dispose();
     player = null;
     videoController = null;
+
+    var effectiveResumeAt = resumeAt;
+    final playbackContext = widget.session.playbackContext;
+    if (effectiveResumeAt == null && playbackContext != null) {
+      final history = await historyRepository.get(playbackContext.historyKey);
+      if (history != null && history.positionMs > 5000) {
+        effectiveResumeAt = Duration(milliseconds: history.positionMs);
+      }
+    }
 
     if (currentStream.backend == PlaybackBackend.native) {
       final nextPlayer = Player();
@@ -85,12 +102,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
         play: true,
       );
-      if (resumeAt != null && resumeAt > Duration.zero) {
-        await nextPlayer.seek(resumeAt);
+      if (effectiveResumeAt != null && effectiveResumeAt > Duration.zero) {
+        await nextPlayer.seek(effectiveResumeAt);
       }
+      _armHistorySave();
     }
 
     if (notify && mounted) setState(() {});
+  }
+
+  void _armHistorySave() {
+    historyTimer?.cancel();
+    if (widget.session.playbackContext == null) return;
+    historyTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => unawaited(_saveProgress()),
+    );
+  }
+
+  Future<void> _saveProgress() async {
+    final playbackContext = widget.session.playbackContext;
+    final p = player;
+    if (playbackContext == null || p == null) return;
+
+    final position = p.state.position;
+    final duration = p.state.duration;
+    if (position < const Duration(seconds: 2)) return;
+
+    await historyRepository.save(
+      PlaybackHistoryEntry(
+        key: playbackContext.historyKey,
+        mediaId: playbackContext.mediaId,
+        mediaType: playbackContext.mediaType,
+        title: playbackContext.title,
+        season: playbackContext.season,
+        episode: playbackContext.episode,
+        poster: playbackContext.poster,
+        positionMs: position.inMilliseconds,
+        durationMs: duration.inMilliseconds,
+        updatedAt: DateTime.now(),
+      ),
+    );
   }
 
   void _armAutoHide() {

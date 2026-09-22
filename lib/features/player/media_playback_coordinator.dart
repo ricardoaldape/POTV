@@ -17,9 +17,51 @@ class MediaPlaybackCoordinator {
     WidgetRef ref,
     MediaItem item,
   ) async {
-    final episode = await _resolveEpisode(context, item);
-    if (episode == null && item.type != MediaType.movie) return;
+    if (item.type == MediaType.movie) {
+      return _playResolved(
+        context,
+        ref,
+        item,
+        season: null,
+        episode: null,
+      );
+    }
 
+    final selected = await _resolveEpisode(context, item);
+    if (selected == null || !context.mounted) return;
+
+    return _playResolved(
+      context,
+      ref,
+      item,
+      season: selected.season,
+      episode: selected.episode,
+    );
+  }
+
+  static Future<void> playEpisode(
+    BuildContext context,
+    WidgetRef ref,
+    MediaItem item, {
+    int? season,
+    required int episode,
+  }) {
+    return _playResolved(
+      context,
+      ref,
+      item,
+      season: season,
+      episode: episode,
+    );
+  }
+
+  static Future<void> _playResolved(
+    BuildContext context,
+    WidgetRef ref,
+    MediaItem item, {
+    int? season,
+    int? episode,
+  }) async {
     if (!context.mounted) return;
 
     final loading = showDialog<void>(
@@ -32,8 +74,8 @@ class MediaPlaybackCoordinator {
       final candidates = await ref.read(httpSourceResolverProvider).resolve(
             mediaType: item.mediaTypeName,
             mediaId: item.id.toString(),
-            season: episode?.season,
-            episode: episode?.episode,
+            season: season,
+            episode: episode,
           );
 
       final ranked = _ranker.rank(candidates);
@@ -50,9 +92,8 @@ class MediaPlaybackCoordinator {
 
       final title = switch (item.type) {
         MediaType.movie => item.title,
-        MediaType.tv =>
-          '${item.title} · T${episode!.season} E${episode.episode}',
-        MediaType.anime => '${item.title} · E${episode!.episode}',
+        MediaType.tv => '${item.title} · T$season E$episode',
+        MediaType.anime => '${item.title} · E$episode',
       };
 
       if (!context.mounted) return;
@@ -61,6 +102,14 @@ class MediaPlaybackCoordinator {
         extra: PlaybackSession(
           title: title,
           candidates: ranked,
+          playbackContext: PlaybackContext(
+            mediaId: item.id,
+            mediaType: item.mediaTypeName,
+            title: item.title,
+            season: season,
+            episode: episode,
+            poster: item.poster?.toString(),
+          ),
         ),
       );
     } catch (error) {
@@ -162,20 +211,12 @@ class MediaPlaybackCoordinator {
       builder: (context) => AlertDialog(
         title: const Text('Sin servidor disponible'),
         content: Text(
-          'Tus fuentes locales no devolvieron una reproducción disponible para ${item.title}.',
+          'POTV no encontró una reproducción disponible para ${item.title}.',
         ),
         actions: [
           TextButton(
             onPressed: () => context.pop(),
             child: const Text('Cerrar'),
-          ),
-          TextButton.icon(
-            onPressed: () {
-              context.pop();
-              context.push('/detail', extra: item);
-            },
-            icon: const Icon(Icons.info_outline),
-            label: const Text('Más información'),
           ),
           FilledButton.icon(
             onPressed: () {

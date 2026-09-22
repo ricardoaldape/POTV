@@ -39,6 +39,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _GenreSpec(title: 'Comedia', anilistGenre: 'Comedy'),
   ];
 
+  Future<void> _openItem(MediaItem item) async {
+    if (item.type == MediaType.movie) {
+      await MediaPlaybackCoordinator.play(context, ref, item);
+      return;
+    }
+    if (!mounted) return;
+    await context.push('/detail', extra: item);
+  }
+
   @override
   Widget build(BuildContext context) {
     final AsyncValue<List<MediaItem>> trending =
@@ -129,11 +138,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             SliverToBoxAdapter(
               child: HomeHero(
                 item: hero,
-                onPlay: () => MediaPlaybackCoordinator.play(
-                  context,
-                  ref,
-                  hero,
-                ),
+                onPlay: () => _openItem(hero),
               ),
             )
           else
@@ -174,11 +179,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     MediaType.anime => 'Top 10 anime popular',
                   },
                   items: popularItems,
-                  onPlay: (item) => MediaPlaybackCoordinator.play(
-                    context,
-                    ref,
-                    item,
-                  ),
+                  onPlay: _openItem,
                 ),
               ),
             ),
@@ -189,11 +190,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 child: MediaRail(
                   title: 'Tendencias ahora',
                   items: trendingItems.skip(1).toList(growable: false),
-                  onPlay: (item) => MediaPlaybackCoordinator.play(
-                    context,
-                    ref,
-                    item,
-                  ),
+                  onPlay: _openItem,
                 ),
               ),
             ),
@@ -370,11 +367,12 @@ class _GenreSection extends ConsumerWidget {
       child: MediaRail(
         title: genre.title,
         items: items,
-        onPlay: (item) => MediaPlaybackCoordinator.play(
-          context,
-          ref,
-          item,
-        ),
+        onPlay: (item) {
+          if (item.type == MediaType.movie) {
+            return MediaPlaybackCoordinator.play(context, ref, item);
+          }
+          return context.push('/detail', extra: item);
+        },
       ),
     );
   }

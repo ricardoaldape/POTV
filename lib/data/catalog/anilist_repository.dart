@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/text/plain_text.dart';
 import '../../domain/models/media_item.dart';
 
 final anilistRepositoryProvider = Provider<AniListRepository>((ref) {
@@ -142,11 +143,16 @@ class AniListRepository {
       id: id,
       type: MediaType.anime,
       title: title,
-      overview: _text(raw['description']),
+      overview: _description(raw['description']),
       year: year,
       poster: poster,
       backdrop: _uri(raw['bannerImage']),
     );
+  }
+
+  String? _description(Object? value) {
+    final text = _text(value);
+    return text == null ? null : plainTextFromHtml(text);
   }
 
   Uri? _uri(Object? value) {

@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/sources/http_source_resolver.dart';
+import '../../data/catalog/series_episode_repository.dart';
+import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/media_item.dart';
-import '../../domain/models/playback_session.dart';
+import '../../domain/models/playback_history_entry.dart';
+import '../../domain/models/series_episode.dart';
+import '../player/media_playback_coordinator.dart';
 
 class MediaDetailScreen extends ConsumerStatefulWidget {
   final MediaItem item;
@@ -19,72 +22,72 @@ class MediaDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
-  bool resolving = false;
+  int? selectedSeason;
+  late Future<PlaybackHistoryEntry?> historyFuture;
 
-  Future<({int season, int episode})?> _askEpisode() async {
-    final season = TextEditingController(text: '1');
-    final episode = TextEditingController(text: '1');
-
-    final result = await showDialog<({int season, int episode})>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Selecciona episodio'),
-        content: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: season,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Temporada'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: episode,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Episodio'),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => context.pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final s = int.tryParse(season.text.trim());
-              final e = int.tryParse(episode.text.trim());
-              if (s == null || e == null || s < 1 || e < 1) return;
-              context.pop((season: s, episode: e));
-            },
-            child: const Text('Continuar'),
-          ),
-        ],
-      ),
+  @override
+  void initState() {
+    super.initState();
+    historyFuture = const PlaybackHistoryRepository().latestForMedia(
+      mediaId: widget.item.id,
+      mediaType: widget.item.mediaTypeName,
     );
-
-    season.dispose();
-    episode.dispose();
-    return result;
   }
 
-  Future<int?> _askAnimeEpisode() async {
-    final episode = TextEditingController(text: '1');
+  Future<void> _playMovie() {
+    return MediaPlaybackCoordinator.play(context, ref, widget.item);
+  }
 
-    final result = await showDialog<int>(
+  Future<void> _playEpisode(SeriesEpisode episode) async {
+    await MediaPlaybackCoordinator.playEpisode(
+      context,
+      ref,
+      widget.item,
+      season: episode.season,
+      episode: episode.episode,
+    );
+    if (!mounted) return;
+    setState(() {
+      historyFuture = const PlaybackHistoryRepository().latestForMedia(
+        mediaId: widget.item.id,
+        mediaType: widget.item.mediaTypeName,
+      );
+    });
+  }
+
+  Future<void> _playHistory(PlaybackHistoryEntry history) async {
+    final episode = history.episode;
+    if (episode == null) return;
+
+    await MediaPlaybackCoordinator.playEpisode(
+      context,
+      ref,
+      widget.item,
+      season: history.season,
+      episode: episode,
+    );
+    if (!mounted) return;
+    setState(() {
+      historyFuture = const PlaybackHistoryRepository().latestForMedia(
+        mediaId: widget.item.id,
+        mediaType: widget.item.mediaTypeName,
+      );
+    });
+  }
+
+  Future<void> _chooseAnimeEpisode() async {
+    final controller = TextEditingController(text: '1');
+
+    final episode = await showDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Selecciona episodio'),
+        title: const Text('Elige episodio'),
         content: TextField(
-          controller: episode,
+          controller: controller,
           autofocus: true,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: 'Episodio absoluto',
-            helperText: 'POTV usa AniList ID + episodio absoluto.',
+            labelText: 'Episodio',
           ),
         ),
         actions: [
@@ -92,75 +95,28 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
             onPressed: () => context.pop(),
             child: const Text('Cancelar'),
           ),
-          FilledButton(
+          FilledButton.icon(
             onPressed: () {
-              final value = int.tryParse(episode.text.trim());
+              final value = int.tryParse(controller.text.trim());
               if (value == null || value < 1) return;
               context.pop(value);
             },
-            child: const Text('Continuar'),
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Reproducir'),
           ),
         ],
       ),
     );
 
-    episode.dispose();
-    return result;
-  }
+    controller.dispose();
+    if (episode == null || !mounted) return;
 
-  Future<void> _resolveAndPlay() async {
-    if (resolving) return;
-
-    int? season;
-    int? episode;
-    if (widget.item.type == MediaType.tv) {
-      final selected = await _askEpisode();
-      if (selected == null) return;
-      season = selected.season;
-      episode = selected.episode;
-    } else if (widget.item.type == MediaType.anime) {
-      episode = await _askAnimeEpisode();
-      if (episode == null) return;
-    }
-
-    setState(() => resolving = true);
-    try {
-      final candidates = await ref.read(httpSourceResolverProvider).resolve(
-            mediaType: widget.item.mediaTypeName,
-            mediaId: widget.item.id.toString(),
-            season: season,
-            episode: episode,
-          );
-
-      if (!mounted) return;
-
-      if (candidates.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Tus fuentes locales no devolvieron servidores para este contenido.',
-            ),
-          ),
-        );
-        return;
-      }
-
-      final title = switch (widget.item.type) {
-        MediaType.movie => widget.item.title,
-        MediaType.tv => '${widget.item.title} · T$season E$episode',
-        MediaType.anime => '${widget.item.title} · E$episode',
-      };
-
-      await context.push(
-        '/player',
-        extra: PlaybackSession(
-          title: title,
-          candidates: candidates,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => resolving = false);
-    }
+    await MediaPlaybackCoordinator.playEpisode(
+      context,
+      ref,
+      widget.item,
+      episode: episode,
+    );
   }
 
   @override
@@ -172,7 +128,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
         slivers: [
           SliverAppBar(
             pinned: true,
-            expandedHeight: 300,
+            expandedHeight: 320,
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
                 item.title,
@@ -198,7 +154,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                         end: Alignment.bottomCenter,
                         colors: [
                           Color(0x22000000),
-                          Color(0xEE070B0D),
+                          Color(0xFF071219),
                         ],
                       ),
                     ),
@@ -208,7 +164,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.all(22),
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 44),
             sliver: SliverList.list(
               children: [
                 Wrap(
@@ -237,28 +193,64 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                     color: Colors.white70,
                   ),
                 ),
-                const SizedBox(height: 24),
-                FilledButton.icon(
-                  onPressed: resolving ? null : _resolveAndPlay,
-                  icon: resolving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.play_arrow_rounded),
-                  label: Text(
-                    resolving
-                        ? 'Buscando en tus fuentes…'
-                        : switch (item.type) {
-                            MediaType.movie => 'Buscar servidores',
-                            MediaType.tv => 'Elegir episodio y buscar',
-                            MediaType.anime => 'Elegir episodio y buscar',
-                          },
-                  ),
+                const SizedBox(height: 22),
+                FutureBuilder<PlaybackHistoryEntry?>(
+                  future: historyFuture,
+                  builder: (context, snapshot) {
+                    final history = snapshot.data;
+                    if (history == null ||
+                        history.episode == null ||
+                        item.type == MediaType.movie) {
+                      return const SizedBox.shrink();
+                    }
+
+                    final label = item.type == MediaType.tv
+                        ? 'Continuar · T${history.season} E${history.episode}'
+                        : 'Continuar · E${history.episode}';
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: FilledButton.icon(
+                        onPressed: () => _playHistory(history),
+                        icon: const Icon(Icons.play_circle_fill_rounded),
+                        label: Text(label),
+                      ),
+                    );
+                  },
                 ),
-                const SizedBox(height: 10),
+                if (item.type == MediaType.movie)
+                  FilledButton.icon(
+                    onPressed: _playMovie,
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('Reproducir'),
+                  ),
+                if (item.type == MediaType.anime)
+                  FilledButton.icon(
+                    onPressed: _chooseAnimeEpisode,
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('Elegir episodio'),
+                  ),
+                if (item.type == MediaType.tv) ...[
+                  const Text(
+                    'Episodios',
+                    style: TextStyle(
+                      fontSize: 25,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _SeriesEpisodes(
+                    item: item,
+                    selectedSeason: selectedSeason,
+                    onSeasonChanged: (value) {
+                      setState(() => selectedSeason = value);
+                    },
+                    onPlay: _playEpisode,
+                  ),
+                ],
+                const SizedBox(height: 18),
                 const Text(
-                  'La consulta se realiza directamente desde este dispositivo a las fuentes configuradas. POTV no recibe la URL ni el resultado.',
+                  'POTV recuerda localmente tu avance para continuar después en este dispositivo.',
                   style: TextStyle(
                     color: Colors.white54,
                     fontSize: 12,
@@ -268,6 +260,170 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SeriesEpisodes extends ConsumerWidget {
+  final MediaItem item;
+  final int? selectedSeason;
+  final ValueChanged<int> onSeasonChanged;
+  final ValueChanged<SeriesEpisode> onPlay;
+
+  const _SeriesEpisodes({
+    required this.item,
+    required this.selectedSeason,
+    required this.onSeasonChanged,
+    required this.onPlay,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(seriesEpisodesProvider(item));
+
+    return state.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 30),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (error, stack) => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Text(
+          'No pudimos cargar la lista de episodios.',
+          style: TextStyle(color: Colors.white60),
+        ),
+      ),
+      data: (episodes) {
+        if (episodes.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Text(
+              'No encontramos episodios para esta serie.',
+              style: TextStyle(color: Colors.white60),
+            ),
+          );
+        }
+
+        final seasons = episodes.map((e) => e.season).toSet().toList()..sort();
+        final activeSeason = seasons.contains(selectedSeason)
+            ? selectedSeason!
+            : seasons.first;
+        final visible = episodes
+            .where((episode) => episode.season == activeSeason)
+            .toList(growable: false);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 48,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: seasons.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final season = seasons[index];
+                  return ChoiceChip(
+                    selected: season == activeSeason,
+                    label: Text('Temporada $season'),
+                    onSelected: (_) => onSeasonChanged(season),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
+            for (final episode in visible)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _EpisodeCard(
+                  episode: episode,
+                  onTap: () => onPlay(episode),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _EpisodeCard extends StatelessWidget {
+  final SeriesEpisode episode;
+  final VoidCallback onTap;
+
+  const _EpisodeCard({
+    required this.episode,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 132,
+                  height: 76,
+                  child: episode.thumbnail == null
+                      ? const ColoredBox(
+                          color: Color(0xFF142630),
+                          child: Icon(Icons.play_circle_outline_rounded),
+                        )
+                      : Image.network(
+                          episode.thumbnail.toString(),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stack) =>
+                              const ColoredBox(
+                            color: Color(0xFF142630),
+                            child: Icon(Icons.play_circle_outline_rounded),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${episode.code} · ${episode.title}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    if (episode.overview?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        episode.overview!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.play_arrow_rounded),
+            ],
+          ),
+        ),
       ),
     );
   }

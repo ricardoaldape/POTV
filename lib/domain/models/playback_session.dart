@@ -1,14 +1,44 @@
 import 'stream_candidate.dart';
 
+class PlaybackContext {
+  final int mediaId;
+  final String mediaType;
+  final String title;
+  final int? season;
+  final int? episode;
+  final String? poster;
+
+  const PlaybackContext({
+    required this.mediaId,
+    required this.mediaType,
+    required this.title,
+    this.season,
+    this.episode,
+    this.poster,
+  });
+
+  String get historyKey {
+    final parts = <String>[
+      mediaType,
+      mediaId.toString(),
+      if (season != null) 's$season',
+      if (episode != null) 'e$episode',
+    ];
+    return parts.join(':');
+  }
+}
+
 class PlaybackSession {
   final String title;
   final List<StreamCandidate> candidates;
   final int initialIndex;
+  final PlaybackContext? playbackContext;
 
   const PlaybackSession({
     required this.title,
     required this.candidates,
     this.initialIndex = 0,
+    this.playbackContext,
   });
 
   factory PlaybackSession.single(StreamCandidate stream) {

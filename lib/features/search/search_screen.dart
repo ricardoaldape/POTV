@@ -62,11 +62,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 : results.when(
                     data: (items) => _ResultGrid(
                       items: items,
-                      onPlay: (item) => MediaPlaybackCoordinator.play(
-                        context,
-                        ref,
-                        item,
-                      ),
+                      onPlay: (item) {
+                        if (item.type == MediaType.movie) {
+                          return MediaPlaybackCoordinator.play(
+                            context,
+                            ref,
+                            item,
+                          );
+                        }
+                        return context.push('/detail', extra: item);
+                      },
                     ),
                     loading: () => const Center(
                       child: CircularProgressIndicator(),
