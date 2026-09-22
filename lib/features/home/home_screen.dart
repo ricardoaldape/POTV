@@ -253,7 +253,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 },
                 subtitle: switch (selectedType) {
                   MediaType.movie =>
-                    'Elige una película y POTV buscará en tus fuentes locales.',
+                    'Elige una película y POTV buscará automáticamente el mejor servidor disponible.',
                   MediaType.tv =>
                     'Explora series sin salir de la misma pantalla.',
                   MediaType.anime =>

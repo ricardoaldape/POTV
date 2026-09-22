@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/playback_history_entry.dart';
@@ -46,7 +47,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   VideoController? videoController;
   Timer? hideTimer;
   Timer? historyTimer;
+  StreamSubscription<String>? playerErrorSubscription;
   bool controlsVisible = true;
+  bool failoverInProgress = false;
+  String? playbackError;
   late int currentIndex;
   final historyRepository = const PlaybackHistoryRepository();
 
@@ -67,6 +71,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     hideTimer?.cancel();
     historyTimer?.cancel();
+    unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
     player?.dispose();
     super.dispose();
@@ -77,10 +82,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     Duration? resumeAt,
   }) async {
     historyTimer?.cancel();
+    await playerErrorSubscription?.cancel();
+    playerErrorSubscription = null;
     await _saveProgress();
     await player?.dispose();
     player = null;
     videoController = null;
+    playbackError = null;
 
     var effectiveResumeAt = resumeAt;
     final playbackContext = widget.session.playbackContext;
@@ -91,24 +99,86 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    if (currentStream.backend == PlaybackBackend.native) {
-      final nextPlayer = Player();
-      player = nextPlayer;
-      videoController = VideoController(nextPlayer);
-      await nextPlayer.open(
-        Media(
-          currentStream.uri.toString(),
-          httpHeaders: currentStream.headers,
-        ),
-        play: true,
-      );
-      if (effectiveResumeAt != null && effectiveResumeAt > Duration.zero) {
-        await nextPlayer.seek(effectiveResumeAt);
+    while (true) {
+      try {
+        if (currentStream.backend == PlaybackBackend.native) {
+          final nextPlayer = Player();
+          player = nextPlayer;
+          videoController = VideoController(nextPlayer);
+          await nextPlayer.open(
+            Media(
+              currentStream.uri.toString(),
+              httpHeaders: currentStream.headers,
+            ),
+            play: true,
+          );
+          playerErrorSubscription = nextPlayer.stream.error.listen(
+            (message) => unawaited(_autoFailover(message)),
+          );
+          if (effectiveResumeAt != null &&
+              effectiveResumeAt > Duration.zero) {
+            await nextPlayer.seek(effectiveResumeAt);
+          }
+          _armHistorySave();
+        } else if (currentStream.backend == PlaybackBackend.external) {
+          final opened = await launchUrl(
+            currentStream.uri,
+            mode: LaunchMode.externalApplication,
+          );
+          if (!opened) {
+            throw StateError('No hay una aplicación disponible para abrirlo.');
+          }
+        }
+
+        break;
+      } catch (error) {
+        await playerErrorSubscription?.cancel();
+        playerErrorSubscription = null;
+        await player?.dispose();
+        player = null;
+        videoController = null;
+
+        if (currentIndex + 1 < widget.session.candidates.length) {
+          currentIndex += 1;
+          continue;
+        }
+
+        playbackError = error.toString();
+        break;
       }
-      _armHistorySave();
     }
 
-    if (notify && mounted) setState(() {});
+    if (mounted && (notify || playbackError != null)) setState(() {});
+  }
+
+  Future<void> _autoFailover(String message) async {
+    if (!mounted || failoverInProgress) return;
+    if (currentIndex + 1 >= widget.session.candidates.length) {
+      setState(() => playbackError = message);
+      return;
+    }
+
+    failoverInProgress = true;
+    final resumeAt = player?.state.position;
+    final failed = currentStream.label;
+    currentIndex += 1;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 2),
+          content: Text(
+            '${failed} falló. Probando ${currentStream.label}…',
+          ),
+        ),
+      );
+    }
+
+    try {
+      await _openCurrent(resumeAt: resumeAt);
+    } finally {
+      failoverInProgress = false;
+    }
   }
 
   void _armHistorySave() {
@@ -357,19 +427,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     final p = player;
 
-    final content = switch (currentStream.backend) {
-      PlaybackBackend.native => Video(
-          controller: videoController!,
-          controls: NoVideoControls,
-        ),
-      PlaybackBackend.webView => SecureWebViewPlayer(
-          key: ValueKey(currentStream.id),
-          stream: currentStream,
-        ),
-      PlaybackBackend.external => const Center(
-          child: Text('Reproductor externo: pendiente'),
-        ),
-    };
+    final Widget content;
+    if (playbackError != null) {
+      content = _PlaybackFailureView(
+        message: playbackError!,
+        hasAlternatives: widget.session.candidates.length > 1,
+        onRetry: () {
+          currentIndex = 0;
+          unawaited(_openCurrent());
+        },
+        onServers: _showServers,
+      );
+    } else {
+      content = switch (currentStream.backend) {
+        PlaybackBackend.native => videoController == null
+            ? const Center(child: CircularProgressIndicator())
+            : Video(
+                controller: videoController!,
+                controls: NoVideoControls,
+              ),
+        PlaybackBackend.webView => SecureWebViewPlayer(
+            key: ValueKey(currentStream.id),
+            stream: currentStream,
+          ),
+        PlaybackBackend.external => _ExternalPlaybackView(
+            stream: currentStream,
+            onOpen: () => launchUrl(
+              currentStream.uri,
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+      };
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -399,6 +488,122 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onServers: _showServers,
                   ),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ExternalPlaybackView extends StatelessWidget {
+  final StreamCandidate stream;
+  final Future<bool> Function() onOpen;
+
+  const _ExternalPlaybackView({
+    required this.stream,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.open_in_new_rounded, size: 54),
+              const SizedBox(height: 16),
+              Text(
+                stream.label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Este proveedor se abre en su aplicación o navegador.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: () => onOpen(),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Abrir proveedor'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaybackFailureView extends StatelessWidget {
+  final String message;
+  final bool hasAlternatives;
+  final VoidCallback onRetry;
+  final VoidCallback onServers;
+
+  const _PlaybackFailureView({
+    required this.message,
+    required this.hasAlternatives,
+    required this.onRetry,
+    required this.onServers,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline_rounded, size: 54),
+              const SizedBox(height: 14),
+              const Text(
+                'No se pudo iniciar este servidor',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white60),
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 10,
+                alignment: WrapAlignment.center,
+                children: [
+                  FilledButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Reintentar'),
+                  ),
+                  if (hasAlternatives)
+                    FilledButton.tonalIcon(
+                      onPressed: onServers,
+                      icon: const Icon(Icons.dns_outlined),
+                      label: const Text('Servidores'),
+                    ),
+                ],
               ),
             ],
           ),

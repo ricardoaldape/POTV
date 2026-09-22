@@ -52,9 +52,25 @@ class StremioProtocol {
       final value = streams[index];
       if (value is! Map<String, dynamic>) continue;
 
-      final url = Uri.tryParse(value['url']?.toString() ?? '');
-      if (url == null ||
-          (url.scheme != 'http' && url.scheme != 'https')) {
+      final directUrl = Uri.tryParse(value['url']?.toString() ?? '');
+      final externalUrl =
+          Uri.tryParse(value['externalUrl']?.toString() ?? '');
+      final ytId = _text(value['ytId']);
+
+      final Uri? url;
+      final PlaybackBackend backend;
+      if (directUrl != null &&
+          (directUrl.scheme == 'http' || directUrl.scheme == 'https')) {
+        url = directUrl;
+        backend = PlaybackBackend.native;
+      } else if (externalUrl != null &&
+          (externalUrl.scheme == 'http' || externalUrl.scheme == 'https')) {
+        url = externalUrl;
+        backend = PlaybackBackend.external;
+      } else if (ytId != null) {
+        url = Uri.parse('https://www.youtube.com/watch?v=$ytId');
+        backend = PlaybackBackend.external;
+      } else {
         continue;
       }
 
@@ -74,7 +90,7 @@ class StremioProtocol {
           language: _language(value),
           quality: _quality(value),
           headers: _requestHeaders(value['behaviorHints']),
-          backend: PlaybackBackend.native,
+          backend: backend,
         ),
       );
     }
