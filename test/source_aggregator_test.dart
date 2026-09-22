@@ -172,4 +172,78 @@ void main() {
     expect(result.providersFailed, 0);
     expect(result.candidates.single.id, 'anime-stream');
   });
+
+  test('reuses cached resolution for the same media identity', () async {
+    var calls = 0;
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'cached',
+        displayName: 'Cached',
+        priority: 10,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) async {
+          calls++;
+          return [
+            StreamCandidate(
+              id: 'cached-stream',
+              label: 'Cached',
+              uri: Uri.parse('https://example.com/cached.m3u8'),
+            ),
+          ];
+        },
+      ),
+    ]);
+
+    const request = ProviderResolveRequest(
+      mediaType: 'movie',
+      mediaId: '42',
+    );
+
+    final first = await aggregator.resolve(request);
+    final second = await aggregator.resolve(request);
+
+    expect(first.candidates.single.id, 'cached-stream');
+    expect(second.candidates.single.id, 'cached-stream');
+    expect(calls, 1);
+  });
+
+  test('deduplicates simultaneous resolution requests', () async {
+    var calls = 0;
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'shared',
+        displayName: 'Shared',
+        priority: 10,
+        supportedMediaTypes: const {'tv'},
+        handler: (_) async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          return [
+            StreamCandidate(
+              id: 'shared-stream',
+              label: 'Shared',
+              uri: Uri.parse('https://example.com/shared.m3u8'),
+            ),
+          ];
+        },
+      ),
+    ]);
+
+    const request = ProviderResolveRequest(
+      mediaType: 'tv',
+      mediaId: '99',
+      season: 1,
+      episode: 2,
+    );
+
+    final results = await Future.wait([
+      aggregator.resolve(request),
+      aggregator.resolve(request),
+      aggregator.resolve(request),
+    ]);
+
+    expect(results, hasLength(3));
+    expect(calls, 1);
+  });
+
 }

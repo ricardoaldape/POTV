@@ -66,7 +66,7 @@ class ConfiguredResolverProvider extends ProviderResolver {
   List<StreamCandidate> _parse(Object? raw) {
     Object? streamsRaw;
     if (raw is Map<String, dynamic>) {
-      streamsRaw = raw['streams'] ?? raw['results'];
+      streamsRaw = raw['streams'] ?? raw['results'] ?? raw['servidores'];
     } else if (raw is List) {
       streamsRaw = raw;
     }
@@ -83,6 +83,8 @@ class ConfiguredResolverProvider extends ProviderResolver {
       final uri = Uri.tryParse(
         item['url']?.toString() ??
             item['stream_url']?.toString() ??
+            item['servidor_url']?.toString() ??
+            item['resolved_m3u8']?.toString() ??
             item['uri']?.toString() ??
             '',
       );

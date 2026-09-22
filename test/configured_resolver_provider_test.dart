@@ -127,4 +127,51 @@ void main() {
     expect(requested!.queryParameters.containsKey('tmdb_id'), isFalse);
     expect(requested!.queryParameters['episode'], '53');
   });
+  test('configured resolver accepts servidores response schema', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response<Object?>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'servidores': [
+                  {
+                    'servidor_nombre': 'Servidor Latino',
+                    'servidor_url': 'https://cdn.example/latino.m3u8',
+                    'idioma': 'es_MX',
+                    'calidad': 'HD',
+                  },
+                ],
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final provider = ConfiguredResolverProvider(
+      ResolverEndpointConfig.fromJson({
+        'id': 'legacy-schema',
+        'name': 'Legacy',
+        'endpoint': 'https://resolver.example/resolve',
+        'media_types': ['movie'],
+      }),
+      dio: dio,
+    );
+
+    final streams = await provider.resolve(
+      const ProviderResolveRequest(
+        mediaType: 'movie',
+        mediaId: '1',
+      ),
+    );
+
+    expect(streams, hasLength(1));
+    expect(streams.first.uri.toString(), 'https://cdn.example/latino.m3u8');
+    expect(streams.first.language, 'es_MX');
+  });
+
 }

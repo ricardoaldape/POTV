@@ -25,6 +25,8 @@ class ProviderResolveRequest {
 }
 
 abstract class ProviderResolver {
+  const ProviderResolver();
+
   String get id;
   String get displayName;
   int get priority;

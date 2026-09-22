@@ -13,13 +13,48 @@ final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
 class SourceAggregator {
   final List<ProviderResolver> providers;
   final Duration providerTimeout;
+  final Duration cacheTtl;
 
-  const SourceAggregator(
+  final Map<String, _CachedResolution> _cache = {};
+  final Map<String, Future<ProviderResolutionResult>> _inFlight = {};
+
+  SourceAggregator(
     this.providers, {
     this.providerTimeout = const Duration(seconds: 18),
+    this.cacheTtl = const Duration(minutes: 5),
   });
 
   Future<ProviderResolutionResult> resolve(
+    ProviderResolveRequest request,
+  ) {
+    final key = _cacheKey(request);
+    final cached = _cache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.createdAt) <= cacheTtl) {
+      return Future.value(cached.result);
+    }
+
+    final running = _inFlight[key];
+    if (running != null) return running;
+
+    final future = _resolveFresh(request);
+    _inFlight[key] = future;
+    return future.then((result) {
+      _cache[key] = _CachedResolution(
+        result: result,
+        createdAt: DateTime.now(),
+      );
+      return result;
+    }).whenComplete(() {
+      _inFlight.remove(key);
+    });
+  }
+
+  void clearCache() {
+    _cache.clear();
+  }
+
+  Future<ProviderResolutionResult> _resolveFresh(
     ProviderResolveRequest request,
   ) async {
     final eligible = providers
@@ -67,6 +102,26 @@ class SourceAggregator {
       );
     }
   }
+
+  String _cacheKey(ProviderResolveRequest request) {
+    return [
+      request.mediaType,
+      request.mediaId,
+      request.externalId ?? '',
+      request.season?.toString() ?? '',
+      request.episode?.toString() ?? '',
+    ].join('|');
+  }
+}
+
+class _CachedResolution {
+  final ProviderResolutionResult result;
+  final DateTime createdAt;
+
+  const _CachedResolution({
+    required this.result,
+    required this.createdAt,
+  });
 }
 
 class _ProviderBatch {
