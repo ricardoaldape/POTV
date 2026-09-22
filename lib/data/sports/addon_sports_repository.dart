@@ -6,6 +6,7 @@ import '../../domain/models/stremio_addon_config.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../addons/stremio_addon_repository.dart';
 import '../addons/stremio_protocol.dart';
+import 'addon_sports_protocol.dart';
 
 final addonSportsRepositoryProvider = Provider<AddonSportsRepository>((ref) {
   return AddonSportsRepository(
@@ -213,44 +214,11 @@ class AddonSportsRepository {
         uri,
         options: Options(responseType: ResponseType.json),
       );
-      final raw = response.data;
-      if (raw is! Map<String, dynamic>) return const [];
-      final metas = raw['metas'];
-      if (metas is! List) return const [];
-
-      final result = <AddonSportsItem>[];
-      for (final value in metas) {
-        if (value is! Map<String, dynamic>) continue;
-        final itemId = _text(value['id']);
-        final itemType = _text(value['type']) ?? type;
-        final name = _text(value['name']);
-        if (itemId == null || name == null) continue;
-
-        final genres = value['genres'];
-        final genreText = genres is List && genres.isNotEmpty
-            ? _text(genres.first)
-            : null;
-        final description = _text(value['description']);
-        final combined =
-            '${name.toLowerCase()} ${description?.toLowerCase() ?? ''}';
-
-        result.add(
-          AddonSportsItem(
-            addon: addon,
-            id: itemId,
-            type: itemType,
-            name: name,
-            description: description,
-            poster: Uri.tryParse(_text(value['poster']) ?? ''),
-            genre: genreText,
-            isLive: combined.contains('live') ||
-                combined.contains('en vivo') ||
-                combined.contains('🔴'),
-          ),
-        );
-        if (result.length >= 50) break;
-      }
-      return result;
+      return AddonSportsProtocol.parseCatalog(
+        addon: addon,
+        fallbackType: type,
+        raw: response.data,
+      );
     } on DioException {
       return const [];
     }

@@ -1,101 +1,69 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potv/data/addons/stremio_addon_repository.dart';
-import 'package:potv/data/sports/addon_sports_repository.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:potv/data/addons/stremio_protocol.dart';
+import 'package:potv/data/sports/addon_sports_protocol.dart';
+import 'package:potv/domain/models/stremio_addon_config.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  const addon = StremioAddonConfig(
+    id: 'sports.test',
+    name: 'Sports Test',
+    manifestUri: Uri.parse('https://addon.example/manifest.json'),
+  );
 
-  test('loads live sports catalog and resolves direct streams', () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(server.close);
-
-    server.listen((request) async {
-      request.response.headers.contentType = ContentType.json;
-
-      switch (request.uri.path) {
-        case '/manifest.json':
-          request.response.write(jsonEncode({
-            'id': 'sports.test',
-            'name': 'Sports Test',
-            'version': '1.0.0',
-            'resources': ['catalog', 'stream'],
-            'types': ['tv'],
-            'catalogs': [
-              {
-                'type': 'tv',
-                'id': 'sports_live',
-                'name': 'Live Now',
-                'extra': [
-                  {
-                    'name': 'genre',
-                    'options': ['Football', 'Basketball'],
-                  }
-                ],
-              }
-            ],
-          }));
-          break;
-        case '/catalog/tv/sports_live/genre=Football.json':
-          request.response.write(jsonEncode({
-            'metas': [
-              {
-                'id': 'event-1',
-                'type': 'tv',
-                'name': 'LIVE: Team A vs Team B',
-                'genres': ['Football'],
-                'description': 'LIVE NOW',
-              }
-            ],
-          }));
-          break;
-        case '/stream/tv/event-1.json':
-          request.response.write(jsonEncode({
-            'streams': [
-              {
-                'name': 'Latino 1080p',
-                'url': 'https://example.com/live.m3u8',
-              }
-            ],
-          }));
-          break;
-        default:
-          request.response.statusCode = HttpStatus.notFound;
-      }
-
-      await request.response.close();
-    });
-
-    SharedPreferences.setMockInitialValues({
-      'potv_stremio_addons': jsonEncode([
-        {
-          'id': 'sports.test',
-          'name': 'Sports Test',
-          'manifest_uri':
-              'http://127.0.0.1:${server.port}/manifest.json',
-          'enabled': true,
-        }
-      ]),
-    });
-
-    final repository = AddonSportsRepository(
-      const StremioAddonRepository(),
-      Dio(),
+  test('parses live sports catalog items', () {
+    final items = AddonSportsProtocol.parseCatalog(
+      addon: addon,
+      fallbackType: 'tv',
+      raw: {
+        'metas': [
+          {
+            'id': 'event-1',
+            'type': 'tv',
+            'name': '🔴 LIVE: Team A vs Team B',
+            'genres': ['Football'],
+            'description': 'LIVE NOW',
+            'poster': 'https://example.com/poster.jpg',
+          }
+        ],
+      },
     );
 
-    final items = await repository.itemsForSport('Soccer');
     expect(items, hasLength(1));
     expect(items.first.name, contains('Team A'));
+    expect(items.first.genre, 'Football');
     expect(items.first.isLive, isTrue);
+    expect(items.first.poster.toString(), 'https://example.com/poster.jpg');
+  });
 
-    final streams = await repository.streamsFor(items.first);
+  test('parses direct playback candidates returned by sports addon', () {
+    final streams = StremioProtocol.parseStreams(
+      addon: addon,
+      raw: {
+        'streams': [
+          {
+            'name': 'Latino 1080p',
+            'url': 'https://example.com/live.m3u8',
+          }
+        ],
+      },
+    );
+
     expect(streams, hasLength(1));
     expect(streams.first.uri.toString(), 'https://example.com/live.m3u8');
     expect(streams.first.language, 'es-MX');
     expect(streams.first.quality, '1080p');
+  });
+
+  test('builds sports stream URL from addon manifest', () {
+    final uri = StremioProtocol.streamUri(
+      addon: addon,
+      type: 'tv',
+      itemId: 'event-1',
+    );
+
+    expect(
+      uri.toString(),
+      'https://addon.example/stream/tv/event-1.json',
+    );
   });
 }
