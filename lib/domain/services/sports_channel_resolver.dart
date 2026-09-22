@@ -48,7 +48,7 @@ class SportsChannelResolver {
         }
       }
 
-      if (bestScore > 0) {
+      if (bestScore >= 4) {
         matches.add(
           SportsChannelMatch(
             channel: channel,

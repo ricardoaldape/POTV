@@ -10,14 +10,19 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomScrollView(
       slivers: [
-        const SliverAppBar(
+        SliverAppBar(
           floating: true,
-          title: Text('POTV', style: TextStyle(fontWeight: FontWeight.w900)),
+          title: const Text(
+            'POTV',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
           actions: [
-            Padding(
-              padding: EdgeInsets.all(12),
-              child: Icon(Icons.person_outline),
+            IconButton(
+              tooltip: 'Ajustes',
+              onPressed: () => context.go('/settings'),
+              icon: const Icon(Icons.settings_outlined),
             ),
+            const SizedBox(width: 8),
           ],
         ),
         SliverPadding(

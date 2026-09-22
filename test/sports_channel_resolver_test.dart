@@ -46,4 +46,35 @@ void main() {
     expect(matches.first.channel.id, 'sports-1');
     expect(matches.first.program?.title, 'Tigres vs Pumas');
   });
+
+  test('ignores weak one-token channel matches', () {
+    final starts = DateTime.now().add(const Duration(minutes: 30));
+    final event = SportsEvent(
+      id: 'event-2',
+      sport: 'Fútbol',
+      competition: 'Liga Demo',
+      home: 'America',
+      away: 'Monterrey',
+      startsAt: starts,
+    );
+
+    final channel = LiveChannel(
+      id: 'weak-1',
+      name: 'America TV',
+      stream: StreamCandidate(
+        id: 'weak-stream',
+        label: 'America TV',
+        uri: Uri.parse('https://example.com/weak.m3u8'),
+      ),
+    );
+
+    const resolver = SportsChannelResolver();
+    final matches = resolver.resolve(
+      event: event,
+      channels: [channel],
+      programs: const [],
+    );
+
+    expect(matches, isEmpty);
+  });
 }
