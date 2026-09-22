@@ -5,9 +5,12 @@ import 'package:go_router/go_router.dart';
 import '../../app/app_theme.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
+import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/media_item.dart';
+import '../../domain/models/playback_history_entry.dart';
 import '../browse/genre_browse_screen.dart';
 import '../player/media_playback_coordinator.dart';
+import 'widgets/continue_watching_rail.dart';
 import 'widgets/home_hero.dart';
 import 'widgets/media_rail.dart';
 import 'widgets/top_ten_rail.dart';
@@ -68,10 +71,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _openItem(MediaItem item) async {
     if (item.type == MediaType.movie) {
       await MediaPlaybackCoordinator.play(context, ref, item);
+      ref.invalidate(playbackHistoryProvider);
       return;
     }
     if (!mounted) return;
     await context.push('/detail', extra: item);
+    ref.invalidate(playbackHistoryProvider);
+  }
+
+  MediaType? _mediaTypeFromHistory(String value) => switch (value) {
+        'movie' => MediaType.movie,
+        'tv' => MediaType.tv,
+        'anime' => MediaType.anime,
+        _ => null,
+      };
+
+  Future<void> _resumeHistory(PlaybackHistoryEntry history) async {
+    final type = _mediaTypeFromHistory(history.mediaType);
+    if (type == null || history.mediaId <= 0) return;
+
+    final item = MediaItem(
+      id: history.mediaId,
+      type: type,
+      title: history.title,
+      poster: history.poster == null ? null : Uri.tryParse(history.poster!),
+    );
+
+    if (history.episode != null) {
+      await MediaPlaybackCoordinator.playEpisode(
+        context,
+        ref,
+        item,
+        season: history.season,
+        episode: history.episode!,
+      );
+    } else {
+      await MediaPlaybackCoordinator.play(context, ref, item);
+    }
+
+    ref.invalidate(playbackHistoryProvider);
   }
 
   Future<void> _openGenre(_GenreSpec genre) async {
@@ -101,6 +139,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       MediaType.tv => tvGenres,
       MediaType.anime => animeGenres,
     };
+    final historyState = ref.watch(playbackHistoryProvider);
+    final historyItems =
+        historyState.asData?.value ?? const <PlaybackHistoryEntry>[];
 
     final trendingItems = trending.asData?.value ?? const <MediaItem>[];
     final popularItems = popular.asData?.value ?? const <MediaItem>[];
@@ -189,6 +230,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: _HeroFallback(
                 loading: trending.isLoading,
                 error: trending.hasError ? trending.error : null,
+              ),
+            ),
+          if (historyItems.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: ContinueWatchingRail(
+                  entries: historyItems,
+                  onResume: _resumeHistory,
+                ),
               ),
             ),
           SliverToBoxAdapter(
