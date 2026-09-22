@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:potv/data/addons/stremio_protocol.dart';
 import 'package:potv/domain/models/stremio_addon_config.dart';
+import 'package:potv/domain/models/stream_candidate.dart';
 
 void main() {
   final addon = StremioAddonConfig(
@@ -30,6 +31,27 @@ void main() {
     expect(streams.first.uri.toString(), 'https://cdn.example/movie.m3u8');
     expect(streams.first.language, 'es-MX');
     expect(streams.first.quality, '1080p');
+  });
+
+  test('parses external provider links as fallback candidates', () {
+    final streams = StremioProtocol.parseStreams(
+      addon: addon,
+      raw: {
+        'streams': [
+          {
+            'name': 'Proveedor oficial',
+            'externalUrl': 'https://example.com/watch/title',
+          },
+        ],
+      },
+    );
+
+    expect(streams, hasLength(1));
+    expect(streams.first.backend, PlaybackBackend.external);
+    expect(
+      streams.first.uri.toString(),
+      'https://example.com/watch/title',
+    );
   });
 
   test('builds conventional Stremio movie and series ids', () {
