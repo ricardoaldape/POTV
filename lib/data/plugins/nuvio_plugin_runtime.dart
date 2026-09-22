@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter_js/flutter_js.dart';
+import 'package:quickjs_engine/quickjs_engine.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_config.dart';
@@ -36,6 +36,9 @@ class NuvioPluginRuntime {
         'mediaType': mediaType,
         'season': request.season,
         'episode': request.episode,
+        'title': request.title,
+        'year': request.year,
+        'externalId': request.externalId,
       });
       final bootstrap = _bootstrap(
         tmdbApiKey: AppConfig.tmdbApiKey,
@@ -128,6 +131,39 @@ var window = globalThis;
 var self = globalThis;
 var TMDB_API_KEY = ${jsonEncode(tmdbApiKey)};
 var __POTV_CALL = ${jsonEncode(callJson)};
+var __POTV_META = JSON.parse(__POTV_CALL);
+var __POTV_FETCH = typeof globalThis.fetch === 'function' ? globalThis.fetch : null;
+if ((!TMDB_API_KEY || String(TMDB_API_KEY).length === 0) && __POTV_FETCH) {
+  globalThis.fetch = async function(url, options) {
+    var target = String(url || '');
+    if (target.indexOf('https://api.themoviedb.org/3/movie/') === 0 ||
+        target.indexOf('https://api.themoviedb.org/3/tv/') === 0) {
+      var title = __POTV_META.title || '';
+      var year = String(__POTV_META.year || '').match(/\d{4}/);
+      var date = year ? year[0] + '-01-01' : '';
+      var payload = {
+        id: parseInt(__POTV_META.tmdbId || '0', 10) || 0,
+        title: title,
+        name: title,
+        original_title: title,
+        original_name: title,
+        release_date: date,
+        first_air_date: date,
+        imdb_id: __POTV_META.externalId || null
+      };
+      return {
+        ok: title.length > 0,
+        status: title.length > 0 ? 200 : 404,
+        statusText: title.length > 0 ? 'OK' : 'Not Found',
+        url: target,
+        headers: { get: function() { return null; } },
+        text: function() { return Promise.resolve(JSON.stringify(payload)); },
+        json: function() { return Promise.resolve(payload); }
+      };
+    }
+    return __POTV_FETCH(url, options);
+  };
+}
 if (typeof atob === 'undefined') {
   globalThis.atob = function(input) {
     var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';

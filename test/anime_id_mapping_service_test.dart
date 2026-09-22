@@ -16,6 +16,7 @@ void main() {
                 'mappings': {
                   'anilist_id': 21,
                   'imdb_id': 'tt0388629',
+                  'tmdb_id': 37854,
                 },
                 'episodes': {
                   '100': {
@@ -38,6 +39,7 @@ void main() {
 
     expect(mapping, isNotNull);
     expect(mapping!.imdbId, 'tt0388629');
+    expect(mapping.tmdbId, 37854);
     expect(mapping.season, 4);
     expect(mapping.episode, 9);
     expect(mapping.canUseSeriesProtocol, isTrue);

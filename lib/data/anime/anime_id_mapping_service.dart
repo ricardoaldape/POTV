@@ -19,6 +19,7 @@ final animeIdMappingServiceProvider = Provider<AnimeIdMappingService>((ref) {
 class AnimeEpisodeMapping {
   final int anilistId;
   final String? imdbId;
+  final int? tmdbId;
   final int absoluteEpisode;
   final int? season;
   final int? episode;
@@ -26,6 +27,7 @@ class AnimeEpisodeMapping {
   const AnimeEpisodeMapping({
     required this.anilistId,
     required this.imdbId,
+    required this.tmdbId,
     required this.absoluteEpisode,
     required this.season,
     required this.episode,
@@ -76,6 +78,7 @@ class AnimeIdMappingService {
 
     final mappings = raw['mappings'];
     final imdbId = mappings is Map ? _text(mappings['imdb_id']) : null;
+    final tmdbId = mappings is Map ? _int(mappings['tmdb_id']) : null;
     final episodes = raw['episodes'];
 
     Map<String, dynamic>? episodeRaw;
@@ -93,6 +96,7 @@ class AnimeIdMappingService {
     return AnimeEpisodeMapping(
       anilistId: anilistId,
       imdbId: imdbId,
+      tmdbId: tmdbId,
       absoluteEpisode: absoluteEpisode,
       season: _int(episodeRaw?['seasonNumber']),
       episode: _int(episodeRaw?['episodeNumber']),
@@ -137,6 +141,7 @@ class AnimeIdMappingService {
       return AnimeEpisodeMapping(
         anilistId: anilistId,
         imdbId: imdbId,
+        tmdbId: fallback?.tmdbId,
         absoluteEpisode: absoluteEpisode,
         season: _int(selected['season']),
         episode: _int(selected['episode']),

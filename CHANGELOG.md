@@ -4,6 +4,8 @@
 
 - Añade una entrada única “Agregar fuente” con detección automática de addons compatibles, repositorios Nuvio JS y listas M3U.
 - Añade runtime local de plugins Nuvio compatibles: `getStreams(tmdbId, mediaType, season, episode)` se integra al ResolverPool de POTV.
+- El runtime usa QuickJS-NG mediante `quickjs_engine` para compatibilidad con builds Android modernos.
+- Anime traduce AniList/episodio a TMDB/temporada/episodio antes de consultar plugins compatibles.
 - Los plugins instalados se consultan automáticamente al pulsar Play y sus resultados pasan por ranking, probe y failover existentes.
 - Las fuentes avanzadas quedan fuera del flujo principal y la pantalla muestra plugins instalados con activación/desactivación.
 - POTV reconoce repositorios CloudStream y los identifica de forma explícita; el bridge `.cs3` todavía no forma parte de este build.
