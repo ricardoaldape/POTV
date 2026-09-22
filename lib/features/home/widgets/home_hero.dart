@@ -138,9 +138,11 @@ class HomeHero extends StatelessWidget {
                           onPressed: () async => onPlay(),
                           icon: const Icon(Icons.play_arrow_rounded),
                           label: Text(
-                            item.type == MediaType.movie
-                                ? 'Reproducir'
-                                : 'Elegir episodio',
+                            switch (item.type) {
+                              MediaType.movie => 'Reproducir',
+                              MediaType.tv => 'Ver episodios',
+                              MediaType.anime => 'Ver anime',
+                            },
                           ),
                         ),
                         OutlinedButton.icon(

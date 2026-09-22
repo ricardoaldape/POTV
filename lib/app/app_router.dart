@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import '../domain/models/media_item.dart';
+import '../features/browse/genre_browse_screen.dart';
 import '../features/content/media_detail_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/library/library_screen.dart';
@@ -29,6 +30,16 @@ final potvRouter = GoRouter(
     GoRoute(
       path: '/sources',
       builder: (context, state) => const SourcesScreen(),
+    ),
+    GoRoute(
+      path: '/browse',
+      builder: (context, state) {
+        final request = state.extra;
+        if (request is! GenreBrowseRequest) {
+          throw StateError('Browse request missing');
+        }
+        return GenreBrowseScreen(request: request);
+      },
     ),
     GoRoute(
       path: '/detail',

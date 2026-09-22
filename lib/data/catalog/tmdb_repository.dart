@@ -261,15 +261,31 @@ class TmdbRepository {
   String? _cinemetaGenre(MediaType type, int genreId) {
     if (type == MediaType.movie) {
       return const {
+        12: 'Adventure',
+        16: 'Animation',
+        18: 'Drama',
+        27: 'Horror',
         28: 'Action',
         35: 'Comedy',
-        27: 'Horror',
+        53: 'Thriller',
+        80: 'Crime',
+        99: 'Documentary',
+        878: 'Sci-Fi',
+        9648: 'Mystery',
+        10749: 'Romance',
       }[genreId];
     }
 
     return const {
+      16: 'Animation',
       18: 'Drama',
       35: 'Comedy',
+      80: 'Crime',
+      99: 'Documentary',
+      9648: 'Mystery',
+      10751: 'Family',
+      10759: 'Action',
+      10764: 'Reality',
       10765: 'Sci-Fi',
     }[genreId];
   }

@@ -8,12 +8,14 @@ class MediaRail extends StatelessWidget {
   final String title;
   final List<MediaItem> items;
   final Future<void> Function(MediaItem) onPlay;
+  final VoidCallback? onViewMore;
 
   const MediaRail({
     super.key,
     required this.title,
     required this.items,
     required this.onPlay,
+    this.onViewMore,
   });
 
   @override
@@ -25,13 +27,24 @@ class MediaRail extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.3,
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+              if (onViewMore != null)
+                TextButton(
+                  onPressed: onViewMore,
+                  child: const Text('Ver más'),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 12),

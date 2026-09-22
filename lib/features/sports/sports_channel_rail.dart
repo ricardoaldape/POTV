@@ -42,7 +42,7 @@ class SportsChannelRail extends StatelessWidget {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.sports_tv_rounded),
+                          Icon(Icons.live_tv_rounded),
                           Spacer(),
                           Icon(Icons.play_arrow_rounded),
                         ],

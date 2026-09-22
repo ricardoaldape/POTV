@@ -6,6 +6,7 @@ import '../../app/app_theme.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../domain/models/media_item.dart';
+import '../browse/genre_browse_screen.dart';
 import '../player/media_playback_coordinator.dart';
 import 'widgets/home_hero.dart';
 import 'widgets/media_rail.dart';
@@ -23,20 +24,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   static const movieGenres = <_GenreSpec>[
     _GenreSpec(title: 'Acción', tmdbId: 28),
+    _GenreSpec(title: 'Suspenso', tmdbId: 53),
     _GenreSpec(title: 'Comedia', tmdbId: 35),
+    _GenreSpec(title: 'Drama', tmdbId: 18),
     _GenreSpec(title: 'Terror', tmdbId: 27),
+    _GenreSpec(title: 'Ciencia ficción', tmdbId: 878),
+    _GenreSpec(title: 'Crimen', tmdbId: 80),
+    _GenreSpec(title: 'Misterio', tmdbId: 9648),
+    _GenreSpec(title: 'Romance', tmdbId: 10749),
+    _GenreSpec(title: 'Aventura', tmdbId: 12),
+    _GenreSpec(title: 'Animación', tmdbId: 16),
+    _GenreSpec(title: 'Documental', tmdbId: 99),
   ];
 
   static const tvGenres = <_GenreSpec>[
     _GenreSpec(title: 'Drama', tmdbId: 18),
     _GenreSpec(title: 'Comedia', tmdbId: 35),
+    _GenreSpec(title: 'Suspenso y misterio', tmdbId: 9648),
+    _GenreSpec(title: 'Crimen', tmdbId: 80),
     _GenreSpec(title: 'Ciencia ficción y fantasía', tmdbId: 10765),
+    _GenreSpec(title: 'Acción y aventura', tmdbId: 10759),
+    _GenreSpec(title: 'Animación', tmdbId: 16),
+    _GenreSpec(title: 'Documental', tmdbId: 99),
+    _GenreSpec(title: 'Familia', tmdbId: 10751),
+    _GenreSpec(title: 'Reality', tmdbId: 10764),
   ];
 
   static const animeGenres = <_GenreSpec>[
     _GenreSpec(title: 'Acción', anilistGenre: 'Action'),
     _GenreSpec(title: 'Aventura', anilistGenre: 'Adventure'),
     _GenreSpec(title: 'Comedia', anilistGenre: 'Comedy'),
+    _GenreSpec(title: 'Drama', anilistGenre: 'Drama'),
+    _GenreSpec(title: 'Fantasía', anilistGenre: 'Fantasy'),
+    _GenreSpec(title: 'Romance', anilistGenre: 'Romance'),
+    _GenreSpec(title: 'Ciencia ficción', anilistGenre: 'Sci-Fi'),
+    _GenreSpec(title: 'Misterio', anilistGenre: 'Mystery'),
+    _GenreSpec(title: 'Terror', anilistGenre: 'Horror'),
+    _GenreSpec(title: 'Deportes', anilistGenre: 'Sports'),
+    _GenreSpec(title: 'Slice of Life', anilistGenre: 'Slice of Life'),
+    _GenreSpec(title: 'Sobrenatural', anilistGenre: 'Supernatural'),
   ];
 
   Future<void> _openItem(MediaItem item) async {
@@ -46,6 +72,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     if (!mounted) return;
     await context.push('/detail', extra: item);
+  }
+
+  Future<void> _openGenre(_GenreSpec genre) async {
+    await context.push(
+      '/browse',
+      extra: GenreBrowseRequest(
+        type: selectedType,
+        title: genre.title,
+        tmdbGenreId: genre.tmdbId,
+        anilistGenre: genre.anilistGenre,
+      ),
+    );
   }
 
   @override
@@ -108,6 +146,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onPressed: () => context.go('/search'),
                 icon: const Icon(Icons.search_rounded),
               ),
+              IconButton(
+                tooltip: 'Ajustes',
+                onPressed: () => context.go('/settings'),
+                icon: const Icon(Icons.settings_rounded),
+              ),
               if (wideHeader)
                 IconButton(
                   tooltip: 'Live TV',
@@ -168,6 +211,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
           ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: _GenrePicker(
+                genres: genres,
+                onSelected: _openGenre,
+              ),
+            ),
+          ),
           if (popularItems.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
@@ -194,7 +246,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
             ),
-          for (final genre in genres)
+          for (final genre in genres.take(6))
             SliverToBoxAdapter(
               child: _GenreSection(
                 type: selectedType,
@@ -326,6 +378,36 @@ class _GenreSpec {
   });
 }
 
+class _GenrePicker extends StatelessWidget {
+  final List<_GenreSpec> genres;
+  final Future<void> Function(_GenreSpec) onSelected;
+
+  const _GenrePicker({
+    required this.genres,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        scrollDirection: Axis.horizontal,
+        itemCount: genres.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final genre = genres[index];
+          return ActionChip(
+            label: Text(genre.title),
+            onPressed: () async => onSelected(genre),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _GenreSection extends ConsumerWidget {
   final MediaType type;
   final _GenreSpec genre;
@@ -372,6 +454,17 @@ class _GenreSection extends ConsumerWidget {
             return MediaPlaybackCoordinator.play(context, ref, item);
           }
           return context.push('/detail', extra: item);
+        },
+        onViewMore: () {
+          context.push(
+            '/browse',
+            extra: GenreBrowseRequest(
+              type: type,
+              title: genre.title,
+              tmdbGenreId: genre.tmdbId,
+              anilistGenre: genre.anilistGenre,
+            ),
+          );
         },
       ),
     );

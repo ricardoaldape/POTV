@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 class PotvTheme {
-  static const background = Color(0xFF05090D);
-  static const surface = Color(0xFF0D151B);
-  static const surfaceAlt = Color(0xFF13232C);
-  static const cyan = Color(0xFF4BE8F4);
-  static const cyanDeep = Color(0xFF10BFD1);
-  static const mint = Color(0xFF65E6B4);
-  static const warm = Color(0xFFFFB45E);
+  static const background = Color(0xFF07131A);
+  static const surface = Color(0xFF0D1B24);
+  static const surfaceAlt = Color(0xFF122430);
+  static const cyan = Color(0xFF48D7E8);
+  static const cyanDeep = Color(0xFF2FB9C9);
+  static const mint = Color(0xFF6FD8C2);
+  static const warm = Color(0xFFD9A96C);
 
   static ThemeData dark() {
     final scheme = ColorScheme.fromSeed(
@@ -38,7 +38,7 @@ class PotvTheme {
         ),
       ),
       navigationRailTheme: NavigationRailThemeData(
-        backgroundColor: const Color(0xFF071016),
+        backgroundColor: const Color(0xFF0A1820),
         indicatorColor: cyan.withValues(alpha: 0.16),
         selectedIconTheme: const IconThemeData(
           color: cyan,
@@ -57,7 +57,7 @@ class PotvTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: const Color(0xFF071016),
+        backgroundColor: const Color(0xFF0A1820),
         indicatorColor: cyan.withValues(alpha: 0.16),
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
