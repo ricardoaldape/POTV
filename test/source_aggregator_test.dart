@@ -168,8 +168,8 @@ void main() {
     );
 
     expect(result.providersEligible, 2);
-    expect(result.providersCompleted, 2);
-    expect(result.providersFailed, 0);
+    expect(result.providersCompleted, 1);
+    expect(result.providersFailed, 1);
     expect(result.candidates.single.id, 'anime-stream');
   });
 
@@ -244,6 +244,43 @@ void main() {
 
     expect(results, hasLength(3));
     expect(calls, 1);
+  });
+
+
+  test('synchronous provider exception is isolated too', () async {
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'sync-broken',
+        displayName: 'Sync Broken',
+        priority: 10,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) => throw StateError('sync offline'),
+      ),
+      _FakeProvider(
+        id: 'sync-working',
+        displayName: 'Sync Working',
+        priority: 20,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) async => [
+          StreamCandidate(
+            id: 'sync-stream',
+            label: 'Sync Working',
+            uri: Uri.parse('https://example.com/sync.mp4'),
+          ),
+        ],
+      ),
+    ]);
+
+    final result = await aggregator.resolve(
+      const ProviderResolveRequest(
+        mediaType: 'movie',
+        mediaId: 'sync-test',
+      ),
+    );
+
+    expect(result.providersCompleted, 1);
+    expect(result.providersFailed, 1);
+    expect(result.candidates.single.id, 'sync-stream');
   });
 
 }
