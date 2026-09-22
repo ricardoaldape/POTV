@@ -4,13 +4,16 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../data/live_tv/built_in_live_sources.dart';
+import '../../data/sports/addon_sports_repository.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sports/sports_repository.dart';
+import '../../domain/models/addon_sports_item.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
 import '../../domain/services/sports_channel_resolver.dart';
+import 'addon_sports_rail.dart';
 import 'sports_channel_rail.dart';
 
 const _sports = <({String label, String api, IconData icon})>[
@@ -85,6 +88,9 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     final sportsChannelsState = ref.watch(builtInSportsChannelsProvider);
     final sportsChannels =
         sportsChannelsState.asData?.value ?? const <LiveChannel>[];
+    final addonSportsState = ref.watch(addonSportsItemsProvider(selectedSport));
+    final addonSportsItems =
+        addonSportsState.asData?.value ?? const <AddonSportsItem>[];
     final channels = _mergeChannels(liveChannels, sportsChannels);
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
         const <EpgProgram>[];
@@ -95,9 +101,11 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
         actions: [
           IconButton(
             tooltip: 'Actualizar eventos',
-            onPressed: () => ref.invalidate(
-              sportsEventsProvider(query),
-            ),
+            onPressed: () {
+              ref.invalidate(sportsEventsProvider(query));
+              ref.invalidate(addonSportsItemsProvider(selectedSport));
+              ref.invalidate(builtInSportsChannelsProvider);
+            },
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -177,6 +185,36 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             ),
           ),
           const SizedBox(height: 18),
+          if (addonSportsState.isLoading)
+            const LinearProgressIndicator(minHeight: 2),
+          if (addonSportsItems.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'En vivo desde tus addons',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${addonSportsItems.length} eventos',
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'POTV lee el catálogo del addon instalado y pide sus servidores solo cuando eliges un evento.',
+              style: TextStyle(color: Colors.white60),
+            ),
+            const SizedBox(height: 10),
+            AddonSportsRail(items: addonSportsItems),
+            const SizedBox(height: 22),
+          ],
           if (sportsChannelsState.isLoading)
             const LinearProgressIndicator(minHeight: 2),
           if (sportsChannels.isNotEmpty) ...[
