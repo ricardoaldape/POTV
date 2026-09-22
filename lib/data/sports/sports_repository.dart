@@ -58,9 +58,40 @@ class SportsRepository {
       if (mapped != null) events.add(mapped);
     }
 
-    events.sort((a, b) => a.startsAt.compareTo(b.startsAt));
+    events.sort((a, b) {
+      final score = _eventPriority(b).compareTo(_eventPriority(a));
+      if (score != 0) return score;
+      return a.startsAt.compareTo(b.startsAt);
+    });
     _cache[cacheKey] = List.unmodifiable(events);
     return _cache[cacheKey]!;
+  }
+
+  int _eventPriority(SportsEvent event) {
+    var score = event.isLive ? 100 : 0;
+    final text = '${event.competition} ${event.home} ${event.away}'
+        .toLowerCase();
+
+    const priorityTerms = <String, int>{
+      'liga mx': 40,
+      'champions': 36,
+      'premier league': 34,
+      'la liga': 32,
+      'serie a': 28,
+      'bundesliga': 28,
+      'mls': 24,
+      'copa libertadores': 30,
+      'concacaf': 30,
+      'nfl': 28,
+      'nba': 28,
+      'formula 1': 28,
+      'ufc': 26,
+    };
+
+    for (final entry in priorityTerms.entries) {
+      if (text.contains(entry.key)) score += entry.value;
+    }
+    return score;
   }
 
   SportsEvent? _mapEvent(Map<String, dynamic> raw) {
