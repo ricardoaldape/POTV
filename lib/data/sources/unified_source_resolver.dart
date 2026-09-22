@@ -7,6 +7,7 @@ import '../anime/anime_id_mapping_service.dart';
 import '../anime/anime_official_streaming_resolver.dart';
 import 'http_source_resolver.dart';
 import 'public_domain_movie_resolver.dart';
+import 'public_domain_series_resolver.dart';
 
 final unifiedSourceResolverProvider = Provider<UnifiedSourceResolver>((ref) {
   return UnifiedSourceResolver(
@@ -15,6 +16,7 @@ final unifiedSourceResolverProvider = Provider<UnifiedSourceResolver>((ref) {
     animeMapping: ref.read(animeIdMappingServiceProvider),
     animeOfficial: ref.read(animeOfficialStreamingProvider),
     publicDomainMovies: ref.read(publicDomainMovieResolverProvider),
+    publicDomainSeries: ref.read(publicDomainSeriesResolverProvider),
   );
 });
 
@@ -24,6 +26,7 @@ class UnifiedSourceResolver implements SourceResolver {
   final AnimeIdMappingService animeMapping;
   final AnimeOfficialStreamingResolver animeOfficial;
   final PublicDomainMovieResolver publicDomainMovies;
+  final PublicDomainSeriesResolver publicDomainSeries;
 
   const UnifiedSourceResolver({
     required this.http,
@@ -31,6 +34,7 @@ class UnifiedSourceResolver implements SourceResolver {
     required this.animeMapping,
     required this.animeOfficial,
     required this.publicDomainMovies,
+    required this.publicDomainSeries,
   });
 
   @override
@@ -71,6 +75,12 @@ class UnifiedSourceResolver implements SourceResolver {
         mediaType: mediaType,
         title: title,
         year: year,
+      ),
+      publicDomainSeries.resolve(
+        mediaType: mediaType,
+        title: title,
+        season: season,
+        episode: episode,
       ),
     ]);
 
