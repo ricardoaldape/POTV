@@ -75,6 +75,22 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     });
   }
 
+  Future<void> _playAnimeEpisode(int episode) async {
+    await MediaPlaybackCoordinator.playEpisode(
+      context,
+      ref,
+      widget.item,
+      episode: episode,
+    );
+    if (!mounted) return;
+    setState(() {
+      historyFuture = const PlaybackHistoryRepository().latestForMedia(
+        mediaId: widget.item.id,
+        mediaType: widget.item.mediaTypeName,
+      );
+    });
+  }
+
   Future<void> _chooseAnimeEpisode() async {
     final controller = TextEditingController(text: '1');
 
@@ -111,12 +127,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     controller.dispose();
     if (episode == null || !mounted) return;
 
-    await MediaPlaybackCoordinator.playEpisode(
-      context,
-      ref,
-      widget.item,
-      episode: episode,
-    );
+    await _playAnimeEpisode(episode);
   }
 
   @override
@@ -224,12 +235,27 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: const Text('Reproducir'),
                   ),
-                if (item.type == MediaType.anime)
-                  FilledButton.icon(
-                    onPressed: _chooseAnimeEpisode,
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('Elegir episodio'),
+                if (item.type == MediaType.anime) ...[
+                  const Text(
+                    'Episodios',
+                    style: TextStyle(
+                      fontSize: 25,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                  if (item.episodeCount != null && item.episodeCount! > 0)
+                    _AnimeEpisodes(
+                      episodeCount: item.episodeCount!,
+                      onPlay: _playAnimeEpisode,
+                    )
+                  else
+                    FilledButton.icon(
+                      onPressed: _chooseAnimeEpisode,
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: const Text('Elegir episodio'),
+                    ),
+                ],
                 if (item.type == MediaType.tv) ...[
                   const Text(
                     'Episodios',
@@ -261,6 +287,82 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AnimeEpisodes extends StatefulWidget {
+  final int episodeCount;
+  final ValueChanged<int> onPlay;
+
+  const _AnimeEpisodes({
+    required this.episodeCount,
+    required this.onPlay,
+  });
+
+  @override
+  State<_AnimeEpisodes> createState() => _AnimeEpisodesState();
+}
+
+class _AnimeEpisodesState extends State<_AnimeEpisodes> {
+  static const pageSize = 50;
+  int page = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final pageCount = (widget.episodeCount / pageSize).ceil();
+    final start = page * pageSize + 1;
+    final end = (start + pageSize - 1).clamp(1, widget.episodeCount);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (pageCount > 1) ...[
+          Row(
+            children: [
+              IconButton.filledTonal(
+                tooltip: 'Episodios anteriores',
+                onPressed: page == 0
+                    ? null
+                    : () => setState(() => page -= 1),
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Expanded(
+                child: Text(
+                  'Episodios $start–$end de ${widget.episodeCount}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Siguientes episodios',
+                onPressed: page >= pageCount - 1
+                    ? null
+                    : () => setState(() => page += 1),
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var episode = start; episode <= end; episode++)
+              SizedBox(
+                width: 68,
+                child: FilledButton.tonal(
+                  onPressed: () => widget.onPlay(episode),
+                  child: Text('$episode'),
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

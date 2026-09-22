@@ -9,6 +9,7 @@ class MediaItem {
   final Uri? poster;
   final Uri? backdrop;
   final String? externalId;
+  final int? episodeCount;
 
   const MediaItem({
     required this.id,
@@ -19,6 +20,7 @@ class MediaItem {
     this.poster,
     this.backdrop,
     this.externalId,
+    this.episodeCount,
   });
 
   String get mediaTypeName => switch (type) {

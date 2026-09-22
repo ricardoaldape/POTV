@@ -70,6 +70,7 @@ class AniListRepository {
               large
             }
             bannerImage
+            episodes
             startDate {
               year
             }
@@ -147,6 +148,7 @@ class AniListRepository {
       year: year,
       poster: poster,
       backdrop: _uri(raw['bannerImage']),
+      episodeCount: raw['episodes'] is int ? raw['episodes'] as int : null,
     );
   }
 
