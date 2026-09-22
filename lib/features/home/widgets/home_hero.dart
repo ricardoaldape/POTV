@@ -6,7 +6,7 @@ import '../../../domain/models/media_item.dart';
 
 class HomeHero extends StatelessWidget {
   final MediaItem item;
-  final VoidCallback onPlay;
+  final Future<void> Function() onPlay;
 
   const HomeHero({
     super.key,
@@ -135,7 +135,7 @@ class HomeHero extends StatelessWidget {
                       runSpacing: 10,
                       children: [
                         FilledButton.icon(
-                          onPressed: onPlay,
+                          onPressed: () async => onPlay(),
                           icon: const Icon(Icons.play_arrow_rounded),
                           label: Text(
                             item.type == MediaType.movie

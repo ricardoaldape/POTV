@@ -113,7 +113,7 @@ class _SearchHint extends StatelessWidget {
 
 class _ResultGrid extends StatelessWidget {
   final List<MediaItem> items;
-  final ValueChanged<MediaItem> onPlay;
+  final Future<void> Function(MediaItem) onPlay;
 
   const _ResultGrid({
     required this.items,
@@ -139,7 +139,7 @@ class _ResultGrid extends StatelessWidget {
         final item = items[index];
         return Card(
           child: InkWell(
-            onTap: () => onPlay(item),
+            onTap: () async => onPlay(item),
             onLongPress: () => context.push('/detail', extra: item),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

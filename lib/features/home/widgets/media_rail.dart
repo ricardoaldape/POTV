@@ -7,7 +7,7 @@ import '../../../domain/models/media_item.dart';
 class MediaRail extends StatelessWidget {
   final String title;
   final List<MediaItem> items;
-  final ValueChanged<MediaItem> onPlay;
+  final Future<void> Function(MediaItem) onPlay;
 
   const MediaRail({
     super.key,
@@ -56,7 +56,7 @@ class MediaRail extends StatelessWidget {
 
 class PotvMediaCard extends StatefulWidget {
   final MediaItem item;
-  final VoidCallback onPlay;
+  final Future<void> Function() onPlay;
 
   const PotvMediaCard({
     super.key,
@@ -89,7 +89,7 @@ class _PotvMediaCardState extends State<PotvMediaCard> {
             if (focused == value) return;
             setState(() => focused = value);
           },
-          onTap: widget.onPlay,
+          onTap: () async => widget.onPlay(),
           onLongPress: () => context.push('/detail', extra: widget.item),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
