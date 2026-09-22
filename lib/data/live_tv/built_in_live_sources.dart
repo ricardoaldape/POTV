@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/live_channel.dart';
+import '../../domain/models/stream_candidate.dart';
 import 'm3u_parser.dart';
 
 final builtInLiveSourceRegistryProvider =
@@ -44,9 +45,12 @@ class BuiltInLiveSourceRegistry {
   BuiltInLiveSourceRegistry(this._dio);
 
   Future<List<LiveChannel>> mexico() async {
-    final channels = await _loadMerged([
-      _dearbulutMexico,
-      _iptvOrgMexico,
+    final channels = _dedupe([
+      ..._starterMexico(),
+      ...await _loadMerged([
+        _dearbulutMexico,
+        _iptvOrgMexico,
+      ]),
     ]);
     channels.sort((a, b) {
       final score = _mexicoPriority(b).compareTo(_mexicoPriority(a));
@@ -57,9 +61,12 @@ class BuiltInLiveSourceRegistry {
   }
 
   Future<List<LiveChannel>> sports() async {
-    final channels = await _loadMerged([
-      _dearbulutSports,
-      _iptvOrgSports,
+    final channels = _dedupe([
+      ..._starterSports(),
+      ...await _loadMerged([
+        _dearbulutSports,
+        _iptvOrgSports,
+      ]),
     ]);
     channels.sort((a, b) {
       final score = _sportsPriority(b).compareTo(_sportsPriority(a));
@@ -67,6 +74,80 @@ class BuiltInLiveSourceRegistry {
       return a.name.compareTo(b.name);
     });
     return channels;
+  }
+
+  List<LiveChannel> _starterMexico() => [
+        _channel(
+          id: 'potv-mx-adn40',
+          name: 'ADN 40',
+          group: 'México · Noticias',
+          epgId: 'ADN40.mx',
+          url:
+              'https://mdstrm.com/live-stream-playlist/60b578b060947317de7b57ac.m3u8',
+        ),
+        _channel(
+          id: 'potv-mx-canal22',
+          name: 'Canal 22',
+          group: 'México · Cultura',
+          epgId: 'Canal22.mx',
+          url:
+              'https://5e50264bd6766.streamlock.net/canal22/smil:canal22.smil/playlist.m3u8',
+        ),
+        _channel(
+          id: 'potv-mx-tv4-43',
+          name: 'TV Cuatro 4.3',
+          group: 'México · Deportes',
+          epgId: 'TV4.3.mx',
+          url:
+              'https://5ca3e84a76d30.streamlock.net/tv43gto/tv43gto.smil/.m3u8',
+        ),
+      ];
+
+  List<LiveChannel> _starterSports() => [
+        _channel(
+          id: 'potv-sport-fifa-hispanic',
+          name: 'FIFA+ Hispanic America',
+          group: 'Deportes · Fútbol',
+          url:
+              'https://6c849fb3.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctbXhfRklGQVBsdXNTcGFuaXNoLTFfSExT/playlist.m3u8',
+        ),
+        _channel(
+          id: 'potv-sport-redbull-es',
+          name: 'Red Bull TV ES',
+          group: 'Deportes',
+          url:
+              'https://886bd3fbc782459f8de7555d32d7e9ce.mediatailor.us-west-2.amazonaws.com/v1/master/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-957-WORBLATAMESFAST-WHALETVPLUS/957/whaletvplus/hls/master/playlist.m3u8',
+        ),
+        _channel(
+          id: 'potv-sport-tv4-43',
+          name: 'TV Cuatro 4.3',
+          group: 'México · Deportes',
+          epgId: 'TV4.3.mx',
+          url:
+              'https://5ca3e84a76d30.streamlock.net/tv43gto/tv43gto.smil/.m3u8',
+        ),
+      ];
+
+  LiveChannel _channel({
+    required String id,
+    required String name,
+    required String group,
+    String? epgId,
+    required String url,
+  }) {
+    final uri = Uri.parse(url);
+    return LiveChannel(
+      id: id,
+      name: name,
+      group: group,
+      epgId: epgId,
+      stream: StreamCandidate(
+        id: '$id:stream',
+        label: name,
+        uri: uri,
+        backend: PlaybackBackend.native,
+      ),
+    );
   }
 
   Future<List<LiveChannel>> _loadMerged(List<String> urls) async {
@@ -176,7 +257,8 @@ class BuiltInLiveSourceRegistry {
     if (host.isEmpty ||
         host == 'localhost' ||
         host == '0.0.0.0' ||
-        host == '::1') {
+        host == '::1' ||
+        host == 'jmp2.uk') {
       return false;
     }
 
