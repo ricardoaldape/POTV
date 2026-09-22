@@ -41,8 +41,6 @@ class StremioSourceResolver implements SourceResolver {
     int? season,
     int? episode,
   }) async {
-    if (mediaType == 'anime') return const [];
-
     final resolvedExternalId = externalId ??
         await _findExternalId(
           mediaType: mediaType,
@@ -58,7 +56,9 @@ class StremioSourceResolver implements SourceResolver {
     );
     if (itemId == null) return const [];
 
-    final type = mediaType == 'tv' ? 'series' : 'movie';
+    final type = (mediaType == 'tv' || mediaType == 'anime')
+        ? 'series'
+        : 'movie';
     final addons = await _repository.load();
     final enabled = addons.where((addon) => addon.enabled).toList();
 
@@ -142,9 +142,11 @@ class StremioSourceResolver implements SourceResolver {
     required String? title,
   }) async {
     if (title == null || title.trim().isEmpty) return null;
-    if (mediaType != 'movie' && mediaType != 'tv') return null;
+    if (mediaType != 'movie' && mediaType != 'tv' && mediaType != 'anime') {
+      return null;
+    }
 
-    final resource = mediaType == 'tv' ? 'series' : 'movie';
+    final resource = mediaType == 'movie' ? 'movie' : 'series';
     final encoded = Uri.encodeComponent(title.trim());
     final uri = Uri.parse(
       'https://v3-cinemeta.strem.io/catalog/$resource/top/search=$encoded.json',

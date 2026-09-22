@@ -20,7 +20,7 @@ class StremioProtocol {
 
     if (mediaType == 'movie') return base;
 
-    if (mediaType == 'tv') {
+    if (mediaType == 'tv' || mediaType == 'anime') {
       if (season == null || episode == null) return null;
       return '$base:$season:$episode';
     }

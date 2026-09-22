@@ -74,6 +74,17 @@ void main() {
       ),
       'tt0279600:1:3',
     );
+
+    expect(
+      StremioProtocol.streamId(
+        mediaType: 'anime',
+        mediaId: '20',
+        externalId: 'tt0409591',
+        season: 2,
+        episode: 18,
+      ),
+      'tt0409591:2:18',
+    );
   });
 
   test('builds stream resource URL from manifest location', () {

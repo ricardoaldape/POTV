@@ -131,6 +131,7 @@ class UnifiedSourceResolver implements SourceResolver {
     final mapped = await animeMapping.mapEpisode(
       anilistId: anilistId,
       absoluteEpisode: episode,
+      title: title,
     );
     if (mapped == null || !mapped.canUseSeriesProtocol) return const [];
 

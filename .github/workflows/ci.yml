@@ -49,11 +49,11 @@ jobs:
       - name: Test
         run: flutter test
 
-      - name: Build V4 APK
+      - name: Build V5 APK
         run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: POTV-V4-APK
+          name: POTV-V5-APK
           path: build/app/outputs/flutter-apk/app-release.apk

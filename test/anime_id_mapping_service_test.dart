@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:potv/data/anime/anime_id_mapping_service.dart';
 
 void main() {
-  test('maps an AniList absolute episode to IMDb season and episode', () async {
+  test('maps AniList absolute episode when AniZip already has IMDb/season', () async {
     final dio = Dio();
     dio.interceptors.add(
       InterceptorsWrapper(
@@ -19,7 +19,6 @@ void main() {
                 },
                 'episodes': {
                   '100': {
-                    'absoluteEpisodeNumber': 100,
                     'seasonNumber': 4,
                     'episodeNumber': 9,
                   },
@@ -31,10 +30,10 @@ void main() {
       ),
     );
 
-    final service = AnimeIdMappingService(dio);
-    final mapping = await service.mapEpisode(
+    final mapping = await AnimeIdMappingService(dio).mapEpisode(
       anilistId: 21,
       absoluteEpisode: 100,
+      title: 'One Piece',
     );
 
     expect(mapping, isNotNull);
@@ -44,8 +43,98 @@ void main() {
     expect(mapping.canUseSeriesProtocol, isTrue);
   });
 
-  test('keeps anime mapping usable for native AniList sources without IMDb',
-      () async {
+  test('falls back to Cinemeta for absolute anime episode mapping', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.uri.host == 'api.ani.zip') {
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'mappings': {
+                    'anilist_id': 20,
+                    'imdb_id': null,
+                  },
+                  'episodes': {
+                    '53': {'episode': '53'},
+                  },
+                },
+              ),
+            );
+            return;
+          }
+
+          if (options.path.contains('/catalog/series/top/search=')) {
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'metas': [
+                    {
+                      'name': 'Naruto',
+                      'id': 'tt0409591',
+                      'imdb_id': 'tt0409591',
+                    },
+                  ],
+                },
+              ),
+            );
+            return;
+          }
+
+          if (options.path.contains('/meta/series/tt0409591.json')) {
+            final videos = <Map<String, dynamic>>[
+              for (var i = 1; i <= 52; i++)
+                {
+                  'season': i <= 35 ? 1 : 2,
+                  'episode': i <= 35 ? i : i - 35,
+                },
+              {
+                'season': 2,
+                'episode': 18,
+                'name': 'Long Time No See: Jiraiya Returns!',
+              },
+            ];
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'meta': {'videos': videos},
+                },
+              ),
+            );
+            return;
+          }
+
+          handler.reject(
+            DioException(
+              requestOptions: options,
+              type: DioExceptionType.badResponse,
+            ),
+          );
+        },
+      ),
+    );
+
+    final mapping = await AnimeIdMappingService(dio).mapEpisode(
+      anilistId: 20,
+      absoluteEpisode: 53,
+      title: 'Naruto',
+    );
+
+    expect(mapping, isNotNull);
+    expect(mapping!.imdbId, 'tt0409591');
+    expect(mapping.season, 2);
+    expect(mapping.episode, 18);
+    expect(mapping.canUseSeriesProtocol, isTrue);
+  });
+
+  test('keeps native AniList mapping when no series protocol match exists', () async {
     final dio = Dio();
     dio.interceptors.add(
       InterceptorsWrapper(
@@ -55,12 +144,9 @@ void main() {
               requestOptions: options,
               statusCode: 200,
               data: {
-                'mappings': {
-                  'anilist_id': 999,
-                },
+                'mappings': {'anilist_id': 999},
                 'episodes': {
                   '1': {
-                    'absoluteEpisodeNumber': 1,
                     'seasonNumber': 1,
                     'episodeNumber': 1,
                   },
@@ -72,8 +158,7 @@ void main() {
       ),
     );
 
-    final service = AnimeIdMappingService(dio);
-    final mapping = await service.mapEpisode(
+    final mapping = await AnimeIdMappingService(dio).mapEpisode(
       anilistId: 999,
       absoluteEpisode: 1,
     );
