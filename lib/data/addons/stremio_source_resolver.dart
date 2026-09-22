@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/stremio_addon_config.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/source_resolver.dart';
+import 'stremio_addon_client.dart';
 import 'stremio_addon_repository.dart';
 import 'stremio_protocol.dart';
 
@@ -26,6 +27,7 @@ final stremioSourceResolverProvider = Provider<StremioSourceResolver>((ref) {
 class StremioSourceResolver implements SourceResolver {
   final StremioAddonRepository _repository;
   final Dio _dio;
+  final Map<String, StremioManifestInfo?> _manifestCache = {};
 
   StremioSourceResolver(this._repository, this._dio);
 
@@ -59,8 +61,16 @@ class StremioSourceResolver implements SourceResolver {
     final addons = await _repository.load();
     final enabled = addons.where((addon) => addon.enabled).toList();
 
+    final support = await Future.wait([
+      for (final addon in enabled) _supportsAddonType(addon, type),
+    ]);
+    final compatible = <StremioAddonConfig>[
+      for (var i = 0; i < enabled.length; i++)
+        if (support[i]) enabled[i],
+    ];
+
     final batches = await Future.wait([
-      for (final addon in enabled)
+      for (final addon in compatible)
         _resolveAddon(
           addon,
           type: type,
@@ -71,6 +81,31 @@ class StremioSourceResolver implements SourceResolver {
     return [
       for (final batch in batches) ...batch,
     ];
+  }
+
+  Future<bool> _supportsAddonType(
+    StremioAddonConfig addon,
+    String type,
+  ) async {
+    if (_manifestCache.containsKey(addon.id)) {
+      final cached = _manifestCache[addon.id];
+      if (cached == null) return true;
+      return cached.supportsStreams &&
+          (cached.types.isEmpty || cached.types.contains(type));
+    }
+
+    try {
+      final client = StremioAddonClient(_dio);
+      final manifest = await client.inspect(addon.manifestUri);
+      _manifestCache[addon.id] = manifest;
+      return manifest.supportsStreams &&
+          (manifest.types.isEmpty || manifest.types.contains(type));
+    } catch (_) {
+      // Some compatible endpoints expose streams but reject manifest probing.
+      // Keep them eligible instead of breaking an already configured source.
+      _manifestCache[addon.id] = null;
+      return true;
+    }
   }
 
   Future<List<StreamCandidate>> _resolveAddon(
