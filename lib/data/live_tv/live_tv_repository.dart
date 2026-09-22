@@ -18,6 +18,7 @@ final liveChannelsProvider =
 
 class LiveTvRepository {
   static const _sourceKey = 'live_tv_m3u_url';
+  static const _epgSourceKey = 'live_tv_xmltv_url';
   final Dio _dio;
 
   LiveTvRepository(this._dio);
@@ -40,7 +41,16 @@ class LiveTvRepository {
       url,
       options: Options(responseType: ResponseType.plain),
     );
-    return M3uParser.parse(response.data ?? '');
+    final raw = response.data ?? '';
+    final embeddedEpg = M3uParser.epgUri(raw);
+    if (embeddedEpg != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final current = prefs.getString(_epgSourceKey);
+      if (current == null || current.isEmpty) {
+        await prefs.setString(_epgSourceKey, embeddedEpg.toString());
+      }
+    }
+    return M3uParser.parse(raw);
   }
 }
 
@@ -56,6 +66,7 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
       await ref.read(liveTvRepositoryProvider).saveSource(url);
       return ref.read(liveTvRepositoryProvider).loadChannels();
     });
+    ref.invalidate(epgProgramsProvider);
   }
 
   Future<void> refresh() async {
