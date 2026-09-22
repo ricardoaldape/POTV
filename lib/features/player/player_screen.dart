@@ -168,7 +168,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         SnackBar(
           duration: const Duration(seconds: 2),
           content: Text(
-            '${failed} falló. Probando ${currentStream.label}…',
+            '$failed falló. Probando ${currentStream.label}…',
           ),
         ),
       );
