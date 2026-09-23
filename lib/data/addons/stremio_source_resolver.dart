@@ -31,6 +31,64 @@ class StremioSourceResolver implements SourceResolver {
 
   StremioSourceResolver(this._repository, this._dio);
 
+  Future<List<String>> debugAddonReport({
+    required String mediaType,
+    required String mediaId,
+    String? externalId,
+    String? title,
+    String? year,
+    int? season,
+    int? episode,
+  }) async {
+    final resolvedExternalId = externalId ??
+        await _findExternalId(
+          mediaType: mediaType,
+          title: title,
+        );
+
+    final itemId = StremioProtocol.streamId(
+      mediaType: mediaType,
+      mediaId: mediaId,
+      externalId: resolvedExternalId,
+      season: season,
+      episode: episode,
+    );
+    if (itemId == null) {
+      return const <String>['Diagnóstico: no se pudo construir streamId.'];
+    }
+
+    final type = (mediaType == 'tv' || mediaType == 'anime') ? 'series' : 'movie';
+    final addons = (await _repository.load()).where((addon) => addon.enabled).toList();
+    final lines = <String>[
+      'Diagnóstico de reproducción · add-ons activos: ${addons.length}',
+    ];
+
+    for (final addon in addons) {
+      try {
+        final supported = await _supportsAddonType(addon, type);
+        if (!supported) {
+          lines.add('Addon ${addon.name}: compatible=no');
+          continue;
+        }
+
+        final streams = await _resolveAddon(
+          addon,
+          type: type,
+          itemId: itemId,
+        );
+        final firstThree = streams.take(3).map((s) => s.uri.toString()).toList();
+        lines.add(
+          'Addon ${addon.name}: ${streams.length} fuentes. Primeras 3: ${firstThree.isEmpty ? 'ninguna' : firstThree.join(' | ')}',
+        );
+      } catch (error, stack) {
+        lines.add('Addon ${addon.name}: ERROR $error');
+        lines.add('Stack: $stack');
+      }
+    }
+
+    return lines;
+  }
+
   @override
   Future<List<StreamCandidate>> resolve({
     required String mediaType,

@@ -5,20 +5,30 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
+import '../../data/addons/stremio_addon_repository.dart';
+import '../../data/addons/stremio_source_resolver.dart';
 import '../../data/bootstrap/default_manifest_bootstrap.dart';
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/resolution/resolver_status.dart';
-import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sources/http_source_repository.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
+import '../../domain/resolution/provider_resolver.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   static final Uri _telegramUri = Uri.parse('https://t.me/potv_oficial');
 
   const SettingsScreen({super.key});
+
+  @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _diagnosticRunning = false;
+  String _diagnosticText = '';
 
   Future<void> _openTelegram(BuildContext context) async {
     final opened = await launchUrl(
@@ -82,8 +92,56 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _runReproductionDiagnostic() async {
+    setState(() {
+      _diagnosticRunning = true;
+      _diagnosticText = 'Ejecutando diagnóstico de reproducción…';
+    });
+
+    final report = StringBuffer();
+    report.writeln('Diagnóstico de reproducción');
+    report.writeln('---');
+
+    try {
+      final resolver = ref.read(stremioSourceResolverProvider);
+      final addonReport = await resolver.debugAddonReport(
+        mediaType: 'movie',
+        mediaId: 'tt0133093',
+        externalId: 'tt0133093',
+        title: 'The Matrix',
+      );
+      report.writelnAll(addonReport, '\n');
+
+      final aggregator = ref.read(sourceAggregatorProvider);
+      final result = await aggregator.resolve(
+        const ProviderResolveRequest(
+          mediaType: 'movie',
+          mediaId: 'tt0133093',
+          externalId: 'tt0133093',
+          title: 'The Matrix',
+        ),
+      );
+
+      report.writeln('---');
+      report.writeln('Resultado agregado: ${result.candidates.length} fuentes totales');
+      report.writeln(
+        'Primeras 3 URLs: ${result.candidates.take(3).map((candidate) => candidate.uri.toString()).join(' | ') == '' ? 'ninguna' : result.candidates.take(3).map((candidate) => candidate.uri.toString()).join(' | ')}',
+      );
+    } catch (error, stack) {
+      report.writeln('ERROR DEL RESOLVER');
+      report.writeln(error.toString());
+      report.writeln(stack.toString());
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _diagnosticRunning = false;
+      _diagnosticText = report.toString();
+    });
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final tvState = ref.watch(liveChannelsProvider);
     final sportsState = ref.watch(builtInSportsChannelsProvider);
     final vodSourcesState = ref.watch(httpSourcesProvider);
@@ -211,6 +269,52 @@ class SettingsScreen extends ConsumerWidget {
                             ],
                           ),
                         ),
+                    ],
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _diagnosticRunning ? null : _runReproductionDiagnostic,
+                            icon: const Icon(Icons.bug_report_rounded),
+                            label: const Text('Diagnóstico de reproducción'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (_diagnosticText.isNotEmpty) ...[
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 220),
+                        decoration: BoxDecoration(
+                          color: Colors.black12,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.all(10),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            _diagnosticText,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: _diagnosticText),
+                              );
+                            },
+                            icon: const Icon(Icons.copy_all_rounded),
+                            label: const Text('Copiar resultado'),
+                          ),
+                        ],
+                      ),
                     ],
                     const SizedBox(height: 14),
                     const Text(
