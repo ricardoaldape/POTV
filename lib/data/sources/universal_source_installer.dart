@@ -156,7 +156,7 @@ class UniversalSourceInstaller {
       final segments = input.pathSegments.where((part) => part.isNotEmpty).toList();
       if (segments.length >= 2) {
         final owner = segments[0];
-        final repo = segments[1].replaceAll(RegExp(r'\.git\$'), '');
+        final repo = segments[1].replaceAll(RegExp(r'\.git$'), '');
         for (final branch in const ['main', 'master', 'builds']) {
           result.add(Uri.parse('https://raw.githubusercontent.com/$owner/$repo/$branch/manifest.json'));
           result.add(Uri.parse('https://raw.githubusercontent.com/$owner/$repo/$branch/repo.json'));
