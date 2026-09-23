@@ -151,6 +151,31 @@ class UniversalSourceInstaller {
   List<Uri> _candidates(Uri input) {
     final result = <Uri>[input];
     final path = input.path.toLowerCase();
+
+    if (input.host == 'github.com') {
+      final segments = input.pathSegments.where((part) => part.isNotEmpty).toList();
+      if (segments.length >= 2) {
+        final owner = segments[0];
+        final repo = segments[1].replaceAll(RegExp(r'\.git\$'), '');
+        for (final branch in const ['main', 'master', 'builds']) {
+          result.add(Uri.parse('https://raw.githubusercontent.com/$owner/$repo/$branch/manifest.json'));
+          result.add(Uri.parse('https://raw.githubusercontent.com/$owner/$repo/$branch/repo.json'));
+        }
+      }
+    }
+
+    if (input.host == 'codeberg.org') {
+      final segments = input.pathSegments.where((part) => part.isNotEmpty).toList();
+      if (segments.length >= 2) {
+        final owner = segments[0];
+        final repo = segments[1];
+        for (final branch in const ['main', 'master', 'builds']) {
+          result.add(Uri.parse('https://codeberg.org/$owner/$repo/raw/branch/$branch/manifest.json'));
+          result.add(Uri.parse('https://codeberg.org/$owner/$repo/raw/branch/$branch/repo.json'));
+        }
+      }
+    }
+
     if (!path.endsWith('.json') && !path.endsWith('.m3u') && !path.endsWith('.m3u8')) {
       final base = input.path.endsWith('/') ? input : input.replace(path: '${input.path}/');
       result.add(base.resolve('manifest.json'));
