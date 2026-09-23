@@ -22,6 +22,36 @@ class PotvYoutubeVideo {
     this.isLive = false,
     this.description = '',
   });
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'title': title,
+        'author': author,
+        'channel_id': channelId,
+        'thumbnail_url': thumbnailUrl,
+        'duration_ms': duration?.inMilliseconds,
+        'upload_date': uploadDate?.toIso8601String(),
+        'view_count': viewCount,
+        'is_live': isLive,
+        'description': description,
+      };
+
+  factory PotvYoutubeVideo.fromJson(Map<String, dynamic> json) {
+    final durationMs = int.tryParse(json['duration_ms']?.toString() ?? '');
+    final uploadDate = DateTime.tryParse(json['upload_date']?.toString() ?? '');
+    return PotvYoutubeVideo(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      author: json['author']?.toString() ?? '',
+      channelId: json['channel_id']?.toString() ?? '',
+      thumbnailUrl: json['thumbnail_url']?.toString() ?? '',
+      duration: durationMs == null ? null : Duration(milliseconds: durationMs),
+      uploadDate: uploadDate,
+      viewCount: int.tryParse(json['view_count']?.toString() ?? '') ?? 0,
+      isLive: json['is_live'] == true,
+      description: json['description']?.toString() ?? '',
+    );
+  }
 }
 
 class PotvYoutubeChannel {

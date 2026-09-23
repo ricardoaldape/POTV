@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'data/youtube_client.dart';
+import 'data/youtube_library_repository.dart';
 import 'data/youtube_providers.dart';
 import 'data/youtube_subscription_repository.dart';
 import 'domain/youtube_models.dart';
@@ -70,9 +71,11 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> {
   Widget build(BuildContext context) {
     final subscriptions = ref.watch(youtubeSubscriptionsProvider);
     final feed = ref.watch(youtubeSubscriptionFeedProvider);
+    final bookmarks = ref.watch(youtubeBookmarksProvider);
+    final history = ref.watch(youtubeHistoryProvider);
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('POTV YT', style: TextStyle(fontWeight: FontWeight.w900)),
@@ -87,6 +90,7 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> {
             tabs: [
               Tab(icon: Icon(Icons.explore_outlined), text: 'Explorar'),
               Tab(icon: Icon(Icons.subscriptions_outlined), text: 'Suscripciones'),
+              Tab(icon: Icon(Icons.video_library_outlined), text: 'Biblioteca'),
             ],
           ),
         ),
@@ -104,8 +108,21 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> {
               subscriptions: subscriptions,
               feed: feed,
               onImport: _importSubscriptions,
+              onRefresh: () async {
+                ref.invalidate(youtubeSubscriptionFeedProvider);
+                await ref.read(youtubeSubscriptionFeedProvider.future);
+              },
               onOpen: _openVideo,
               onOpenChannel: (item) => context.push('/youtube/channel', extra: item.channelId),
+            ),
+            _LibraryTab(
+              bookmarks: bookmarks,
+              history: history,
+              onOpen: _openVideo,
+              onClearHistory: () async {
+                await ref.read(youtubeLibraryRepositoryProvider).clearHistory();
+                ref.invalidate(youtubeHistoryProvider);
+              },
             ),
           ],
         ),
@@ -211,6 +228,7 @@ class _SubscriptionsTab extends StatelessWidget {
   final AsyncValue<List<PotvYoutubeSubscription>> subscriptions;
   final AsyncValue<List<PotvYoutubeVideo>> feed;
   final Future<void> Function() onImport;
+  final Future<void> Function() onRefresh;
   final ValueChanged<PotvYoutubeVideo> onOpen;
   final ValueChanged<PotvYoutubeSubscription> onOpenChannel;
 
@@ -218,6 +236,7 @@ class _SubscriptionsTab extends StatelessWidget {
     required this.subscriptions,
     required this.feed,
     required this.onImport,
+    required this.onRefresh,
     required this.onOpen,
     required this.onOpenChannel,
   });
@@ -247,7 +266,7 @@ class _SubscriptionsTab extends StatelessWidget {
     }
 
     return RefreshIndicator(
-      onRefresh: () async {},
+      onRefresh: onRefresh,
       child: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
@@ -305,6 +324,111 @@ class _SubscriptionsTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LibraryTab extends StatelessWidget {
+  final AsyncValue<List<PotvYoutubeVideo>> bookmarks;
+  final AsyncValue<List<PotvYoutubeVideo>> history;
+  final ValueChanged<PotvYoutubeVideo> onOpen;
+  final Future<void> Function() onClearHistory;
+
+  const _LibraryTab({
+    required this.bookmarks,
+    required this.history,
+    required this.onOpen,
+    required this.onClearHistory,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final saved = bookmarks.asData?.value ?? const <PotvYoutubeVideo>[];
+    final watched = history.asData?.value ?? const <PotvYoutubeVideo>[];
+    if (bookmarks.isLoading || history.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text('Guardados', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                ),
+                Text('${saved.length}', style: const TextStyle(color: Colors.white54)),
+              ],
+            ),
+          ),
+        ),
+        if (saved.isEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: Text('Guarda videos desde su ficha para encontrarlos aquí.', style: TextStyle(color: Colors.white60)),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 20),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: MediaQuery.sizeOf(context).width >= 1100 ? 4 : MediaQuery.sizeOf(context).width >= 700 ? 3 : 1,
+                childAspectRatio: MediaQuery.sizeOf(context).width >= 700 ? 1.15 : 1.45,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => YoutubeVideoCard(video: saved[index], onTap: () => onOpen(saved[index])),
+                childCount: saved.length,
+              ),
+            ),
+          ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text('Historial', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                ),
+                if (watched.isNotEmpty)
+                  TextButton.icon(
+                    onPressed: onClearHistory,
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    label: const Text('Limpiar'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (watched.isEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 28),
+              child: Text('Los videos que reproduzcas aparecerán aquí.', style: TextStyle(color: Colors.white60)),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: MediaQuery.sizeOf(context).width >= 1100 ? 4 : MediaQuery.sizeOf(context).width >= 700 ? 3 : 1,
+                childAspectRatio: MediaQuery.sizeOf(context).width >= 700 ? 1.15 : 1.45,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => YoutubeVideoCard(video: watched[index], onTap: () => onOpen(watched[index])),
+                childCount: watched.length,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

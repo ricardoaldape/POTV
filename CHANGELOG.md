@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+
+- Añade cliente YT integrado en POTV con búsqueda, canales y reproducción en el player nativo.
+- Navegación principal: Inicio, TV, Deportes, YT y Mi perfil.
+- Suscripciones locales sin cuenta y soporte de importación CSV/JSON desde Google Takeout.
+- Feed de suscripciones con actualización manual.
+- Biblioteca YT con videos guardados e historial local.
+- Reproducción de streams YouTube con video/audio separados cuando sea necesario.
+
 ## 0.6.4
 
 - Mueve la configuración VOD a un onboarding único al abrir POTV cuando no existe ninguna fuente externa.

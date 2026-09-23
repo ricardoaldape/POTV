@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'data/youtube_client.dart';
+import 'data/youtube_library_repository.dart';
 import 'data/youtube_providers.dart';
 import 'data/youtube_subscription_repository.dart';
 import 'domain/youtube_models.dart';
@@ -30,7 +31,10 @@ class _YoutubeVideoScreenState extends ConsumerState<YoutubeVideoScreen> {
     if (resolving) return;
     setState(() => resolving = true);
     try {
-      final session = await ref.read(potvYoutubeClientProvider).playback(widget.initialVideo.id);
+      final video = await videoFuture;
+      final session = await ref.read(potvYoutubeClientProvider).playback(video.id);
+      await ref.read(youtubeLibraryRepositoryProvider).addToHistory(video);
+      ref.invalidate(youtubeHistoryProvider);
       if (!mounted) return;
       await context.push('/player', extra: session);
     } catch (error) {
@@ -63,6 +67,12 @@ class _YoutubeVideoScreenState extends ConsumerState<YoutubeVideoScreen> {
     }
     ref.invalidate(youtubeSubscriptionsProvider);
     ref.invalidate(youtubeSubscriptionFeedProvider);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleBookmark(PotvYoutubeVideo video) async {
+    await ref.read(youtubeLibraryRepositoryProvider).toggleBookmark(video);
+    ref.invalidate(youtubeBookmarksProvider);
     if (mounted) setState(() {});
   }
 
@@ -120,6 +130,21 @@ class _YoutubeVideoScreenState extends ConsumerState<YoutubeVideoScreen> {
                     Text(video.title, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
                     const SizedBox(height: 8),
                     Text('${video.viewCount} vistas${video.isLive ? ' · EN VIVO' : ''}', style: const TextStyle(color: Colors.white60)),
+                    const SizedBox(height: 12),
+                    FutureBuilder<bool>(
+                      future: ref.read(youtubeLibraryRepositoryProvider).isBookmarked(video.id),
+                      builder: (context, bookmarkSnapshot) {
+                        final bookmarked = bookmarkSnapshot.data ?? false;
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: FilledButton.tonalIcon(
+                            onPressed: () => _toggleBookmark(video),
+                            icon: Icon(bookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded),
+                            label: Text(bookmarked ? 'Guardado' : 'Guardar'),
+                          ),
+                        );
+                      },
+                    ),
                     const SizedBox(height: 18),
                     FutureBuilder<bool>(
                       future: ref.read(youtubeSubscriptionRepositoryProvider).isSubscribed(video.channelId),
