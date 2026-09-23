@@ -142,9 +142,9 @@ class SettingsScreen extends ConsumerWidget {
                     const SizedBox(height: 8),
                     _StatusRow(
                       icon: Icons.account_tree_outlined,
-                      label: 'Rutas de resolución VOD',
+                      label: 'Fuentes VOD externas',
                       value: resolverStatus.when(
-                        data: (status) => status.totalRoutes.toString(),
+                        data: (status) => status.externalRoutes.toString(),
                         loading: () => '…',
                         error: (error, stack) => 'Error',
                       ),
@@ -153,7 +153,7 @@ class SettingsScreen extends ConsumerWidget {
                       data: (status) => Padding(
                         padding: const EdgeInsets.only(top: 4, left: 30),
                         child: Text(
-                          'Integradas ${status.builtInResolvers} · build ${status.buildResolvers} · locales ${status.localHttpSources} · addons ${status.addons} · plugins ${status.nuvioPlugins}. Disponibilidad varía por título.',
+                          'Externas: build ${status.buildResolvers} · locales ${status.localHttpSources} · addons ${status.addons} · plugins ${status.nuvioPlugins}. Fallback público: ${status.builtInResolvers}.',
                           style: const TextStyle(
                             color: Colors.white54,
                             fontSize: 11,
