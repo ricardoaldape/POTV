@@ -8,6 +8,7 @@ class ProviderResolveRequest {
   final String? year;
   final int? season;
   final int? episode;
+  final String? embedUrl;
 
   const ProviderResolveRequest({
     required this.mediaType,
@@ -17,6 +18,7 @@ class ProviderResolveRequest {
     this.year,
     this.season,
     this.episode,
+    this.embedUrl,
   });
 
   bool get isMovie => mediaType == 'movie';

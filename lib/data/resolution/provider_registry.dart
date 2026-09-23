@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../addons/stremio_source_resolver.dart';
 import '../anime/anime_id_mapping_service.dart';
+import '../extractors/embed69_extractor.dart';
 import '../plugins/nuvio_plugin_provider.dart';
 import '../sources/http_source_resolver.dart';
 import '../sources/public_domain_movie_resolver.dart';
@@ -16,6 +17,10 @@ final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
   final providers = <ProviderResolver>[
     for (final config in configured) ConfiguredResolverProvider(config),
     ref.read(nuvioPluginProviderResolverProvider),
+    Embed69ProviderResolver(
+      extractor: const Embed69Extractor(),
+      enabled: true,
+    ),
     StremioProviderResolver(
       resolver: ref.read(stremioSourceResolverProvider),
       animeMapping: ref.read(animeIdMappingServiceProvider),
