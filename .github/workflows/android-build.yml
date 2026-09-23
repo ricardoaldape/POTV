@@ -27,7 +27,49 @@ jobs:
           cache: true
 
       - name: Generate missing platform folders
-        run: flutter create . --platforms=android
+        run: flutter create --platforms=android --org com.potv --project-name potv .
+
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p android/app
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/potv-release.keystore
+          test -s android/app/potv-release.keystore
+
+      - name: Create key.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          required = ("KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS")
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit(f"Missing secrets: {', '.join(missing)}")
+
+          Path("android/key.properties").write_text(
+              "\n".join(
+                  [
+                      f"storePassword={os.environ['KEYSTORE_PASSWORD']}",
+                      f"keyPassword={os.environ['KEY_PASSWORD']}",
+                      f"keyAlias={os.environ['KEY_ALIAS']}",
+                      "storeFile=potv-release.keystore",
+                      "",
+                  ]
+              ),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Configure Gradle release signing
+        run: python3 tool/configure_android_release_signing.py
 
       - name: Install dependencies
         run: flutter pub get
