@@ -1,4 +1,5 @@
 import java.io.FileInputStream
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -75,7 +76,7 @@ val verifyLockedLauncherIcon by tasks.registering {
         listOf("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi").forEach { density ->
             val icon = file("src/main/res/mipmap-$density/ic_launcher.png")
             check(icon.exists()) { "POTV locked launcher icon is missing: $icon" }
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val digest = MessageDigest.getInstance("SHA-256")
                 .digest(icon.readBytes())
                 .joinToString("") { "%02x".format(it) }
             check(digest == lockedLauncherIconSha256) {
