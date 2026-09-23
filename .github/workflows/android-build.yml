@@ -26,6 +26,9 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Generate missing platform folders
+        run: flutter create . --platforms=android
+
       - name: Install dependencies
         run: flutter pub get
 
