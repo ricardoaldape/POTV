@@ -38,6 +38,8 @@ void main() {
                 statusCode: 200,
                 data: {
                   'metadata': {
+                    'title': 'Night of the Living Dead',
+                    'year': '1968',
                     'licenseurl':
                         'https://creativecommons.org/publicdomain/mark/1.0/',
                   },
