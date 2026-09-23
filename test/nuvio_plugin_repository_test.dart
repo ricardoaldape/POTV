@@ -28,6 +28,27 @@ void main() {
     expect(plugin.enabled, isTrue);
   });
 
+  test('new user-installed plugins are enabled even if manifest defaults to off', () {
+    final parsed = NuvioPluginRepository.parseManifest(
+      Uri.parse('https://example.test/manifest.json'),
+      {
+        'name': 'Demo Repo',
+        'scrapers': [
+          {
+            'id': 'disabled-upstream',
+            'name': 'Disabled upstream',
+            'version': '1',
+            'filename': 'providers/disabled.js',
+            'supportedTypes': ['movie'],
+            'enabled': false,
+          },
+        ],
+      },
+    );
+
+    expect(parsed.plugins.single.enabled, isTrue);
+  });
+
   test('rejects repository without usable plugins', () {
     expect(
       () => NuvioPluginRepository.parseManifest(

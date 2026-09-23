@@ -29,6 +29,8 @@ class NuvioPluginRuntime {
   ) async {
     final code = await _loadCode(plugin.scriptUri);
     final runtime = getJavascriptRuntime(xhr: true);
+    await runtime.enableFetch();
+    runtime.enableHandlePromises();
     try {
       final mediaType = request.mediaType == 'anime' ? 'anime' : request.mediaType;
       final call = jsonEncode({

@@ -60,8 +60,14 @@ class NuvioPluginRepository {
     final existing = {for (final item in current) item.id: item};
     var added = 0;
     for (final plugin in parsed.plugins) {
-      if (!existing.containsKey(plugin.id)) added++;
-      existing[plugin.id] = plugin;
+      final previous = existing[plugin.id];
+      if (previous == null) {
+        added++;
+        existing[plugin.id] = plugin.copyWith(enabled: true);
+      } else {
+        // Repository updates must not undo a user's explicit enable/disable choice.
+        existing[plugin.id] = plugin.copyWith(enabled: previous.enabled);
+      }
     }
     final merged = existing.values.toList()..sort((a, b) => a.name.compareTo(b.name));
     await _save(merged);
@@ -114,7 +120,9 @@ class NuvioPluginRepository {
         version: version,
         scriptUri: scriptUri,
         supportedMediaTypes: types,
-        enabled: value['enabled'] != false,
+        // User-installed plugins start enabled in POTV. The user can disable
+        // them later from Sources; repository metadata does not override that.
+        enabled: true,
       ));
     }
     if (plugins.isEmpty) throw const FormatException('El repositorio no contiene plugins utilizables.');
