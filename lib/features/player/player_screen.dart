@@ -481,6 +481,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     title: widget.session.title,
                     stream: currentStream,
                     player: p,
+                    isLive: widget.session.isLive,
                     onBack: () => Navigator.of(context).maybePop(),
                     onAudio: p == null ? null : _showAudioTracks,
                     onSubtitles: p == null ? null : _showSubtitleTracks,
@@ -617,6 +618,7 @@ class _PlayerOverlay extends StatelessWidget {
   final String title;
   final StreamCandidate stream;
   final Player? player;
+  final bool isLive;
   final VoidCallback onBack;
   final VoidCallback? onAudio;
   final VoidCallback? onSubtitles;
@@ -627,6 +629,7 @@ class _PlayerOverlay extends StatelessWidget {
     required this.title,
     required this.stream,
     required this.player,
+    required this.isLive,
     required this.onBack,
     required this.onAudio,
     required this.onSubtitles,
@@ -694,7 +697,7 @@ class _PlayerOverlay extends StatelessWidget {
             if (player != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: _Timeline(player: player!, isLive: widget.session.isLive),
+                child: _Timeline(player: player!, isLive: isLive),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),

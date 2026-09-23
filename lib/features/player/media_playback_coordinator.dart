@@ -102,7 +102,7 @@ class MediaPlaybackCoordinator {
         if (!context.mounted) return;
         final installed = await _showNoSource(context, ref, item);
         if (installed && context.mounted) {
-          return _playResolved(
+          return await _playResolved(
             context,
             ref,
             item,
