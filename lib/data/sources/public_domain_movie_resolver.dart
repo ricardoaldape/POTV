@@ -43,7 +43,7 @@ class PublicDomainMovieResolver {
     if (candidates.isEmpty) return const [];
 
     for (final item in candidates.take(4)) {
-      final streams = await _streamsFor(item);
+      final streams = await _streamsFor(item, requestedTitle: cleanTitle, requestedYear: year);
       if (streams.isNotEmpty) return streams;
     }
 
@@ -142,7 +142,11 @@ class PublicDomainMovieResolver {
     }
   }
 
-  Future<List<StreamCandidate>> _streamsFor(_ArchiveItem item) async {
+  Future<List<StreamCandidate>> _streamsFor(
+    _ArchiveItem item, {
+    required String requestedTitle,
+    required String? requestedYear,
+  }) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '$_metadataBase${Uri.encodeComponent(item.identifier)}',
@@ -156,6 +160,16 @@ class PublicDomainMovieResolver {
 
       final license = _text(metadata['licenseurl']) ?? item.licenseUrl;
       if (!_isPublicDomainLicense(license)) return const [];
+
+      final metadataTitle = _text(metadata['title']);
+      if (metadataTitle == null || _normalize(metadataTitle) != _normalize(requestedTitle)) {
+        return const [];
+      }
+      final expectedYear = int.tryParse(requestedYear ?? '');
+      if (expectedYear != null) {
+        final metadataYear = int.tryParse(metadata['year']?.toString() ?? '');
+        if (metadataYear != expectedYear) return const [];
+      }
 
       final files = raw['files'];
       if (files is! List) return const [];

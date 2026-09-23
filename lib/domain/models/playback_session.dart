@@ -35,18 +35,21 @@ class PlaybackSession {
   final List<StreamCandidate> candidates;
   final int initialIndex;
   final PlaybackContext? playbackContext;
+  final bool isLive;
 
   const PlaybackSession({
     required this.title,
     required this.candidates,
     this.initialIndex = 0,
     this.playbackContext,
+    this.isLive = false,
   });
 
   factory PlaybackSession.single(StreamCandidate stream) {
     return PlaybackSession(
       title: stream.label,
       candidates: [stream],
+      isLive: false,
     );
   }
 

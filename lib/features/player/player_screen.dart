@@ -694,7 +694,7 @@ class _PlayerOverlay extends StatelessWidget {
             if (player != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: _Timeline(player: player!),
+                child: _Timeline(player: player!, isLive: widget.session.isLive),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
@@ -750,8 +750,9 @@ class _PlayerOverlay extends StatelessWidget {
 
 class _Timeline extends StatelessWidget {
   final Player player;
+  final bool isLive;
 
-  const _Timeline({required this.player});
+  const _Timeline({required this.player, required this.isLive});
 
   String _format(Duration value) {
     final hours = value.inHours;
@@ -793,7 +794,7 @@ class _Timeline extends StatelessWidget {
                             ),
                   ),
                 ),
-                Text(durationMs <= 0 ? 'EN VIVO' : _format(duration)),
+                Text(durationMs <= 0 ? (isLive ? 'EN VIVO' : '--:--') : _format(duration)),
               ],
             );
           },

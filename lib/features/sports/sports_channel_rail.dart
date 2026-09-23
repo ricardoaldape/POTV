@@ -33,6 +33,7 @@ class SportsChannelRail extends StatelessWidget {
                   extra: PlaybackSession(
                     title: channel.name,
                     candidates: [channel.stream],
+                    isLive: true,
                   ),
                 ),
                 child: Padding(

@@ -6,7 +6,6 @@ import '../anime/anime_id_mapping_service.dart';
 import '../plugins/nuvio_plugin_provider.dart';
 import '../sources/http_source_resolver.dart';
 import '../sources/public_domain_movie_resolver.dart';
-import '../sources/public_domain_series_resolver.dart';
 import 'configured_resolver_catalog.dart';
 import 'configured_resolver_provider.dart';
 import 'provider_adapters.dart';
@@ -24,9 +23,6 @@ final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
     HttpProviderResolver(ref.read(httpSourceResolverProvider)),
     PublicDomainMovieProviderResolver(
       ref.read(publicDomainMovieResolverProvider),
-    ),
-    PublicDomainSeriesProviderResolver(
-      ref.read(publicDomainSeriesResolverProvider),
     ),
   ];
 

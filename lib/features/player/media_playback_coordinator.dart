@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/sources/stream_candidate_probe.dart';
+import '../../data/resolution/resolver_status.dart';
 import '../../data/sources/unified_source_resolver.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
@@ -97,7 +98,7 @@ class MediaPlaybackCoordinator {
 
       if (playable.isEmpty) {
         if (!context.mounted) return;
-        await _showNoSource(context, item);
+        await _showNoSource(context, ref, item);
         return;
       }
 
@@ -216,18 +217,37 @@ class MediaPlaybackCoordinator {
 
   static Future<void> _showNoSource(
     BuildContext context,
+    WidgetRef ref,
     MediaItem item,
-  ) {
+  ) async {
+    ResolverStatus? status;
+    try {
+      status = await ref.read(resolverStatusProvider.future);
+    } catch (_) {}
+    if (!context.mounted) return;
+
+    final noExternalSources = status == null || status.externalRoutes == 0;
     return showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Sin servidor disponible'),
+      builder: (dialogContext) => AlertDialog(
+        title: Text(noExternalSources ? 'Falta una fuente VOD' : 'Sin reproducción disponible'),
         content: Text(
-          'POTV no encontró una reproducción disponible para ${item.title}.',
+          noExternalSources
+              ? 'Esta instalación de POTV no tiene una fuente VOD compatible configurada. Agrega una sola fuente y POTV la usará automáticamente al tocar Play.'
+              : 'Las fuentes configuradas no devolvieron una reproducción válida para ${item.title}.',
         ),
         actions: [
-          FilledButton(
-            onPressed: () => context.pop(),
+          if (noExternalSources)
+            FilledButton.icon(
+              onPressed: () {
+                dialogContext.pop();
+                context.push('/sources');
+              },
+              icon: const Icon(Icons.add_link_rounded),
+              label: const Text('Agregar fuente'),
+            ),
+          TextButton(
+            onPressed: () => dialogContext.pop(),
             child: const Text('Cerrar'),
           ),
         ],

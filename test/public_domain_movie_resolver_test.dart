@@ -119,4 +119,55 @@ void main() {
 
     expect(streams, isEmpty);
   });
+  test('rejects Archive metadata whose title does not exactly match', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.path.contains('advancedsearch.php')) {
+            handler.resolve(Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'response': {
+                  'docs': [
+                    {
+                      'identifier': 'wrong-copy',
+                      'title': 'Example Movie',
+                      'year': 2025,
+                      'licenseurl': 'https://creativecommons.org/publicdomain/mark/1.0/',
+                    },
+                  ],
+                },
+              },
+            ));
+            return;
+          }
+          handler.resolve(Response<Map<String, dynamic>>(
+            requestOptions: options,
+            statusCode: 200,
+            data: {
+              'metadata': {
+                'title': 'Something Else',
+                'year': '2025',
+                'licenseurl': 'https://creativecommons.org/publicdomain/mark/1.0/',
+              },
+              'files': [
+                {'name': 'movie.mp4', 'format': 'MPEG4'},
+              ],
+            },
+          ));
+        },
+      ),
+    );
+
+    final resolver = PublicDomainMovieResolver(dio);
+    final streams = await resolver.resolve(
+      mediaType: 'movie',
+      title: 'Example Movie',
+      year: '2025',
+    );
+    expect(streams, isEmpty);
+  });
+
 }

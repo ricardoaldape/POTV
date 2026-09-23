@@ -9,6 +9,7 @@ import '../../data/live_tv/live_tv_favorites.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
+import '../../domain/models/playback_session.dart';
 
 class LiveTvScreen extends ConsumerStatefulWidget {
   const LiveTvScreen({super.key});
@@ -289,7 +290,11 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
                             child: InkWell(
                               onTap: () => context.push(
                                 '/player',
-                                extra: channel.stream,
+                                extra: PlaybackSession(
+                                  title: channel.name,
+                                  candidates: [channel.stream],
+                                  isLive: true,
+                                ),
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.all(14),

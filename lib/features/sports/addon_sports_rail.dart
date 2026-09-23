@@ -65,6 +65,7 @@ class AddonSportsRail extends ConsumerWidget {
       extra: PlaybackSession(
         title: item.name,
         candidates: playable,
+        isLive: true,
       ),
     );
   }

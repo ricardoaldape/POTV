@@ -22,6 +22,9 @@ class ResolverStatus {
 
   int get totalRoutes =>
       buildResolvers + localHttpSources + addons + builtInResolvers + nuvioPlugins;
+
+  int get externalRoutes =>
+      buildResolvers + localHttpSources + addons + nuvioPlugins;
 }
 
 final resolverStatusProvider = FutureProvider.autoDispose<ResolverStatus>((ref) async {
@@ -34,7 +37,7 @@ final resolverStatusProvider = FutureProvider.autoDispose<ResolverStatus>((ref) 
     buildResolvers: buildResolvers,
     localHttpSources: http.where((item) => item.enabled).length,
     addons: addons.where((item) => item.enabled).length,
-    builtInResolvers: 2,
+    builtInResolvers: 1,
     nuvioPlugins: nuvio.where((item) => item.enabled).length,
   );
 });

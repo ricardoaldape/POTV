@@ -332,6 +332,7 @@ class _SportsEventCard extends StatelessWidget {
                       extra: PlaybackSession(
                         title: channel.name,
                         candidates: [channel.stream],
+                        isLive: true,
                       ),
                     );
                   },
@@ -397,6 +398,7 @@ class _SportsEventCard extends StatelessWidget {
                     candidates: [
                       for (final match in matches) match.channel.stream,
                     ],
+                    isLive: true,
                   );
                   context.push('/player', extra: session);
                 },

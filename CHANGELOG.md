@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.3
+
+- Elimina Internet Archive Series del pool automático para impedir falsos positivos de series modernas.
+- Endurece la validación de películas de dominio público: título y año deben coincidir también en metadata.
+- Distingue explícitamente VOD de contenido en vivo; una duración desconocida ya no muestra “EN VIVO” en películas/series/anime.
+- TV y deportes marcan sus sesiones como live de forma explícita.
+- El estado de resolución separa rutas externas configuradas de fallbacks integrados.
+
 ## 0.6.2
 
 - Añade una entrada única “Agregar fuente” con detección automática de addons compatibles, repositorios Nuvio JS y listas M3U.
