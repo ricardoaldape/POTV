@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
+import '../../data/bootstrap/default_manifest_bootstrap.dart';
 import '../../data/resolution/resolver_status.dart';
 import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
@@ -87,6 +88,7 @@ class SettingsScreen extends ConsumerWidget {
     final vodSourcesState = ref.watch(httpSourcesProvider);
     final addonState = ref.watch(stremioAddonsProvider);
     final resolverStatus = ref.watch(resolverStatusProvider);
+    final defaultManifestResult = ref.watch(defaultManifestBootstrapResultProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
@@ -163,6 +165,48 @@ class SettingsScreen extends ConsumerWidget {
                       loading: () => const SizedBox.shrink(),
                       error: (error, stack) => const SizedBox.shrink(),
                     ),
+                    if (defaultManifestResult != null) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 30),
+                        child: Text(
+                          'Manifiestos al inicio: intentados ${defaultManifestResult.attempted} · instalados ${defaultManifestResult.installed} · fallidos ${defaultManifestResult.failures.length}',
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (defaultManifestResult.failures.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6, left: 30),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (final entry in defaultManifestResult.failures.entries) ...[
+                                SelectableText(
+                                  entry.key,
+                                  style: const TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                SelectableText(
+                                  entry.value,
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                              ],
+                            ],
+                          ),
+                        ),
+                    ],
                   ],
                 ),
               ),
