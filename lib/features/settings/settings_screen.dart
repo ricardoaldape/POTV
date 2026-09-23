@@ -10,6 +10,7 @@ import '../../data/addons/stremio_source_resolver.dart';
 import '../../data/bootstrap/default_manifest_bootstrap.dart';
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/resolution/resolver_status.dart';
+import '../../data/resolution/source_aggregator.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/sources/http_source_repository.dart';
@@ -32,7 +33,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _openTelegram(BuildContext context) async {
     final opened = await launchUrl(
-      _telegramUri,
+      SettingsScreen._telegramUri,
       mode: LaunchMode.externalApplication,
     );
     if (!opened && context.mounted) {
@@ -110,7 +111,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         externalId: 'tt0133093',
         title: 'The Matrix',
       );
-      report.writelnAll(addonReport, '\n');
+      for (final line in addonReport) {
+        report.writeln(line);
+      }
 
       final aggregator = ref.read(sourceAggregatorProvider);
       final result = await aggregator.resolve(
@@ -339,7 +342,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             )
                           : ListView.separated(
                               itemCount: recentLogs.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 4),
+                              separatorBuilder: (context, index) => const SizedBox(height: 4),
                               itemBuilder: (context, index) {
                                 final message = recentLogs[index];
                                 return SelectableText(
