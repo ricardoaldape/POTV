@@ -8,6 +8,7 @@ class StreamCandidate {
   final String? quality;
   final PlaybackBackend backend;
   final Map<String, String> headers;
+  final Uri? externalAudioUri;
   final Set<String> allowedHosts;
   final bool directWebView;
 
@@ -19,6 +20,7 @@ class StreamCandidate {
     this.quality,
     this.backend = PlaybackBackend.native,
     this.headers = const {},
+    this.externalAudioUri,
     this.allowedHosts = const {},
     this.directWebView = false,
   });
