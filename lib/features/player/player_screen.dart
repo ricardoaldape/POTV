@@ -112,6 +112,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
             play: true,
           );
+          final externalAudioUri = currentStream.externalAudioUri;
+          if (externalAudioUri != null) {
+            await nextPlayer.setAudioTrack(
+              AudioTrack.uri(
+                externalAudioUri.toString(),
+                title: 'YouTube audio',
+              ),
+            );
+          }
           playerErrorSubscription = nextPlayer.stream.error.listen(
             (message) => unawaited(_autoFailover(message)),
           );

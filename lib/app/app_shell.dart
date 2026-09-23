@@ -11,15 +11,19 @@ class PotvShell extends StatelessWidget {
     (icon: Icons.home_rounded, label: 'Inicio', path: '/'),
     (icon: Icons.live_tv_rounded, label: 'TV', path: '/live'),
     (icon: Icons.sports_soccer_rounded, label: 'Deportes', path: '/sports'),
-    (icon: Icons.search_rounded, label: 'Buscar', path: '/search'),
-    (icon: Icons.bookmark_rounded, label: 'Mi lista', path: '/library'),
-    (icon: Icons.settings_rounded, label: 'Ajustes', path: '/settings'),
+    (icon: Icons.play_circle_outline_rounded, label: 'YT', path: '/youtube'),
+    (icon: Icons.person_rounded, label: 'Mi perfil', path: '/profile'),
   ];
+
 
   int _selectedIndex(BuildContext context) {
     final path = GoRouterState.of(context).uri.path;
     final i = destinations.indexWhere((item) => item.path == path);
-    return i < 0 ? 0 : i;
+    if (i >= 0) return i;
+    if (path == '/library' || path == '/search' || path == '/settings') {
+      return 4;
+    }
+    return 0;
   }
 
   @override
@@ -75,11 +79,11 @@ class PotvShell extends StatelessWidget {
     return Scaffold(
       body: child,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: selected.clamp(0, 4),
+        selectedIndex: selected,
         onDestinationSelected: (index) =>
             context.go(destinations[index].path),
         destinations: [
-          for (final item in destinations.take(5))
+          for (final item in destinations)
             NavigationDestination(
               icon: Icon(item.icon),
               label: item.label,
