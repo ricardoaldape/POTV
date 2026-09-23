@@ -257,7 +257,7 @@ class _SubscriptionsTab extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
                 scrollDirection: Axis.horizontal,
                 itemCount: subs.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                separatorBuilder: (_, index) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
                   final item = subs[index];
                   return InkWell(

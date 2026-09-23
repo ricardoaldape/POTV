@@ -86,7 +86,7 @@ class _YoutubeVideoScreenState extends ConsumerState<YoutubeVideoScreen> {
                     Image.network(
                       video.thumbnailUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const ColoredBox(
+                      errorBuilder: (_, error, stack) => const ColoredBox(
                         color: Color(0xFF122430),
                         child: Icon(Icons.ondemand_video_rounded, size: 72),
                       ),

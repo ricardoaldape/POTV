@@ -106,7 +106,9 @@ class YoutubeSubscriptionRepository {
     final output = <String, PotvYoutubeSubscription>{};
     void visit(dynamic value) {
       if (value is List) {
-        for (final item in value) visit(item);
+        for (final item in value) {
+          visit(item);
+        }
         return;
       }
       if (value is! Map) return;

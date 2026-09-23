@@ -73,7 +73,7 @@ class _YoutubeChannelScreenState extends ConsumerState<YoutubeChannelScreen> {
                     if (data.channel.bannerUrl.isNotEmpty)
                       AspectRatio(
                         aspectRatio: 4.5,
-                        child: Image.network(data.channel.bannerUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                        child: Image.network(data.channel.bannerUrl, fit: BoxFit.cover, errorBuilder: (_, error, stack) => const SizedBox.shrink()),
                       ),
                     Padding(
                       padding: const EdgeInsets.all(18),
