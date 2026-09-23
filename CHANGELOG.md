@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.4
+
+- Mueve la configuración VOD a un onboarding único al abrir POTV cuando no existe ninguna fuente externa.
+- El formulario de URL deja de aparecer dentro de cada película, serie o anime.
+- Tras conectar una fuente, POTV la guarda localmente y reintenta automáticamente el contenido que el usuario quería reproducir.
+- Añade botón de pegar desde portapapeles y opción explícita de continuar sólo con TV/deportes.
+- Mantiene la separación entre fuentes VOD externas reales y fallbacks públicos.
+
 ## 0.6.3
 
 - Elimina Internet Archive Series del pool automático para impedir falsos positivos de series modernas.

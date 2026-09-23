@@ -6,6 +6,7 @@ import '../../app/app_theme.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../data/history/playback_history_repository.dart';
+import '../../data/resolution/resolver_status.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../browse/genre_browse_screen.dart';
@@ -23,7 +24,28 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  static bool _vodSetupPromptedThisSession = false;
   MediaType selectedType = MediaType.movie;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowVodSetup();
+    });
+  }
+
+  Future<void> _maybeShowVodSetup() async {
+    if (_vodSetupPromptedThisSession || !mounted) return;
+    _vodSetupPromptedThisSession = true;
+    try {
+      final status = await ref.read(resolverStatusProvider.future);
+      if (!mounted || status.externalRoutes > 0) return;
+      await context.push<bool>('/setup-vod');
+    } catch (_) {
+      // El catálogo debe seguir funcionando aunque falle la comprobación local.
+    }
+  }
 
   static const movieGenres = <_GenreSpec>[
     _GenreSpec(title: 'Acción', tmdbId: 28),

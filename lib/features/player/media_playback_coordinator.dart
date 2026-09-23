@@ -5,8 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../data/sources/stream_candidate_probe.dart';
 import '../../data/resolution/resolver_status.dart';
 import '../../data/sources/unified_source_resolver.dart';
-import '../../data/sources/universal_source_installer.dart';
-import '../../data/resolution/source_aggregator.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
@@ -238,95 +236,27 @@ class MediaPlaybackCoordinator {
     if (!context.mounted) return false;
 
     final noExternalSources = status == null || status.externalRoutes == 0;
-    if (!noExternalSources) {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Sin reproducción disponible'),
-          content: Text(
-            'Las fuentes configuradas no devolvieron una reproducción válida para ${item.title}.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => dialogContext.pop(),
-              child: const Text('Cerrar'),
-            ),
-          ],
-        ),
-      );
-      return false;
+    if (noExternalSources) {
+      final configured = await context.push<bool>('/setup-vod') ?? false;
+      return configured;
     }
 
-    final controller = TextEditingController();
-    final sourceUrl = await showDialog<String>(
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Conecta una fuente una sola vez'),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Esta instalación no tiene una fuente VOD configurada. Pega una URL compatible; después POTV la usará automáticamente al tocar Play.',
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'URL de la fuente',
-                  hintText: 'https://…/manifest.json',
-                ),
-              ),
-            ],
-          ),
+        title: const Text('Sin reproducción disponible'),
+        content: Text(
+          'Las fuentes configuradas no devolvieron una reproducción válida para ${item.title}.',
         ),
         actions: [
           TextButton(
             onPressed: () => dialogContext.pop(),
-            child: const Text('Ahora no'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) dialogContext.pop(value);
-            },
-            icon: const Icon(Icons.add_link_rounded),
-            label: const Text('Conectar y reproducir'),
+            child: const Text('Cerrar'),
           ),
         ],
       ),
     );
-    controller.dispose();
-    if (sourceUrl == null || sourceUrl.isEmpty || !context.mounted) return false;
-
-    try {
-      final result = await ref.read(universalSourceInstallerProvider).install(sourceUrl);
-      ref.invalidate(resolverStatusProvider);
-      ref.read(sourceAggregatorProvider).clearCache();
-      if (!context.mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message)),
-      );
-      return result.active;
-    } on FormatException catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
-      }
-      return false;
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No pudimos conectar la fuente: $error')),
-        );
-      }
-      return false;
-    }
+    return false;
   }
 
 }
