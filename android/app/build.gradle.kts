@@ -66,3 +66,25 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+val lockedLauncherIconSha256 =
+    "3571bb0b1e74d0378744a3def814ba068dacd444fef845da43f5eb034d4efa67"
+
+val verifyLockedLauncherIcon by tasks.registering {
+    doLast {
+        listOf("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi").forEach { density ->
+            val icon = file("src/main/res/mipmap-$density/ic_launcher.png")
+            check(icon.exists()) { "POTV locked launcher icon is missing: $icon" }
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(icon.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            check(digest == lockedLauncherIconSha256) {
+                "POTV launcher icon is locked. Restore the official pirate-flag icon before building."
+            }
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(verifyLockedLauncherIcon)
+}

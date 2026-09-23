@@ -1,0 +1,7 @@
+POTV OFFICIAL APP ICON - LOCKED
+
+The launcher icon is the pirate flag / cyan play / crossed bones artwork approved by the owner.
+Android builds verify SHA-256 before preBuild:
+3571bb0b1e74d0378744a3def814ba068dacd444fef845da43f5eb034d4efa67
+
+Do not replace ic_launcher.png without explicit owner approval.
