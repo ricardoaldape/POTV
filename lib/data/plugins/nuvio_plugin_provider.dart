@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/models/nuvio_plugin_config.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../anime/anime_id_mapping_service.dart';
+import '../debug/debug_log_provider.dart';
 import 'nuvio_plugin_repository.dart';
 import 'nuvio_plugin_runtime.dart';
 
@@ -64,11 +67,13 @@ class NuvioPluginProviderResolver extends ProviderResolver {
     final plugins = (await repository.load())
         .where((plugin) => plugin.enabled && plugin.supports(request.mediaType))
         .toList(growable: false);
+    _log(
+      'Nuvio resolver: ${plugins.length} plugins habilitados para ${request.mediaType}.',
+    );
     if (plugins.isEmpty) return const [];
 
     final batches = await Future.wait([
-      for (final plugin in plugins)
-        runtime.resolve(plugin, effectiveRequest).catchError((_) => <StreamCandidate>[]),
+      for (final plugin in plugins) _resolvePlugin(plugin, effectiveRequest),
     ]);
     final seen = <String>{};
     return [
@@ -77,4 +82,39 @@ class NuvioPluginProviderResolver extends ProviderResolver {
           if (seen.add(candidate.uri.toString())) candidate,
     ];
   }
+  Future<List<StreamCandidate>> _resolvePlugin(
+    NuvioPluginConfig plugin,
+    ProviderResolveRequest request,
+  ) async {
+    _log('Nuvio plugin ${plugin.name} START -> ${plugin.scriptUri}');
+    try {
+      final candidates = await runtime.resolve(plugin, request);
+      _log('Nuvio plugin ${plugin.name}: ${candidates.length} URLs.');
+      for (var index = 0; index < candidates.length; index++) {
+        _log(
+          'Nuvio plugin ${plugin.name} URL ${index + 1}/${candidates.length} '
+          '-> ${candidates[index].uri}',
+        );
+      }
+      return candidates;
+    } catch (error, stackTrace) {
+      _logError('Nuvio plugin ${plugin.name}', error, stackTrace);
+      return const [];
+    }
+  }
+
+  void _log(String message) {
+    debugPrint(message);
+    addDebugLog(message);
+  }
+
+  void _logError(String scope, Object error, StackTrace stackTrace) {
+    final errorLog = '$scope ERROR ${error.runtimeType}: $error';
+    final stackLog = '$scope STACK: $stackTrace';
+    debugPrint(errorLog);
+    debugPrint(stackLog);
+    addDebugLog(errorLog);
+    addDebugLog(stackLog);
+  }
+
 }

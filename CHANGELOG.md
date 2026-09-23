@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1
+
+- Amplía el diagnóstico de reproducción del SourceAggregator y resolvers.
+- Registra todos los providers elegibles, total de fuentes y todas las URLs devueltas.
+- Registra errores y stack traces exactos de Stremio, Nuvio, HTTP y resolvers configurados.
+- El runtime Nuvio conserva errores JavaScript de `getStreams()` en vez de convertirlos silenciosamente en listas vacías.
+- Ajustes muestra hasta 80 eventos recientes y permite copiar o limpiar los logs desde el teléfono.
+
 ## 0.7.0
 
 - Añade cliente YT integrado en POTV con búsqueda, canales y reproducción en el player nativo.

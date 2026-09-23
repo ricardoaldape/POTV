@@ -149,8 +149,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final resolverStatus = ref.watch(resolverStatusProvider);
     final defaultManifestResult = ref.watch(defaultManifestBootstrapResultProvider);
     final debugLogs = ref.watch(debugLogProvider);
-    final recentLogs = debugLogs.length > 10
-        ? debugLogs.sublist(debugLogs.length - 10)
+    final recentLogs = debugLogs.length > 80
+        ? debugLogs.sublist(debugLogs.length - 80)
         : debugLogs;
 
     return Scaffold(
@@ -317,16 +317,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                     const SizedBox(height: 14),
-                    const Text(
-                      'Últimos logs de reproducción',
-                      style: TextStyle(
+                    Text(
+                      'Últimos logs de reproducción (${recentLogs.length}/${debugLogs.length})',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      constraints: const BoxConstraints(maxHeight: 220),
+                      constraints: const BoxConstraints(maxHeight: 320),
                       decoration: BoxDecoration(
                         color: Colors.black12,
                         borderRadius: BorderRadius.circular(12),

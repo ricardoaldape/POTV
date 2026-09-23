@@ -49,9 +49,25 @@ class NuvioPluginRuntime {
         sourceUrl: plugin.scriptUri.toString(),
       ).timeout(const Duration(seconds: 18));
       runtime.executePendingJob();
+      if (evaluated.isError) {
+        throw StateError(
+          'Error JavaScript en ${plugin.name}: ${evaluated.stringResult}',
+        );
+      }
       final settled = await runtime.handlePromise(evaluated)
           .timeout(const Duration(seconds: 22));
-      return parseResults(plugin, settled.stringResult);
+      if (settled.isError) {
+        throw StateError(
+          'Promise rechazada en ${plugin.name}: ${settled.stringResult}',
+        );
+      }
+      final invocation = _parseInvocation(settled.stringResult);
+      if (!invocation.ok) {
+        throw StateError(
+          'Plugin ${plugin.name}: ${invocation.error ?? 'error sin mensaje'}',
+        );
+      }
+      return parseResults(plugin, jsonEncode(invocation.streams));
     } finally {
       runtime.dispose();
     }
@@ -65,6 +81,34 @@ class NuvioPluginRuntime {
     if (code.trim().isEmpty) throw const FormatException('El plugin no contiene código.');
     _scriptCache[uri] = code;
     return code;
+  }
+
+  static _NuvioInvocationResult _parseInvocation(String raw) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+      if (decoded is String) decoded = jsonDecode(decoded);
+    } catch (error) {
+      return _NuvioInvocationResult(
+        ok: false,
+        streams: const [],
+        error: 'Respuesta inválida del runtime: $error',
+      );
+    }
+    if (decoded is! Map) {
+      return const _NuvioInvocationResult(
+        ok: false,
+        streams: [],
+        error: 'El runtime no devolvió un objeto de resultado.',
+      );
+    }
+    final map = Map<String, dynamic>.from(decoded);
+    final streams = map['streams'];
+    return _NuvioInvocationResult(
+      ok: map['ok'] == true,
+      streams: streams is List ? List<Object?>.from(streams) : const [],
+      error: _text(map['error']),
+    );
   }
 
   static List<StreamCandidate> parseResults(
@@ -203,13 +247,28 @@ if (typeof require === 'undefined') {
 (async function() {
   try {
     var fn = (module.exports && module.exports.getStreams) || globalThis.getStreams;
-    if (typeof fn !== 'function') return JSON.stringify([]);
+    if (typeof fn !== 'function') {
+      return JSON.stringify({ ok: false, streams: [], error: 'getStreams no está exportado por el plugin.' });
+    }
     var args = JSON.parse(__POTV_CALL);
     var value = await fn(args.tmdbId, args.mediaType, args.season == null ? undefined : args.season, args.episode == null ? undefined : args.episode);
-    return JSON.stringify(Array.isArray(value) ? value : []);
+    return JSON.stringify({ ok: true, streams: Array.isArray(value) ? value : [] });
   } catch (e) {
-    return JSON.stringify([]);
+    var message = e && e.stack ? String(e.stack) : (e && e.message ? String(e.message) : String(e));
+    return JSON.stringify({ ok: false, streams: [], error: message });
   }
 })();
 ''';
+}
+
+class _NuvioInvocationResult {
+  final bool ok;
+  final List<Object?> streams;
+  final String? error;
+
+  const _NuvioInvocationResult({
+    required this.ok,
+    required this.streams,
+    this.error,
+  });
 }

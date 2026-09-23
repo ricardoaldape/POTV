@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/http_source_config.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/source_resolver.dart';
+import '../debug/debug_log_provider.dart';
 import 'http_source_repository.dart';
 
 final httpSourceResolverProvider = Provider<HttpSourceResolver>((ref) {
@@ -36,6 +38,7 @@ class HttpSourceResolver implements SourceResolver {
   }) async {
     final sources = await _repository.load();
     final enabled = sources.where((source) => source.enabled).toList();
+    _log('HTTP resolver: ${enabled.length} fuentes locales habilitadas.');
 
     final batches = await Future.wait(
       enabled.map(
@@ -77,10 +80,17 @@ class HttpSourceResolver implements SourceResolver {
         options: Options(responseType: ResponseType.json),
       );
 
-      return _parseResponse(source, response.data);
-    } on DioException {
-      return const [];
-    } on FormatException {
+      final candidates = _parseResponse(source, response.data);
+      _log('HTTP source ${source.name}: ${candidates.length} URLs.');
+      for (var index = 0; index < candidates.length; index++) {
+        _log(
+          'HTTP source ${source.name} URL ${index + 1}/${candidates.length} '
+          '-> ${candidates[index].uri}',
+        );
+      }
+      return candidates;
+    } catch (error, stackTrace) {
+      _logError('HTTP source ${source.name}', error, stackTrace);
       return const [];
     }
   }
@@ -132,6 +142,20 @@ class HttpSourceResolver implements SourceResolver {
     }
 
     return result;
+  }
+
+  void _log(String message) {
+    debugPrint(message);
+    addDebugLog(message);
+  }
+
+  void _logError(String scope, Object error, StackTrace stackTrace) {
+    final errorLog = '$scope ERROR ${error.runtimeType}: $error';
+    final stackLog = '$scope STACK: $stackTrace';
+    debugPrint(errorLog);
+    debugPrint(stackLog);
+    addDebugLog(errorLog);
+    addDebugLog(stackLog);
   }
 
   PlaybackBackend _backend(Object? value) {

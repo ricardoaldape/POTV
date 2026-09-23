@@ -39,6 +39,10 @@ class SourceAggregator {
     if (cached != null) {
       final ttl = cached.result.candidates.isEmpty ? negativeCacheTtl : cacheTtl;
       if (DateTime.now().difference(cached.createdAt) <= ttl) {
+        final cacheLog =
+            'SourceAggregator CACHE ${request.mediaType}:${request.mediaId} -> ${cached.result.candidates.length} fuentes.';
+        debugPrint(cacheLog);
+        addDebugLog(cacheLog);
         return Future.value(cached.result);
       }
       _cache.remove(key);
@@ -72,11 +76,17 @@ class SourceAggregator {
         .toList(growable: false);
 
     final activeAddonsLog =
-        'SourceAggregator: ${eligible.length} addons activos consultados.';
+        'SourceAggregator START ${request.mediaType}:${request.mediaId} '
+        'title="${request.title ?? ''}" S${request.season ?? '-'}E${request.episode ?? '-'} '
+        '-> ${eligible.length} providers elegibles: '
+        '${eligible.map((provider) => provider.displayName).join(', ')}';
     debugPrint(activeAddonsLog);
     addDebugLog(activeAddonsLog);
 
     if (eligible.isEmpty) {
+      const emptyLog = 'SourceAggregator END -> 0 providers, 0 fuentes.';
+      debugPrint(emptyLog);
+      addDebugLog(emptyLog);
       return Future.value(
         const ProviderResolutionResult(
           candidates: [],
@@ -108,10 +118,24 @@ class SourceAggregator {
       if (completer.isCompleted) return;
       graceTimer?.cancel();
       globalTimer.cancel();
-      completer.complete(snapshot());
+      final result = snapshot();
+      final finishLog =
+          'SourceAggregator END -> ${result.candidates.length} fuentes; '
+          'providers elegibles=${result.providersEligible}, '
+          'completados=${result.providersCompleted}, fallidos=${result.providersFailed}.';
+      debugPrint(finishLog);
+      addDebugLog(finishLog);
+      completer.complete(result);
     }
 
-    globalTimer = Timer(resolutionTimeout, finish);
+    globalTimer = Timer(resolutionTimeout, () {
+      final timeoutLog =
+          'SourceAggregator TIMEOUT global ${resolutionTimeout.inSeconds}s; '
+          'fuentes parciales=${candidates.length}, providers pendientes=$remaining.';
+      debugPrint(timeoutLog);
+      addDebugLog(timeoutLog);
+      finish();
+    });
 
     for (final provider in eligible) {
       unawaited(
@@ -119,19 +143,18 @@ class SourceAggregator {
           if (completer.isCompleted) return;
 
           final providerLog =
-              'SourceAggregator: addon ${provider.id} devolvió ${batch.candidates.length} fuentes.';
+              'SourceAggregator provider ${provider.displayName} (${provider.id}) -> '
+              '${batch.candidates.length} fuentes${batch.failed ? ' · FALLÓ' : ''}.';
           debugPrint(providerLog);
           addDebugLog(providerLog);
 
-          if (batch.candidates.isNotEmpty) {
-            final firstThree = batch.candidates
-                .take(3)
-                .map((candidate) => candidate.uri.toString())
-                .join(' | ');
-            final firstThreeLog =
-                'SourceAggregator: primeras 3 fuentes de ${provider.id}: $firstThree';
-            debugPrint(firstThreeLog);
-            addDebugLog(firstThreeLog);
+          for (var index = 0; index < batch.candidates.length; index++) {
+            final candidate = batch.candidates[index];
+            final urlLog =
+                'SourceAggregator ${provider.id} URL ${index + 1}/${batch.candidates.length} '
+                '-> ${candidate.uri}';
+            debugPrint(urlLog);
+            addDebugLog(urlLog);
           }
 
           remaining--;
@@ -149,19 +172,9 @@ class SourceAggregator {
           }
 
           if (remaining == 0) {
-            final globals = candidates.take(3).map((c) => c.uri.toString()).toList();
-            final globalLog =
-                'SourceAggregator: primeras 3 URLs globales: ${globals.isEmpty ? 'ninguna' : globals.join(' | ')}';
-            debugPrint(globalLog);
-            addDebugLog(globalLog);
             finish();
           } else if (candidates.isNotEmpty &&
               firstCandidateGrace <= Duration.zero) {
-            final globals = candidates.take(3).map((c) => c.uri.toString()).toList();
-            final globalLog =
-                'SourceAggregator: primeras 3 URLs globales: ${globals.isEmpty ? 'ninguna' : globals.join(' | ')}';
-            debugPrint(globalLog);
-            addDebugLog(globalLog);
             finish();
           }
         }),
@@ -175,10 +188,21 @@ class SourceAggregator {
     ProviderResolver provider,
     ProviderResolveRequest request,
   ) {
+    final startLog = 'Resolver ${provider.displayName} START (${provider.id}).';
+    debugPrint(startLog);
+    addDebugLog(startLog);
+
     late final Future<List<StreamCandidate>> providerFuture;
     try {
       providerFuture = provider.resolve(request);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      final errorLog =
+          'Resolver ${provider.displayName} ERROR ${error.runtimeType}: $error';
+      final stackLog = 'Resolver ${provider.displayName} STACK: $stackTrace';
+      debugPrint(errorLog);
+      debugPrint(stackLog);
+      addDebugLog(errorLog);
+      addDebugLog(stackLog);
       return Future.value(
         const _ProviderBatch(candidates: [], failed: true),
       );
@@ -186,13 +210,28 @@ class SourceAggregator {
 
     final normalized = providerFuture.then<_ProviderBatch>(
       (candidates) => _ProviderBatch(candidates: candidates),
-      onError: (Object _, StackTrace _) =>
-          const _ProviderBatch(candidates: [], failed: true),
+      onError: (Object error, StackTrace stackTrace) {
+        final errorLog =
+            'Resolver ${provider.displayName} ERROR ${error.runtimeType}: $error';
+        final stackLog = 'Resolver ${provider.displayName} STACK: $stackTrace';
+        debugPrint(errorLog);
+        debugPrint(stackLog);
+        addDebugLog(errorLog);
+        addDebugLog(stackLog);
+        return const _ProviderBatch(candidates: [], failed: true);
+      },
     );
 
     return normalized.timeout(
       providerTimeout,
-      onTimeout: () => const _ProviderBatch(candidates: [], failed: true),
+      onTimeout: () {
+        final timeoutLog =
+            'Resolver ${provider.displayName} TIMEOUT después de '
+            '${providerTimeout.inSeconds}s.';
+        debugPrint(timeoutLog);
+        addDebugLog(timeoutLog);
+        return const _ProviderBatch(candidates: [], failed: true);
+      },
     );
   }
 

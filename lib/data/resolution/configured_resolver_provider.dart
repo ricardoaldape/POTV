@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../../domain/resolution/resolver_endpoint_config.dart';
+import '../debug/debug_log_provider.dart';
 
 class ConfiguredResolverProvider extends ProviderResolver {
   final ResolverEndpointConfig config;
@@ -52,17 +54,40 @@ class ConfiguredResolverProvider extends ProviderResolver {
     };
 
     try {
+      final uri = config.endpoint.replace(queryParameters: query);
+      _log('Resolver ${config.name} GET -> $uri');
       final response = await dio.getUri<Object?>(
-        config.endpoint.replace(queryParameters: query),
+        uri,
         options: Options(responseType: ResponseType.json),
       );
-      return _parse(response.data);
-    } on DioException {
-      return const [];
-    } on FormatException {
+      final candidates = _parse(response.data);
+      _log('Resolver ${config.name}: ${candidates.length} URLs.');
+      for (var index = 0; index < candidates.length; index++) {
+        _log(
+          'Resolver ${config.name} URL ${index + 1}/${candidates.length} '
+          '-> ${candidates[index].uri}',
+        );
+      }
+      return candidates;
+    } catch (error, stackTrace) {
+      _logError('Resolver ${config.name}', error, stackTrace);
       return const [];
     }
   }
+  void _log(String message) {
+    debugPrint(message);
+    addDebugLog(message);
+  }
+
+  void _logError(String scope, Object error, StackTrace stackTrace) {
+    final errorLog = '$scope ERROR ${error.runtimeType}: $error';
+    final stackLog = '$scope STACK: $stackTrace';
+    debugPrint(errorLog);
+    debugPrint(stackLog);
+    addDebugLog(errorLog);
+    addDebugLog(stackLog);
+  }
+
   List<StreamCandidate> _parse(Object? raw) {
     Object? streamsRaw;
     if (raw is Map<String, dynamic>) {

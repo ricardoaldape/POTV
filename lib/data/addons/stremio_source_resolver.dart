@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/stremio_addon_config.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/source_resolver.dart';
+import '../debug/debug_log_provider.dart';
 import 'stremio_addon_client.dart';
 import 'stremio_addon_repository.dart';
 import 'stremio_protocol.dart';
@@ -76,10 +78,12 @@ class StremioSourceResolver implements SourceResolver {
           type: type,
           itemId: itemId,
         );
-        final firstThree = streams.take(3).map((s) => s.uri.toString()).toList();
-        lines.add(
-          'Addon ${addon.name}: ${streams.length} fuentes. Primeras 3: ${firstThree.isEmpty ? 'ninguna' : firstThree.join(' | ')}',
-        );
+        lines.add('Addon ${addon.name}: ${streams.length} fuentes.');
+        for (var index = 0; index < streams.length; index++) {
+          lines.add(
+            '  URL ${index + 1}/${streams.length}: ${streams[index].uri}',
+          );
+        }
       } catch (error, stack) {
         lines.add('Addon ${addon.name}: ERROR $error');
         lines.add('Stack: $stack');
@@ -119,6 +123,9 @@ class StremioSourceResolver implements SourceResolver {
         : 'movie';
     final addons = await _repository.load();
     final enabled = addons.where((addon) => addon.enabled).toList();
+    _log(
+      'Stremio resolver: ${enabled.length} addons habilitados para $type/$itemId.',
+    );
 
     final support = await Future.wait([
       for (final addon in enabled) _supportsAddonType(addon, type),
@@ -127,6 +134,7 @@ class StremioSourceResolver implements SourceResolver {
       for (var i = 0; i < enabled.length; i++)
         if (support[i]) enabled[i],
     ];
+    _log('Stremio resolver: ${compatible.length} addons compatibles.');
 
     final batches = await Future.wait([
       for (final addon in compatible)
@@ -159,7 +167,8 @@ class StremioSourceResolver implements SourceResolver {
       _manifestCache[addon.id] = manifest;
       return manifest.supportsStreams &&
           (manifest.types.isEmpty || manifest.types.contains(type));
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _logError('Stremio manifest ${addon.name}', error, stackTrace);
       // Some compatible endpoints expose streams but reject manifest probing.
       // Keep them eligible instead of breaking an already configured source.
       _manifestCache[addon.id] = null;
@@ -172,25 +181,33 @@ class StremioSourceResolver implements SourceResolver {
     required String type,
     required String itemId,
   }) async {
-    try {
-      final streamUri = StremioProtocol.streamUri(
-        addon: addon,
-        type: type,
-        itemId: itemId,
-      );
+    final streamUri = StremioProtocol.streamUri(
+      addon: addon,
+      type: type,
+      itemId: itemId,
+    );
+    _log('Stremio addon ${addon.name} GET -> $streamUri');
 
+    try {
       final response = await _dio.getUri<Object?>(
         streamUri,
         options: Options(responseType: ResponseType.json),
       );
 
-      return StremioProtocol.parseStreams(
+      final candidates = StremioProtocol.parseStreams(
         addon: addon,
         raw: response.data,
       );
-    } on DioException {
-      return const [];
-    } on FormatException {
+      _log('Stremio addon ${addon.name}: ${candidates.length} URLs.');
+      for (var index = 0; index < candidates.length; index++) {
+        _log(
+          'Stremio addon ${addon.name} URL ${index + 1}/${candidates.length} '
+          '-> ${candidates[index].uri}',
+        );
+      }
+      return candidates;
+    } catch (error, stackTrace) {
+      _logError('Stremio addon ${addon.name}', error, stackTrace);
       return const [];
     }
   }
@@ -233,9 +250,24 @@ class StremioSourceResolver implements SourceResolver {
 
       if (first == null) return null;
       return _text(first['imdb_id']) ?? _text(first['id']);
-    } on DioException {
+    } catch (error, stackTrace) {
+      _logError('Stremio Cinemeta mapping', error, stackTrace);
       return null;
     }
+  }
+
+  void _log(String message) {
+    debugPrint(message);
+    addDebugLog(message);
+  }
+
+  void _logError(String scope, Object error, StackTrace stackTrace) {
+    final errorLog = '$scope ERROR ${error.runtimeType}: $error';
+    final stackLog = '$scope STACK: $stackTrace';
+    debugPrint(errorLog);
+    debugPrint(stackLog);
+    addDebugLog(errorLog);
+    addDebugLog(stackLog);
   }
 
   String? _text(Object? value) {
