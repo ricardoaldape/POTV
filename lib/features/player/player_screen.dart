@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
@@ -101,13 +102,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     while (true) {
       try {
+        final inputUrl = currentStream.uri.toString();
+        final inputLog = 'Resolver: URL de entrada -> $inputUrl';
+        debugPrint(inputLog);
+        addDebugLog(inputLog);
+
         if (currentStream.backend == PlaybackBackend.native) {
           final nextPlayer = Player();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
           await nextPlayer.open(
             Media(
-              currentStream.uri.toString(),
+              inputUrl,
               httpHeaders: currentStream.headers,
             ),
             play: true,
@@ -128,6 +134,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
               effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
           }
+          final finalStreamLog = 'Resolver: URL final del stream -> $inputUrl';
+          debugPrint(finalStreamLog);
+          addDebugLog(finalStreamLog);
           _armHistorySave();
         } else if (currentStream.backend == PlaybackBackend.external) {
           final opened = await launchUrl(
@@ -137,10 +146,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (!opened) {
             throw StateError('No hay una aplicación disponible para abrirlo.');
           }
+          final finalStreamLog = 'Resolver: URL final del stream -> ${currentStream.uri}';
+          debugPrint(finalStreamLog);
+          addDebugLog(finalStreamLog);
         }
 
         break;
-      } catch (error) {
+      } catch (error, stack) {
+        final errorLog = 'Resolver error: $error';
+        final stackLog = 'Resolver stack: $stack';
+        debugPrint(errorLog);
+        debugPrint(stackLog);
+        addDebugLog(errorLog);
+        addDebugLog(stackLog);
+
         await playerErrorSubscription?.cancel();
         playerErrorSubscription = null;
         await player?.dispose();

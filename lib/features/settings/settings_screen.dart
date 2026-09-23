@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
 import '../../data/bootstrap/default_manifest_bootstrap.dart';
+import '../../data/debug/debug_log_provider.dart';
 import '../../data/resolution/resolver_status.dart';
 import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
@@ -89,6 +90,10 @@ class SettingsScreen extends ConsumerWidget {
     final addonState = ref.watch(stremioAddonsProvider);
     final resolverStatus = ref.watch(resolverStatusProvider);
     final defaultManifestResult = ref.watch(defaultManifestBootstrapResultProvider);
+    final debugLogs = ref.watch(debugLogProvider);
+    final recentLogs = debugLogs.length > 10
+        ? debugLogs.sublist(debugLogs.length - 10)
+        : debugLogs;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
@@ -207,6 +212,65 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         ),
                     ],
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Últimos logs de reproducción',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      decoration: BoxDecoration(
+                        color: Colors.black12,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.all(8),
+                      child: recentLogs.isEmpty
+                          ? const Text(
+                              'No hay logs aún.',
+                              style: TextStyle(color: Colors.white54),
+                            )
+                          : ListView.separated(
+                              itemCount: recentLogs.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 4),
+                              itemBuilder: (context, index) {
+                                final message = recentLogs[index];
+                                return SelectableText(
+                                  message,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 10,
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: () {
+                            ref.read(debugLogProvider.notifier).clear();
+                          },
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          label: const Text('Limpiar logs'),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          onPressed: () async {
+                            final all = ref.read(debugLogProvider);
+                            await Clipboard.setData(
+                              ClipboardData(text: all.join('\n')),
+                            );
+                          },
+                          icon: const Icon(Icons.copy_all_rounded),
+                          label: const Text('Copiar logs'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

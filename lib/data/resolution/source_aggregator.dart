@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
+import '../debug/debug_log_provider.dart';
 import 'provider_registry.dart';
 
 final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
@@ -70,6 +71,11 @@ class SourceAggregator {
         .where((provider) => provider.supports(request))
         .toList(growable: false);
 
+    final activeAddonsLog =
+        'SourceAggregator: ${eligible.length} addons activos consultados.';
+    debugPrint(activeAddonsLog);
+    addDebugLog(activeAddonsLog);
+
     if (eligible.isEmpty) {
       return Future.value(
         const ProviderResolutionResult(
@@ -112,6 +118,22 @@ class SourceAggregator {
         _resolveProvider(provider, request).then((batch) {
           if (completer.isCompleted) return;
 
+          final providerLog =
+              'SourceAggregator: addon ${provider.id} devolvió ${batch.candidates.length} fuentes.';
+          debugPrint(providerLog);
+          addDebugLog(providerLog);
+
+          if (batch.candidates.isNotEmpty) {
+            final firstThree = batch.candidates
+                .take(3)
+                .map((candidate) => candidate.uri.toString())
+                .join(' | ');
+            final firstThreeLog =
+                'SourceAggregator: primeras 3 fuentes de ${provider.id}: $firstThree';
+            debugPrint(firstThreeLog);
+            addDebugLog(firstThreeLog);
+          }
+
           remaining--;
           if (batch.failed) {
             failed++;
@@ -127,9 +149,19 @@ class SourceAggregator {
           }
 
           if (remaining == 0) {
+            final globals = candidates.take(3).map((c) => c.uri.toString()).toList();
+            final globalLog =
+                'SourceAggregator: primeras 3 URLs globales: ${globals.isEmpty ? 'ninguna' : globals.join(' | ')}';
+            debugPrint(globalLog);
+            addDebugLog(globalLog);
             finish();
           } else if (candidates.isNotEmpty &&
               firstCandidateGrace <= Duration.zero) {
+            final globals = candidates.take(3).map((c) => c.uri.toString()).toList();
+            final globalLog =
+                'SourceAggregator: primeras 3 URLs globales: ${globals.isEmpty ? 'ninguna' : globals.join(' | ')}';
+            debugPrint(globalLog);
+            addDebugLog(globalLog);
             finish();
           }
         }),
