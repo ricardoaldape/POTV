@@ -7,6 +7,7 @@
 - Distingue explícitamente VOD de contenido en vivo; una duración desconocida ya no muestra “EN VIVO” en películas/series/anime.
 - TV y deportes marcan sus sesiones como live de forma explícita.
 - El estado de resolución separa rutas externas configuradas de fallbacks integrados.
+- Si no existe ninguna fuente VOD externa, Play permite pegar una sola URL, instalarla y reintentar automáticamente sin navegar por menús técnicos.
 
 ## 0.6.2
 

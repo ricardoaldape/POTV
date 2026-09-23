@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../data/sources/stream_candidate_probe.dart';
 import '../../data/resolution/resolver_status.dart';
 import '../../data/sources/unified_source_resolver.dart';
+import '../../data/sources/universal_source_installer.dart';
+import '../../data/resolution/source_aggregator.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
@@ -98,7 +100,16 @@ class MediaPlaybackCoordinator {
 
       if (playable.isEmpty) {
         if (!context.mounted) return;
-        await _showNoSource(context, ref, item);
+        final installed = await _showNoSource(context, ref, item);
+        if (installed && context.mounted) {
+          return _playResolved(
+            context,
+            ref,
+            item,
+            season: season,
+            episode: episode,
+          );
+        }
         return;
       }
 
@@ -215,7 +226,7 @@ class MediaPlaybackCoordinator {
     return result;
   }
 
-  static Future<void> _showNoSource(
+  static Future<bool> _showNoSource(
     BuildContext context,
     WidgetRef ref,
     MediaItem item,
@@ -224,36 +235,100 @@ class MediaPlaybackCoordinator {
     try {
       status = await ref.read(resolverStatusProvider.future);
     } catch (_) {}
-    if (!context.mounted) return;
+    if (!context.mounted) return false;
 
     final noExternalSources = status == null || status.externalRoutes == 0;
-    return showDialog<void>(
+    if (!noExternalSources) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Sin reproducción disponible'),
+          content: Text(
+            'Las fuentes configuradas no devolvieron una reproducción válida para ${item.title}.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => dialogContext.pop(),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+      return false;
+    }
+
+    final controller = TextEditingController();
+    final sourceUrl = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(noExternalSources ? 'Falta una fuente VOD' : 'Sin reproducción disponible'),
-        content: Text(
-          noExternalSources
-              ? 'Esta instalación de POTV no tiene una fuente VOD compatible configurada. Agrega una sola fuente y POTV la usará automáticamente al tocar Play.'
-              : 'Las fuentes configuradas no devolvieron una reproducción válida para ${item.title}.',
+        title: const Text('Conecta una fuente una sola vez'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Esta instalación no tiene una fuente VOD configurada. Pega una URL compatible; después POTV la usará automáticamente al tocar Play.',
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'URL de la fuente',
+                  hintText: 'https://…/manifest.json',
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
-          if (noExternalSources)
-            FilledButton.icon(
-              onPressed: () {
-                dialogContext.pop();
-                context.push('/sources');
-              },
-              icon: const Icon(Icons.add_link_rounded),
-              label: const Text('Agregar fuente'),
-            ),
           TextButton(
             onPressed: () => dialogContext.pop(),
-            child: const Text('Cerrar'),
+            child: const Text('Ahora no'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) dialogContext.pop(value);
+            },
+            icon: const Icon(Icons.add_link_rounded),
+            label: const Text('Conectar y reproducir'),
           ),
         ],
       ),
     );
+    controller.dispose();
+    if (sourceUrl == null || sourceUrl.isEmpty || !context.mounted) return false;
+
+    try {
+      final result = await ref.read(universalSourceInstallerProvider).install(sourceUrl);
+      ref.invalidate(resolverStatusProvider);
+      ref.read(sourceAggregatorProvider).clearCache();
+      if (!context.mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message)),
+      );
+      return result.active;
+    } on FormatException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+      return false;
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No pudimos conectar la fuente: $error')),
+        );
+      }
+      return false;
+    }
   }
+
 }
 
 class _ResolvingDialog extends StatelessWidget {
