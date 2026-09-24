@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import '../data/accounts/user_account.dart';
 import '../data/accounts/user_account_repository.dart';
 import '../data/accounts/user_profile.dart';
+import '../data/services/subscription_verifier.dart';
 
 final userAccountRepositoryProvider = FutureProvider<UserAccountRepository>((ref) async {
   return await UserAccountRepository.getInstance();
@@ -58,6 +59,35 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
     // Clear profiles and active id too
     ref.read(userProfilesProvider.notifier).clear();
     await ref.read(currentProfileIdProvider.notifier).set(null);
+  }
+
+  /// Link subscription by code. Returns reason on error or null on success.
+  Future<String?> linkSubscription(String code) async {
+    // indicate loading by setting pending (optimistic)
+    final current = state;
+    if (current == null) return 'no_account';
+    try {
+      final verifier = SubscriptionVerifier();
+      final res = await verifier.verifyCode(code);
+      if (!res.valid) {
+        return res.reason ?? 'invalid';
+      }
+      // update account
+      final updated = UserAccount(
+        id: current.id,
+        username: current.username,
+        createdAt: current.createdAt,
+        telegramChatId: current.telegramChatId,
+        subscriptionStatus: SubscriptionStatus.active,
+        subscriptionExpiresAt: res.expiresAt,
+      );
+      state = updated;
+      final repo = await ref.read(userAccountRepositoryProvider.future);
+      await repo.saveAccount(updated);
+      return null;
+    } catch (e) {
+      return 'exception';
+    }
   }
 }
 
