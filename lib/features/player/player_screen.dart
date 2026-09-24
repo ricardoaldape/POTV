@@ -473,6 +473,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             : Video(
                 controller: videoController!,
                 controls: NoVideoControls,
+                fit: BoxFit.contain,
               ),
         PlaybackBackend.webView => SecureWebViewPlayer(
             key: ValueKey(currentStream.id),

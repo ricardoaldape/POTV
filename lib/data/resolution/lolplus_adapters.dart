@@ -49,7 +49,7 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
       try {
         final resolved = await NativeResolvers.resolve(
           servidorUrl,
-          timeout: const Duration(seconds: 8),
+          timeout: const Duration(seconds: 12),
         );
 
         if (resolved != null && resolved.url.isNotEmpty) {
@@ -63,29 +63,42 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
             headers: resolved.headers,
           ));
         } else {
-          candidates.add(StreamCandidate(
-            id: '${id}_${candidates.length}',
-            label: servidorNombre,
-            uri: Uri.parse(servidorUrl),
-            language: idioma,
-            quality: calidad,
-            backend: PlaybackBackend.webView,
-            directWebView: true,
-          ));
+          // No se pudo resolver nativamente → conservar solo si la entrada
+          // ya indica `backend: 'native'` o si la URL parece apuntar a m3u8/mp4.
+          final incomingBackend = (m['backend'] is String) ? m['backend'] as String : '';
+          final headersRaw = m['headers'];
+          final headers = <String, String>{};
+          if (headersRaw is Map) {
+            headersRaw.forEach((k, v) {
+              try {
+                headers[k.toString()] = v.toString();
+              } catch (_) {}
+            });
+          }
+
+          final isDirectMedia = servidorUrl.toLowerCase().contains('.m3u8') || servidorUrl.toLowerCase().endsWith('.mp4');
+          if (incomingBackend == 'native' || isDirectMedia) {
+            try {
+              candidates.add(StreamCandidate(
+                id: '${id}_${candidates.length}',
+                label: servidorNombre,
+                uri: Uri.parse(servidorUrl),
+                language: idioma,
+                quality: calidad,
+                backend: PlaybackBackend.native,
+                headers: headers,
+              ));
+            } catch (_) {
+              // ignore malformed url
+            }
+          } else {
+            // No se pudo resolver nativamente → descartar para evitar popups en WebView
+            continue;
+          }
         }
       } catch (_) {
-        // On error, fallback to webView entry
-        try {
-          candidates.add(StreamCandidate(
-            id: '${id}_${candidates.length}',
-            label: servidorNombre,
-            uri: Uri.parse(servidorUrl),
-            language: idioma,
-            quality: calidad,
-            backend: PlaybackBackend.webView,
-            directWebView: true,
-          ));
-        } catch (_) {}
+        // On error, skip this server to avoid WebView popups.
+        continue;
       }
     }
 
