@@ -10,6 +10,7 @@ import '../sources/public_domain_movie_resolver.dart';
 import 'configured_resolver_catalog.dart';
 import 'configured_resolver_provider.dart';
 import 'provider_adapters.dart';
+import 'lolplus_adapters.dart';
 
 final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
   final configured = const ConfiguredResolverCatalog().load();
@@ -25,6 +26,10 @@ final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
       resolver: ref.read(stremioSourceResolverProvider),
       animeMapping: ref.read(animeIdMappingServiceProvider),
     ),
+    const CuevanaProviderResolver(),
+    const TioPlusProviderResolver(),
+    const PelisPlusProviderResolver(),
+    const CinecalidadProviderResolver(),
     HttpProviderResolver(ref.read(httpSourceResolverProvider)),
     PublicDomainMovieProviderResolver(
       ref.read(publicDomainMovieResolverProvider),
