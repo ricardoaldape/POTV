@@ -1,4 +1,4 @@
 class SubscriptionEndpoint {
-  // Placeholder URL — replace with real endpoint later
-  static const String verifyUrl = 'https://potv-subs.example.com/verify';
+  // Real bot endpoint for linking licenses
+  static const String verifyUrl = 'https://potv.fxqubit.com/api/v1/link/claim';
 }
