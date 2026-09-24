@@ -6,10 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../debug/debug_log_provider.dart';
+import '../extractors/resolver_manager.dart';
 import 'provider_registry.dart';
 
 final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
-  return SourceAggregator(ref.read(providerRegistryProvider));
+  return SourceAggregator(
+    ref.read(providerRegistryProvider),
+    resolverManager: ref.read(resolverManagerProvider),
+  );
 });
 
 class SourceAggregator {
@@ -19,6 +23,7 @@ class SourceAggregator {
   final Duration firstCandidateGrace;
   final Duration cacheTtl;
   final Duration negativeCacheTtl;
+  final ResolverManager? resolverManager;
 
   final Map<String, _CachedResolution> _cache = {};
   final Map<String, Future<ProviderResolutionResult>> _inFlight = {};
@@ -30,6 +35,7 @@ class SourceAggregator {
     this.firstCandidateGrace = const Duration(milliseconds: 900),
     this.cacheTtl = const Duration(minutes: 5),
     this.negativeCacheTtl = const Duration(seconds: 30),
+    this.resolverManager,
   });
 
   Future<ProviderResolutionResult> resolve(
@@ -223,7 +229,21 @@ class SourceAggregator {
       },
     );
 
-    return normalized.timeout(
+    final postProcessed = normalized.then((batch) async {
+      final manager = resolverManager;
+      if (manager == null || batch.failed || batch.candidates.isEmpty) {
+        return batch;
+      }
+
+      try {
+        final resolved = await manager.resolveCandidates(batch.candidates);
+        return _ProviderBatch(candidates: resolved);
+      } catch (_) {
+        return batch;
+      }
+    });
+
+    return postProcessed.timeout(
       providerTimeout,
       onTimeout: () {
         final timeoutLog =
@@ -243,6 +263,7 @@ class SourceAggregator {
       request.externalId ?? '',
       request.season?.toString() ?? '',
       request.episode?.toString() ?? '',
+      request.embedUrl ?? '',
     ].join('|');
   }
 }
