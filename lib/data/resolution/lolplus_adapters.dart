@@ -59,8 +59,13 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
             uri: Uri.parse(resolved.url),
             language: idioma,
             quality: (resolved.quality.isNotEmpty ? resolved.quality : calidad),
-            backend: PlaybackBackend.native,
-            headers: resolved.headers,
+                backend: PlaybackBackend.native,
+                headers: {
+                  'User-Agent':
+                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Referer': _refererForStream(resolved.url),
+                  ...resolved.headers,
+                },
           ));
         } else {
           // No se pudo resolver nativamente → conservar solo si la entrada
@@ -86,7 +91,12 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
                 language: idioma,
                 quality: calidad,
                 backend: PlaybackBackend.native,
-                headers: headers,
+                headers: {
+                  'User-Agent':
+                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Referer': _refererForStream(servidorUrl),
+                  ...headers,
+                },
               ));
             } catch (_) {
               // ignore malformed url
@@ -103,6 +113,61 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
     }
 
     return candidates;
+  }
+}
+
+/// Devuelve el Referer correcto según el host del stream.
+/// Sin esto, CDNs como tylenews.com o turboviplay.com bloquean con 403.
+String _refererForStream(String url) {
+  try {
+    final uri = Uri.parse(url);
+    final host = uri.host.toLowerCase();
+
+    // TioPlus / CDNs
+    if (host.contains('tylenews') ||
+        host.contains('turbovi') ||
+        host.contains('uptosharez')) {
+      return 'https://tioplus.app/';
+    }
+    // Filemoon
+    if (host.contains('filemoon') || host.contains('bysedikamoum')) {
+      return 'https://filemoon.sx/';
+    }
+    // StreamWish / Vibuxer
+    if (host.contains('streamwish') ||
+        host.contains('hglink') ||
+        host.contains('vibuxer') ||
+        host.contains('hgplaycdn')) {
+      return 'https://streamwish.to/';
+    }
+    // VidHide / Callistanise
+    if (host.contains('vidhide') ||
+        host.contains('callistanise') ||
+        host.contains('filelions')) {
+      return 'https://vidhidepro.com/';
+    }
+    // VOE
+    if (host.contains('voe')) {
+      return 'https://voe.sx/';
+    }
+    // Doodstream
+    if (host.contains('dood') || host.contains('dsvplay')) {
+      return 'https://dood.to/';
+    }
+    // PelisPlus / Cuevana
+    if (host.contains('pelisplus') || host.contains('pelisplushd')) {
+      return 'https://pelisplushd.bz/';
+    }
+    if (host.contains('cuevana')) {
+      return 'https://wv3.cuevana3.eu/';
+    }
+    if (host.contains('cinecalidad')) {
+      return 'https://cinecalidad.am/';
+    }
+    // Fallback: el propio host
+    return '${uri.scheme}://${uri.host}/';
+  } catch (_) {
+    return '';
   }
 }
 

@@ -9,7 +9,12 @@ class CuevanaService {
 
   static const _kTmdbKey = 'a2d9bbed370d9f678e34006f8750a5a5';
   static const _kTmdbBase = 'https://api.themoviedb.org/3';
-  static const _kBase = 'https://wv3.cuevana3.eu';
+  static String _kBase = 'https://wv3.cuevana3.eu';
+  static const List<String> _kBaseFallbacks = [
+    'https://wv3.cuevana3.eu',
+    'https://cuevana3plus.com',
+    'https://cuevana3e.pro',
+  ];
 
   static const _kUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -44,6 +49,18 @@ class CuevanaService {
   }) async* {
     if (tmdbId <= 0) {
       throw Exception('tmdb_id inválido');
+    }
+
+    // Resolver dominio funcional
+    for (final base in _kBaseFallbacks) {
+      try {
+        final probe = await http.get(Uri.parse('$base/peliculas'))
+            .timeout(const Duration(seconds: 6));
+        if (probe.statusCode >= 200 && probe.statusCode < 400) {
+          _kBase = base;
+          break;
+        }
+      } catch (_) {}
     }
 
     final tmdb = await _getTmdbInfo(tmdbId, isMovie ? 'movie' : 'tv');

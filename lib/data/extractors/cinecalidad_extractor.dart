@@ -8,7 +8,11 @@ const _kAllowedServers = ['Vimeos', 'Hlswish', 'voe', 'Videoapp'];
 
 const _kTmdbApiKey = 'a2d9bbed370d9f678e34006f8750a5a5';
 const _kTmdbBase = 'https://api.themoviedb.org/3';
-const _kCinecalidadBase = 'https://www.cinecalidad.am';
+String _kCinecalidadBase = 'https://www.cinecalidad.am';
+const List<String> _kCinecalidadFallbacks = [
+  'https://www.cinecalidad.am',
+  'https://www.cinecalidad.my',
+];
 
 /// Modelo de servidor listo para [ServidoresModal].
 class CinecalidadServer {
@@ -56,6 +60,18 @@ class CinecalidadService {
   }) async* {
     if (tmdbId <= 0) {
       throw Exception('tmdb_id inválido');
+    }
+
+    // Resolver dominio funcional
+    for (final base in _kCinecalidadFallbacks) {
+      try {
+        final probe = await http.get(Uri.parse('$base/peliculas'))
+            .timeout(const Duration(seconds: 6));
+        if (probe.statusCode >= 200 && probe.statusCode < 400) {
+          _kCinecalidadBase = base;
+          break;
+        }
+      } catch (_) {}
     }
 
     final tmdbData = await _getTmdbData(tmdbId, isMovie ? 'movie' : 'tv');
