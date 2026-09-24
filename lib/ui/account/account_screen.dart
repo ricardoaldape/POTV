@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/user_providers.dart';
+import '../subscription/link_subscription_screen.dart';
 
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
@@ -21,6 +22,11 @@ class AccountScreen extends ConsumerWidget {
                   Text('Usuario: ${account.username}', style: const TextStyle(fontSize: 18)),
                   const SizedBox(height: 8),
                   Text('Estado suscripción: ${account.subscriptionStatus.name}'),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LinkSubscriptionScreen())),
+                    child: const Text('Vincular suscripción'),
+                  ),
                   const SizedBox(height: 20),
                   ElevatedButton(
                     onPressed: () async {
