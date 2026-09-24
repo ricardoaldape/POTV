@@ -48,6 +48,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   VideoController? videoController;
   Timer? hideTimer;
   Timer? historyTimer;
+  Timer? startupTimer;
+  StreamSubscription<bool>? playingSubscription;
+  bool _startupPlaying = false;
   StreamSubscription<String>? playerErrorSubscription;
   bool controlsVisible = true;
   bool failoverInProgress = false;
@@ -72,6 +75,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     hideTimer?.cancel();
     historyTimer?.cancel();
+    startupTimer?.cancel();
+    unawaited(playingSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
     player?.dispose();
@@ -83,6 +88,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     Duration? resumeAt,
   }) async {
     historyTimer?.cancel();
+    startupTimer?.cancel();
+    _startupPlaying = false;
+    await playingSubscription?.cancel();
+    playingSubscription = null;
     await playerErrorSubscription?.cancel();
     playerErrorSubscription = null;
     await _saveProgress();
@@ -111,6 +120,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final nextPlayer = Player();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
+
+          // Start listening to `playing` state to detect successful startup.
+          _startupPlaying = false;
+          playingSubscription = nextPlayer.stream.playing.listen((isPlaying) {
+            if (isPlaying) {
+              _startupPlaying = true;
+              final startedAt = DateTime.now();
+              final seconds = startupTimer == null || startupTimer!.isActive == false
+                  ? 0
+                  : DateTime.now().difference(startedAt).inSeconds;
+              addDebugLog("Player: '${currentStream.label}' arrancó en ${seconds}s");
+              startupTimer?.cancel();
+              unawaited(playingSubscription?.cancel());
+              playingSubscription = null;
+            }
+          });
+
+          // Start the startup timeout before opening. If playback doesn't
+          // start within 10s, trigger failover.
+          startupTimer = Timer(const Duration(seconds: 10), () {
+            if (!mounted) return;
+            if (failoverInProgress) return;
+            if (_startupPlaying) return;
+            final msg = "Player: timeout de arranque para '${currentStream.label}' después de 10s → failover";
+            addDebugLog(msg);
+            unawaited(_autoFailover(msg));
+          });
+
           await nextPlayer.open(
             Media(
               inputUrl,
