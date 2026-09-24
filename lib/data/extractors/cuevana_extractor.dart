@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+import '../debug/debug_log_provider.dart';
+
 /// Scraper nativo de Cuevana (wv3.cuevana3.eu).
 /// No usa APIs propias ni player.php: todo se hace en Dart.
 class CuevanaService {
@@ -56,12 +58,14 @@ class CuevanaService {
       try {
         final probe = await http.get(Uri.parse('$base/peliculas'))
             .timeout(const Duration(seconds: 6));
+        addDebugLog('Cuevana: probe $base -> ${probe.statusCode}');
         if (probe.statusCode >= 200 && probe.statusCode < 400) {
           _kBase = base;
           break;
         }
       } catch (_) {}
     }
+    addDebugLog('Cuevana: dominio elegido -> $_kBase');
 
     final tmdb = await _getTmdbInfo(tmdbId, isMovie ? 'movie' : 'tv');
     if (tmdb.latino.isEmpty && tmdb.ingles.isEmpty && tmdb.castellano.isEmpty) {
@@ -202,6 +206,7 @@ class CuevanaService {
 
     for (final tryUrl in candidates) {
       final body = await _fetch(tryUrl);
+      addDebugLog('Cuevana: fetch $tryUrl -> ${body?.length ?? 0} chars');
       if (body == null) continue;
       if (body.contains('__NEXT_DATA__') && body.contains('"episode"')) {
         episodeUrl = tryUrl;
@@ -254,6 +259,7 @@ class CuevanaService {
     final needle = movie ? '"thisMovie"' : '"thisSerie"';
     for (final url in candidates) {
       final html = await _fetch(url);
+      addDebugLog('Cuevana: fetch $url -> ${html?.length ?? 0} chars');
       if (html == null) continue;
       if (html.contains('__NEXT_DATA__') && html.contains(needle)) {
         return _FoundPage(url: url, html: html);
@@ -311,6 +317,7 @@ class CuevanaService {
       }
       if (videosList.isNotEmpty) {
         groups.add(_VideoGroup(language: entry.value, videos: videosList));
+    addDebugLog('Cuevana: parseados ${groups.length} grupos de video');
       }
     }
     return groups;

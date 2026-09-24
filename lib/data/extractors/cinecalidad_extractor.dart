@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../debug/debug_log_provider.dart';
+
 /// Servidores permitidos (mismo filtro que el PHP original).
 const _kAllowedServers = ['Vimeos', 'Hlswish', 'voe', 'Videoapp'];
 
@@ -67,12 +69,14 @@ class CinecalidadService {
       try {
         final probe = await http.get(Uri.parse('$base/peliculas'))
             .timeout(const Duration(seconds: 6));
+        addDebugLog('Cinecalidad: probe $base -> ${probe.statusCode}');
         if (probe.statusCode >= 200 && probe.statusCode < 400) {
           _kCinecalidadBase = base;
           break;
         }
       } catch (_) {}
     }
+    addDebugLog('Cinecalidad: dominio elegido -> $_kCinecalidadBase');
 
     final tmdbData = await _getTmdbData(tmdbId, isMovie ? 'movie' : 'tv');
     if (tmdbData.titles.isEmpty) {
@@ -94,6 +98,7 @@ class CinecalidadService {
     for (final url in candidates) {
       try {
         final html = await _fetchPage(url);
+        addDebugLog('Cinecalidad: fetch $url -> ${html?.length ?? 0} chars');
         if (html != null && _hasValidContent(html)) {
           foundHtml = html;
           foundUrl = url;
@@ -109,6 +114,7 @@ class CinecalidadService {
     }
 
     final links = _extractCinecalidadLinks(foundHtml);
+    addDebugLog('Cinecalidad: parseados ${links.length} enlaces');
     for (final link in links) {
       yield CinecalidadServer(
         serverName: link.server,
