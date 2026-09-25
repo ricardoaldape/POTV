@@ -165,30 +165,51 @@ private class SecureWebViewPlatformView(
                   }
                 };
 
+                const ensurePotvStyles = () => {
+                  try {
+                    if (document.getElementById('potv-menu-guard-style')) return;
+                    const style = document.createElement('style');
+                    style.id = 'potv-menu-guard-style';
+                    style.textContent = `
+                      .potv-hidden-menu {
+                        display: none !important;
+                        visibility: hidden !important;
+                        pointer-events: none !important;
+                      }
+                      .potv-compact-menu {
+                        display: block !important;
+                        position: fixed !important;
+                        top: auto !important;
+                        left: auto !important;
+                        bottom: 10px !important;
+                        right: 10px !important;
+                        width: auto !important;
+                        height: auto !important;
+                        max-width: 42vw !important;
+                        max-height: 34vh !important;
+                        overflow: auto !important;
+                        opacity: 0.5 !important;
+                        z-index: 2147483646 !important;
+                        pointer-events: auto !important;
+                      }
+                    `;
+                    (document.head || document.documentElement).appendChild(style);
+                  } catch (_) {}
+                };
+
                 const hideNode = (node) => {
                   try {
-                    node.style.setProperty('display', 'none', 'important');
-                    node.style.setProperty('visibility', 'hidden', 'important');
-                    node.style.setProperty('pointer-events', 'none', 'important');
+                    ensurePotvStyles();
+                    node.classList.remove('potv-compact-menu');
+                    node.classList.add('potv-hidden-menu');
                   } catch (_) {}
                 };
 
                 const compactNode = (node) => {
                   try {
-                    node.style.setProperty('display', 'block', 'important');
-                    node.style.setProperty('position', 'fixed', 'important');
-                    node.style.setProperty('top', 'auto', 'important');
-                    node.style.setProperty('left', 'auto', 'important');
-                    node.style.setProperty('bottom', '10px', 'important');
-                    node.style.setProperty('right', '10px', 'important');
-                    node.style.setProperty('width', 'auto', 'important');
-                    node.style.setProperty('height', 'auto', 'important');
-                    node.style.setProperty('max-width', '42vw', 'important');
-                    node.style.setProperty('max-height', '34vh', 'important');
-                    node.style.setProperty('overflow', 'auto', 'important');
-                    node.style.setProperty('opacity', '0.5', 'important');
-                    node.style.setProperty('z-index', '2147483646', 'important');
-                    node.style.setProperty('pointer-events', 'auto', 'important');
+                    ensurePotvStyles();
+                    node.classList.remove('potv-hidden-menu');
+                    node.classList.add('potv-compact-menu');
                   } catch (_) {}
                 };
 
@@ -267,6 +288,7 @@ private class SecureWebViewPlatformView(
 
                 try { window.open = () => null; } catch (_) {}
 
+                ensurePotvStyles();
                 sweep();
 
                 const observer = new MutationObserver(() => sweep());
