@@ -43,13 +43,12 @@ class UserAccountRepository {
       await _auth.saveProfile(profile);
     }
     final remote = await _auth.loadProfiles();
-    final remoteIds = remote.map((profile) => profile.id).toSet();
     for (final profile in remote) {
       if (!profiles.any((candidate) => candidate.id == profile.id)) {
         await _auth.deleteProfile(profile.id);
       }
     }
-    _profiles = profiles.where((profile) => remoteIds.contains(profile.id) || !remoteIds.contains(profile.id)).toList();
+    _profiles = List.unmodifiable(profiles);
   }
 
   List<UserProfile> loadProfiles() => List.unmodifiable(_profiles);
