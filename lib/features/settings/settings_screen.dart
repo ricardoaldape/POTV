@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
@@ -28,8 +29,36 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  static const _adBlockingPreferenceKey = 'webview_ad_blocking_enabled';
+
   bool _diagnosticRunning = false;
   String _diagnosticText = '';
+  bool _webViewAdBlockingEnabled = true;
+  bool _webViewAdBlockingLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWebViewAdBlocking();
+  }
+
+  Future<void> _loadWebViewAdBlocking() async {
+    final preferences = await SharedPreferences.getInstance();
+    final enabled =
+        preferences.getBool(_adBlockingPreferenceKey) ?? true;
+    if (!mounted) return;
+    setState(() {
+      _webViewAdBlockingEnabled = enabled;
+      _webViewAdBlockingLoaded = true;
+    });
+  }
+
+  Future<void> _setWebViewAdBlocking(bool enabled) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_adBlockingPreferenceKey, enabled);
+    if (!mounted) return;
+    setState(() => _webViewAdBlockingEnabled = enabled);
+  }
 
   Future<void> _openTelegram(BuildContext context) async {
     final opened = await launchUrl(
@@ -166,6 +195,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             subtitle: Text(
               'Fuentes, historial y credenciales permanecen en el dispositivo.',
             ),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.block_rounded),
+            title: const Text('Bloqueador de anuncios en WebView'),
+            subtitle: const Text(
+              'Bloquea dominios publicitarios, popups, overlays e iframes externos en el reproductor embebido.',
+            ),
+            value: _webViewAdBlockingEnabled,
+            onChanged: _webViewAdBlockingLoaded
+                ? (enabled) => _setWebViewAdBlocking(enabled)
+                : null,
           ),
           const Divider(),
           Padding(
