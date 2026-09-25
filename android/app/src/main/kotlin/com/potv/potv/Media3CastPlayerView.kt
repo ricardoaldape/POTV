@@ -128,10 +128,14 @@ private class Media3CastPlayerView(
 
     override fun getView(): View = root
 
+    private fun toggleCast() {
+        routeButton.performClick()
+    }
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "toggleCast" -> {
-                routeButton.performClick()
+                toggleCast()
                 result.success(null)
             }
 
