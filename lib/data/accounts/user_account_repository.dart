@@ -1,69 +1,68 @@
-import 'dart:convert';
-
-import 'package:shared_preferences/shared_preferences.dart';
-
+import '../services/supabase_auth_service.dart';
 import 'user_account.dart';
 import 'user_profile.dart';
 
+/// Supabase-backed account repository.
+///
+/// The public class name is retained so existing consumers can migrate without
+/// changing their repository dependency. Synchronous legacy reads return the
+/// most recently loaded in-memory state; call [refresh] after authentication.
 class UserAccountRepository {
-  static const _kAccountKey = 'potv_user_account';
-  static const _kProfilesKey = 'potv_user_profiles';
-  static const _kActiveProfileKey = 'potv_active_profile_id';
+  UserAccountRepository._(this._auth);
 
-  final SharedPreferences _prefs;
-
-  UserAccountRepository._(this._prefs);
+  final SupabaseAuthService _auth;
+  UserAccount? _account;
+  List<UserProfile> _profiles = const [];
+  String? _activeProfileId;
 
   static Future<UserAccountRepository> getInstance() async {
-    final prefs = await SharedPreferences.getInstance();
-    return UserAccountRepository._(prefs);
+    final repository = UserAccountRepository._(SupabaseAuthService());
+    await repository.refresh();
+    return repository;
+  }
+
+  Future<void> refresh() async {
+    _account = await _auth.loadCurrentAccount();
+    _profiles = _account == null ? const [] : await _auth.loadProfiles();
+    if (_profiles.isNotEmpty &&
+        !_profiles.any((profile) => profile.id == _activeProfileId)) {
+      _activeProfileId = _profiles.first.id;
+    }
   }
 
   Future<void> saveAccount(UserAccount account) async {
-    await _prefs.setString(_kAccountKey, account.toJsonString());
+    // Account identity/subscription data is server-owned. Refresh from
+    // Supabase instead of persisting an unauthenticated local copy.
+    _account = account;
   }
 
-  UserAccount? loadAccount() {
-    final s = _prefs.getString(_kAccountKey);
-    if (s == null) return null;
-    try {
-      return UserAccount.fromJsonString(s);
-    } catch (_) {
-      return null;
-    }
-  }
+  UserAccount? loadAccount() => _account;
 
   Future<void> saveProfiles(List<UserProfile> profiles) async {
-    final list = profiles.map((p) => p.toJson()).toList();
-    await _prefs.setString(_kProfilesKey, json.encode(list));
+    for (final profile in profiles) {
+      await _auth.saveProfile(profile);
+    }
+    final remote = await _auth.loadProfiles();
+    for (final profile in remote) {
+      if (!profiles.any((candidate) => candidate.id == profile.id)) {
+        await _auth.deleteProfile(profile.id);
+      }
+    }
+    _profiles = List.unmodifiable(profiles);
   }
 
-  List<UserProfile> loadProfiles() {
-    final s = _prefs.getString(_kProfilesKey);
-    if (s == null) return <UserProfile>[];
-    try {
-      final list = json.decode(s) as List<dynamic>;
-      return list.map((e) => UserProfile.fromJson(e as Map<String, dynamic>)).toList();
-    } catch (_) {
-      return <UserProfile>[];
-    }
-  }
+  List<UserProfile> loadProfiles() => List.unmodifiable(_profiles);
 
   Future<void> saveActiveProfileId(String? id) async {
-    if (id == null) {
-      await _prefs.remove(_kActiveProfileKey);
-    } else {
-      await _prefs.setString(_kActiveProfileKey, id);
-    }
+    _activeProfileId = id;
   }
 
-  String? loadActiveProfileId() {
-    return _prefs.getString(_kActiveProfileKey);
-  }
+  String? loadActiveProfileId() => _activeProfileId;
 
   Future<void> clearAll() async {
-    await _prefs.remove(_kAccountKey);
-    await _prefs.remove(_kProfilesKey);
-    await _prefs.remove(_kActiveProfileKey);
+    await _auth.signOut();
+    _account = null;
+    _profiles = const [];
+    _activeProfileId = null;
   }
 }
