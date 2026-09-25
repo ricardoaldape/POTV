@@ -173,6 +173,53 @@ private class SecureWebViewPlatformView(
                   } catch (_) {}
                 };
 
+                const compactNode = (node) => {
+                  try {
+                    node.style.setProperty('display', 'block', 'important');
+                    node.style.setProperty('position', 'fixed', 'important');
+                    node.style.setProperty('top', 'auto', 'important');
+                    node.style.setProperty('left', 'auto', 'important');
+                    node.style.setProperty('bottom', '10px', 'important');
+                    node.style.setProperty('right', '10px', 'important');
+                    node.style.setProperty('width', 'auto', 'important');
+                    node.style.setProperty('height', 'auto', 'important');
+                    node.style.setProperty('max-width', '42vw', 'important');
+                    node.style.setProperty('max-height', '34vh', 'important');
+                    node.style.setProperty('overflow', 'auto', 'important');
+                    node.style.setProperty('opacity', '0.5', 'important');
+                    node.style.setProperty('z-index', '2147483646', 'important');
+                    node.style.setProperty('pointer-events', 'auto', 'important');
+                  } catch (_) {}
+                };
+
+                const classifyInjectedMenu = (node) => {
+                  try {
+                    if (!(node instanceof HTMLElement)) return;
+                    if (node.querySelector('video')) return;
+
+                    const signature = [
+                      node.id || '',
+                      node.className || '',
+                      node.getAttribute('role') || '',
+                      node.getAttribute('aria-label') || ''
+                    ].join(' ').toLowerCase();
+
+                    if (!/(menu|controls?|settings?|overlay)/i.test(signature)) {
+                      return;
+                    }
+
+                    const text = (node.innerText || '').toLowerCase();
+                    const hasPlaybackOptions =
+                      /(server|servidor|source|fuente|quality|calidad|resolution|resoluci[oó]n)/i.test(text);
+
+                    if (hasPlaybackOptions) {
+                      compactNode(node);
+                    } else {
+                      hideNode(node);
+                    }
+                  } catch (_) {}
+                };
+
                 const sweep = () => {
                   try {
                     const viewportArea = Math.max(
@@ -195,6 +242,14 @@ private class SecureWebViewPlatformView(
                         }
                       } catch (_) {}
                     });
+
+                    document.querySelectorAll(
+                      '[class*="menu" i], [id*="menu" i], ' +
+                      '[class*="control" i], [id*="control" i], ' +
+                      '[class*="setting" i], [id*="setting" i], ' +
+                      '[class*="overlay" i], [id*="overlay" i], ' +
+                      '[role="menu"], [aria-label*="menu" i]'
+                    ).forEach(classifyInjectedMenu);
 
                     document.querySelectorAll('iframe[src]').forEach((frame) => {
                       try {
