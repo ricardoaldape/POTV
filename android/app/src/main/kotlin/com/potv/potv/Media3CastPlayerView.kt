@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
+import androidx.media3.cast.Cast
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.MediaRouteButtonFactory
 import androidx.media3.common.DeviceInfo
@@ -64,6 +65,8 @@ private class Media3CastPlayerView(
                         setDefaultRequestProperties(headers)
                     }
                 }
+
+        Cast.getSingletonInstance(context.applicationContext).initialize()
 
         localPlayer =
             ExoPlayer.Builder(context)
