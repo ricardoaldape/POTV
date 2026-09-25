@@ -61,6 +61,26 @@ class UserProfile {
     );
   }
 
+  factory UserProfile.fromSupabase(Map<String, dynamic> json) {
+    return UserProfile(
+      id: json['id'] as String,
+      accountId: json['account_id'] as String,
+      name: json['name'] as String,
+      avatarId: json['avatar_id'] as String? ?? 'default',
+      isKids: json['is_kids'] as bool? ?? false,
+      language: json['language'] as String? ?? 'es',
+    );
+  }
+
+  Map<String, dynamic> toSupabase() => {
+        'id': id,
+        'account_id': accountId,
+        'name': name,
+        'avatar_id': avatarId,
+        'is_kids': isKids,
+        'language': language,
+      };
+
   String toJsonString() => json.encode(toJson());
 
   factory UserProfile.fromJsonString(String source) =>
