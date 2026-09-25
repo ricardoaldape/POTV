@@ -48,3 +48,9 @@ app.*.map.json
 /android/key.properties
 /android/app/*.keystore
 /potv-release.keystore
+
+# Continue extension
+.continue/
+
+# Continue extension
+.continue/

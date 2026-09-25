@@ -64,6 +64,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     currentIndex = widget.session.initialIndex
         .clamp(0, widget.session.candidates.length - 1)
         .toInt();
@@ -73,6 +74,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     hideTimer?.cancel();
     historyTimer?.cancel();
     startupTimer?.cancel();
@@ -785,16 +787,18 @@ class _PlayerOverlay extends StatelessWidget {
                     runSpacing: 10,
                     alignment: WrapAlignment.center,
                     children: [
-                      _ActionButton(
-                        icon: Icons.audiotrack,
-                        label: 'Audio',
-                        onPressed: onAudio,
-                      ),
-                      _ActionButton(
-                        icon: Icons.subtitles,
-                        label: 'Subtítulos',
-                        onPressed: onSubtitles,
-                      ),
+                      if (stream.backend == PlaybackBackend.native) ...[
+                        _ActionButton(
+                          icon: Icons.audiotrack,
+                          label: 'Audio',
+                          onPressed: onAudio,
+                        ),
+                        _ActionButton(
+                          icon: Icons.subtitles,
+                          label: 'Subtítulos',
+                          onPressed: onSubtitles,
+                        ),
+                      ],
                       _ActionButton(
                         icon: Icons.high_quality,
                         label: 'Calidad',

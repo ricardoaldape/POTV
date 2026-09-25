@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../debug/debug_log_provider.dart';
+
 final animeIdMappingServiceProvider = Provider<AnimeIdMappingService>((ref) {
   return AnimeIdMappingService(
     Dio(
@@ -51,6 +53,8 @@ class AnimeIdMappingService {
     required int absoluteEpisode,
     String? title,
   }) async {
+    addDebugLog('[AnimeMapping] mapEpisode anilist=$anilistId ep=$absoluteEpisode title="$title"');
+
     final raw = await _mapping(anilistId);
     final direct = _fromAniZip(
       anilistId: anilistId,
@@ -59,8 +63,22 @@ class AnimeIdMappingService {
     );
 
     if (direct?.canUseSeriesProtocol == true) return direct;
-    if (title == null || title.trim().isEmpty) return direct;
+    if (title == null || title.trim().isEmpty) {
+      addDebugLog('[AnimeMapping] retornando direct: tmdbId=${direct?.tmdbId}');
+      return direct;
+    }
 
+    // Si el mapping directo no dio tmdbId, intentar buscar por título
+    if (direct?.tmdbId == null && title.trim().isNotEmpty) {
+      final searched = await searchByTitleInTmdb(
+        anilistId: anilistId,
+        title: title.trim(),
+        absoluteEpisode: absoluteEpisode,
+      );
+      if (searched != null) return searched;
+    }
+
+    addDebugLog('[AnimeMapping] direct mapping null, intentando cinemeta');
     return _mapViaCinemeta(
       anilistId: anilistId,
       absoluteEpisode: absoluteEpisode,
@@ -92,6 +110,10 @@ class AnimeIdMappingService {
         );
       }
     }
+
+    addDebugLog(
+      '[AnimeMapping] _fromAniZip anilist=$anilistId imdb=$imdbId tmdb=$tmdbId season=${episodeRaw?['seasonNumber']} ep=${episodeRaw?['episodeNumber']}',
+    );
 
     return AnimeEpisodeMapping(
       anilistId: anilistId,
@@ -195,6 +217,60 @@ class AnimeIdMappingService {
       _cache[anilistId] = data;
       return data;
     } on DioException {
+      return null;
+    }
+  }
+
+  /// Fallback: busca el anime en TMDB por título y devuelve el primer resultado.
+  /// Retorna el TMDB ID y temporada/episodio asumiendo que es la primera temporada.
+  Future<AnimeEpisodeMapping?> searchByTitleInTmdb({
+    required int anilistId,
+    required String title,
+    required int absoluteEpisode,
+  }) async {
+    try {
+      addDebugLog('[AnimeMapping] searchByTitleInTmdb "$title"');
+
+      final response = await _dio.get<Map<String, dynamic>>(
+        'https://api.themoviedb.org/3/search/tv',
+        queryParameters: {
+          'api_key': 'a2d9bbed370d9f678e34006f8750a5a5',
+          'query': title,
+          'language': 'es-MX',
+        },
+        options: Options(responseType: ResponseType.json),
+      );
+      addDebugLog(
+        '[AnimeMapping] TMDB status=${response.statusCode} results=${(response.data?['results'] as List?)?.length ?? 0}',
+      );
+
+      final results = response.data?['results'];
+      if (results is! List || results.isEmpty) {
+        addDebugLog('[AnimeMapping] searchByTitleInTmdb return null: resultados vacíos');
+        return null;
+      }
+
+      final first = results.first;
+      if (first is! Map) {
+        addDebugLog('[AnimeMapping] searchByTitleInTmdb return null: primer resultado no es un mapa');
+        return null;
+      }
+      final tmdbId = first['id'];
+      if (tmdbId is! int || tmdbId <= 0) {
+        addDebugLog('[AnimeMapping] searchByTitleInTmdb return null: tmdbId inválido ($tmdbId)');
+        return null;
+      }
+
+      return AnimeEpisodeMapping(
+        anilistId: anilistId,
+        imdbId: null,
+        tmdbId: tmdbId,
+        absoluteEpisode: absoluteEpisode,
+        season: 1,
+        episode: absoluteEpisode,
+      );
+    } on DioException {
+      addDebugLog('[AnimeMapping] searchByTitleInTmdb return null: error HTTP en TMDB');
       return null;
     }
   }

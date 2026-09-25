@@ -1,15 +1,28 @@
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
+import '../anime/anime_id_mapping_service.dart';
+import '../debug/debug_log_provider.dart';
 import '../extractors/native_resolvers.dart';
+import '../extractors/cinesrc_extractor.dart';
+import '../extractors/vidsrc_extractor.dart';
+import '../extractors/multi_embed_extractor.dart';
 import '../extractors/cuevana_extractor.dart';
 import '../extractors/tioplus_extractor.dart';
 import '../extractors/pelisplus_extractor.dart';
 import '../extractors/cinecalidad_extractor.dart';
+import '../extractors/hackstore_extractor.dart';
+import '../extractors/unlimplay_extractor.dart';
+import '../extractors/poseidon_extractor.dart';
+import '../extractors/pelispedia_extractor.dart';
+import '../extractors/seriesmetro_extractor.dart';
+import '../extractors/smartpelis_extractor.dart';
+import '../extractors/embed69_extractor.dart';
 
 /// Base adapter that wraps a LolPlus-style extractor stream and converts
 /// results into `StreamCandidate`s using `NativeResolvers` when possible.
 abstract class _LolPlusAdapterBase extends ProviderResolver {
-  const _LolPlusAdapterBase();
+  final AnimeIdMappingService? animeMapping;
+  const _LolPlusAdapterBase({this.animeMapping});
 
   Stream<Map<String, dynamic>> scrape({
     required int tmdbId,
@@ -20,6 +33,47 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
 
   @override
   Future<List<StreamCandidate>> resolve(ProviderResolveRequest request) async {
+    addDebugLog(
+      '[Adapter $id] resolve mediaType=${request.mediaType} mediaId=${request.mediaId} title="${request.title}"',
+    );
+
+    // Si es anime, mapear AniList → TMDB
+    if (request.mediaType == 'anime' && animeMapping != null) {
+      final anilistId = int.tryParse(request.mediaId);
+      final absoluteEp = request.episode ?? 1;
+      addDebugLog('[Adapter $id] ANIME branch - anilistId=$anilistId absoluteEp=$absoluteEp');
+
+      if (anilistId == null || anilistId <= 0) {
+        addDebugLog('[Adapter $id] ANIME branch returns empty: anilistId inválido o no positivo');
+        return const [];
+      }
+
+      final mapped = await animeMapping!.mapEpisode(
+        anilistId: anilistId,
+        absoluteEpisode: absoluteEp,
+        title: request.title,
+      );
+      if (mapped == null) {
+        addDebugLog('[Adapter $id] ANIME branch returns empty: mapeo de AniList a TMDB no encontrado');
+        return const [];
+      }
+      if (mapped.tmdbId == null) {
+        addDebugLog('[Adapter $id] ANIME branch returns empty: mapped.tmdbId es nulo');
+        return const [];
+      }
+
+      addDebugLog(
+        '[Adapter $id] ANIME mapeado -> tmdbId=${mapped.tmdbId} season=${mapped.season ?? 1} episode=${mapped.episode ?? 1}',
+      );
+
+      return _resolveStream(
+        tmdbId: mapped.tmdbId!,
+        isMovie: false,
+        season: mapped.season ?? 1,
+        episode: mapped.episode ?? 1,
+      );
+    }
+
     final tmdbId = int.tryParse(request.mediaId);
     if (tmdbId == null || tmdbId <= 0) return const [];
 
@@ -27,6 +81,20 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
     final season = request.season ?? 1;
     final episode = request.episode ?? 1;
 
+    return _resolveStream(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    );
+  }
+
+  Future<List<StreamCandidate>> _resolveStream({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) async {
     final stream = scrape(
       tmdbId: tmdbId,
       isMovie: isMovie,
@@ -102,8 +170,27 @@ abstract class _LolPlusAdapterBase extends ProviderResolver {
               // ignore malformed url
             }
           } else {
-            // No se pudo resolver nativamente → descartar para evitar popups en WebView
-            continue;
+            // No se pudo resolver nativamente → usar WebView como fallback.
+            // El player mostrará la página del embed con el hidden probe
+            // que ya bloquea popups (VPN, ads) antes de mostrarlos.
+            try {
+              candidates.add(StreamCandidate(
+                id: '${id}_${candidates.length}',
+                label: '$servidorNombre (WebView)',
+                uri: Uri.parse(servidorUrl),
+                language: idioma,
+                quality: calidad,
+                backend: PlaybackBackend.webView,
+                headers: {
+                  'User-Agent':
+                      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Referer': _refererForStream(servidorUrl),
+                },
+                directWebView: true,
+              ));
+            } catch (_) {
+              // URL malformada → sí descartar
+            }
           }
         }
       } catch (_) {
@@ -172,7 +259,7 @@ String _refererForStream(String url) {
 }
 
 class CuevanaProviderResolver extends _LolPlusAdapterBase {
-  const CuevanaProviderResolver();
+  const CuevanaProviderResolver({super.animeMapping});
 
   @override
   String get id => 'lolplus_cuevana';
@@ -184,7 +271,7 @@ class CuevanaProviderResolver extends _LolPlusAdapterBase {
   int get priority => 15;
 
   @override
-  Set<String> get supportedMediaTypes => const {'movie', 'tv'};
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
 
   @override
   Stream<Map<String, dynamic>> scrape({
@@ -203,7 +290,7 @@ class CuevanaProviderResolver extends _LolPlusAdapterBase {
 }
 
 class TioPlusProviderResolver extends _LolPlusAdapterBase {
-  const TioPlusProviderResolver();
+  const TioPlusProviderResolver({super.animeMapping});
 
   @override
   String get id => 'lolplus_tioplus';
@@ -234,7 +321,7 @@ class TioPlusProviderResolver extends _LolPlusAdapterBase {
 }
 
 class PelisPlusProviderResolver extends _LolPlusAdapterBase {
-  const PelisPlusProviderResolver();
+  const PelisPlusProviderResolver({super.animeMapping});
 
   @override
   String get id => 'lolplus_pelisplus';
@@ -246,7 +333,7 @@ class PelisPlusProviderResolver extends _LolPlusAdapterBase {
   int get priority => 15;
 
   @override
-  Set<String> get supportedMediaTypes => const {'movie', 'tv'};
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
 
   @override
   Stream<Map<String, dynamic>> scrape({
@@ -265,7 +352,7 @@ class PelisPlusProviderResolver extends _LolPlusAdapterBase {
 }
 
 class CinecalidadProviderResolver extends _LolPlusAdapterBase {
-  const CinecalidadProviderResolver();
+  const CinecalidadProviderResolver({super.animeMapping});
 
   @override
   String get id => 'lolplus_cinecalidad';
@@ -277,7 +364,7 @@ class CinecalidadProviderResolver extends _LolPlusAdapterBase {
   int get priority => 15;
 
   @override
-  Set<String> get supportedMediaTypes => const {'movie', 'tv'};
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
 
   @override
   Stream<Map<String, dynamic>> scrape({
@@ -287,6 +374,316 @@ class CinecalidadProviderResolver extends _LolPlusAdapterBase {
     required int episode,
   }) {
     return CinecalidadService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).map((s) => s.toModalMap());
+  }
+}
+
+class CineSrcProviderResolver extends _LolPlusAdapterBase {
+  const CineSrcProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_cinesrc';
+
+  @override
+  String get displayName => 'CineSrc';
+
+  @override
+  int get priority => 15;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return CineSrcService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).map((s) => s.toModalMap());
+  }
+}
+
+class VidSrcProviderResolver extends _LolPlusAdapterBase {
+  const VidSrcProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_vidsrc';
+
+  @override
+  String get displayName => 'VidSrc';
+
+  @override
+  int get priority => 15;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return VidSrcService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    );
+  }
+}
+
+class MultiEmbedProviderResolver extends _LolPlusAdapterBase {
+  const MultiEmbedProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_multiembed';
+
+  @override
+  String get displayName => 'Multi Embed';
+
+  @override
+  int get priority => 15;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return MultiEmbedService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    );
+  }
+}
+
+class HackStoreProviderResolver extends _LolPlusAdapterBase {
+  const HackStoreProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_hackstore';
+
+  @override
+  String get displayName => 'HackStore';
+
+  @override
+  int get priority => 60;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return HackStoreService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    );
+  }
+}
+
+class UnlimplayProviderResolver extends _LolPlusAdapterBase {
+  const UnlimplayProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_unlimplay';
+
+  @override
+  String get displayName => 'Unlimplay';
+
+  @override
+  int get priority => 16;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return UnlimplayService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).map((s) => s.toModalMap());
+  }
+}
+
+class PoseidonProviderResolver extends _LolPlusAdapterBase {
+  const PoseidonProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_poseidon';
+
+  @override
+  String get displayName => 'Poseidon';
+
+  @override
+  int get priority => 20;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return PoseidonService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).map((s) => s.toModalMap());
+  }
+}
+
+class PelispediaProviderResolver extends _LolPlusAdapterBase {
+  const PelispediaProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_pelispedia';
+
+  @override
+  String get displayName => 'Pelispedia';
+
+  @override
+  int get priority => 20;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return PelispediaService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).map((s) => s.toModalMap());
+  }
+}
+
+class SeriesMetroProviderResolver extends _LolPlusAdapterBase {
+  const SeriesMetroProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_seriesmetro';
+
+  @override
+  String get displayName => 'SeriesMetro';
+
+  @override
+  int get priority => 20;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return SeriesMetroService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).map((s) => s.toModalMap());
+  }
+}
+
+class SmartPelisProviderResolver extends _LolPlusAdapterBase {
+  const SmartPelisProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_smartpelis';
+
+  @override
+  String get displayName => 'SmartPelis';
+
+  @override
+  int get priority => 20;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return SmartPelisService.scrape(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).map((s) => s.toModalMap());
+  }
+}
+
+class Embed69ProviderResolver extends _LolPlusAdapterBase {
+  const Embed69ProviderResolver({super.animeMapping});
+
+  @override
+  String get id => 'lolplus_embed69';
+
+  @override
+  String get displayName => 'Embed69';
+
+  @override
+  int get priority => 20;
+
+  @override
+  Set<String> get supportedMediaTypes => const {'movie', 'tv', 'anime'};
+
+  @override
+  Stream<Map<String, dynamic>> scrape({
+    required int tmdbId,
+    required bool isMovie,
+    required int season,
+    required int episode,
+  }) {
+    return Embed69Service.scrape(
       tmdbId: tmdbId,
       isMovie: isMovie,
       season: season,

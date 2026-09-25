@@ -1,43 +1,32 @@
-// lib/servicio/cuevana.dart
+// lib/servicio/poseidon.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-/// Scraper nativo de Cuevana (wv3.cuevana3.eu).
-/// No usa APIs propias ni player.php: todo se hace en Dart.
-class CuevanaService {
-  CuevanaService._();
+/// Scraper nativo de PoseidonHD2 (www.poseidonhd2.co).
+/// Misma lógica que CuevanaService: TMDB → slug → página → __NEXT_DATA__ → player.php → URL real.
+class PoseidonService {
+  PoseidonService._();
 
   static const _kTmdbKey = 'a2d9bbed370d9f678e34006f8750a5a5';
   static const _kTmdbBase = 'https://api.themoviedb.org/3';
-  static const _kBase = 'https://wv3.cuevana3.eu';
+  static const _kBase = 'https://www.poseidonhd2.co';
 
   static const _kUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-  /// Servidores permitidos (mismo filtro que tu PHP).
-  static const _kAllowed = [
-    'streamwish',
-    'vidhide',
-    'filelions',
-    'vidhidepro',
-    'streamwish.to',
-    'vidhidepro.com',
-    'filelions.com',
-    'filelions.to',
-    ' ',
-  ];
-
-  /// Mapeo de dominios del player (antes en player.php).
+  /// Dominios a reemplazar en la URL final resuelta.
   static const _kDomainMap = <String, String>{
     'streamwish.to': 'hgplaycdn.com',
     'vidhidepro.com': 'callistanise.com',
     'filelions.to': 'callistanise.com',
+    'voe.sx': 'eugenemakedraw.com',
+    'doodstream.com': 'playmogo.com',
   };
 
-  /// Emite servidores listos para [ServidoresModal].
-  static Stream<CuevanaServer> scrape({
+  /// Emite servidores listos (mismo formato que CuevanaServer).
+  static Stream<PoseidonServer> scrape({
     required int tmdbId,
     required bool isMovie,
     int season = 1,
@@ -61,24 +50,24 @@ class CuevanaService {
     }
 
     if (groups.isEmpty) {
-      throw Exception('No se encontraron servidores en Cuevana');
+      throw Exception('No se encontraron servidores en PoseidonHD2');
     }
 
     final seen = <String>{};
 
     for (final group in groups) {
       for (final video in group.videos) {
-        if (!_isAllowedServer(video.cyberlocker)) continue;
-
-        // Resolver URL real del cyberlocker (lógica de player.php)
+        // Resolver player.php → URL real del cyberlocker
         final resolved = await _resolvePlayer(video.url);
         if (resolved == null || resolved.isEmpty) continue;
-        if (seen.contains(resolved)) continue;
-        seen.add(resolved);
 
-        yield CuevanaServer(
+        final finalUrl = _replaceDomain(resolved);
+        if (seen.contains(finalUrl)) continue;
+        seen.add(finalUrl);
+
+        yield PoseidonServer(
           cyberlocker: video.cyberlocker,
-          url: resolved,
+          url: finalUrl,
           quality: video.quality,
           idiomaCode: _languageToCode(group.language),
           tmdbId: tmdbId,
@@ -140,8 +129,8 @@ class CuevanaService {
   // ─── Movie ──────────────────────────────────────────────────────────────
 
   static Future<List<_VideoGroup>> _scrapeMovie(_TmdbInfo tmdb) async {
-    final candidates = _buildCandidates(isMovie: true, tmdb: tmdb);
-    final found = await _findWorkingUrl(candidates, movie: true);
+    final candidates = _buildMovieCandidates(tmdb);
+    final found = await _findWorkingUrl(candidates, isMovie: true);
     if (found == null) return [];
 
     final pageProps = _extractNextData(found.html);
@@ -163,43 +152,15 @@ class CuevanaService {
     int season,
     int episode,
   ) async {
-    final nombres = <String>[
-      if (tmdb.latino.trim().isNotEmpty) tmdb.latino,
-      if (tmdb.castellano.trim().isNotEmpty) tmdb.castellano,
-      if (tmdb.ingles.trim().isNotEmpty) tmdb.ingles,
-    ];
+    final candidates = _buildEpisodeCandidates(tmdb, season, episode);
+    final found = await _findWorkingUrl(candidates, isMovie: false);
+    if (found == null) return [];
 
-    final candidates = <String>[];
-    for (final nombre in nombres) {
-      final slug = _slugify(nombre);
-      if (slug.isEmpty) continue;
-      candidates.add(
-        '$_kBase/episodio/$slug-temporada-$season-episodio-$episode',
-      );
-      candidates.add(
-        '$_kBase/episodio/$slug-${tmdb.id}-temporada-$season-episodio-$episode',
-      );
-    }
-
-    String? episodeUrl;
-    String? html;
-
-    for (final tryUrl in candidates) {
-      final body = await _fetch(tryUrl);
-      if (body == null) continue;
-      if (body.contains('__NEXT_DATA__') && body.contains('"episode"')) {
-        episodeUrl = tryUrl;
-        html = body;
-        break;
-      }
-    }
-
-    if (html == null || episodeUrl == null) return [];
-
-    final pageProps = _extractNextData(html);
+    final pageProps = _extractNextData(found.html);
     if (pageProps == null) return [];
 
-    final ep = pageProps['episode'];
+    // En episodios la clave suele ser "episode"
+    final ep = pageProps['episode'] ?? pageProps['thisEpisode'];
     if (ep is! Map) return [];
 
     final videosData = ep['videos'];
@@ -208,34 +169,55 @@ class CuevanaService {
     return _getVideoGroupsFromData(Map<String, dynamic>.from(videosData));
   }
 
-  // ─── Candidates / find page ─────────────────────────────────────────────
+  // ─── Construcción de URLs (la parte clave de Poseidon) ──────────────────
 
-  static List<String> _buildCandidates({
-    required bool isMovie,
-    required _TmdbInfo tmdb,
-  }) {
-    final prefix = isMovie ? '$_kBase/ver-pelicula/' : '$_kBase/ver-serie/';
+  /// Película: /pelicula/{tmdbId}/{slug}
+  static List<String> _buildMovieCandidates(_TmdbInfo tmdb) {
     final titles = [tmdb.latino, tmdb.castellano, tmdb.ingles];
-    final out = <String>[];
+    final out = <String>{};
 
     for (final title in titles) {
       if (title.trim().isEmpty) continue;
       final slug = _slugify(title);
       if (slug.isEmpty) continue;
-      out.add('$prefix$slug');
-      out.add('$prefix$slug-${tmdb.id}');
+
+      // Formato principal que usa el sitio
+      out.add('$_kBase/pelicula/${tmdb.id}/$slug');
+
+      // Variantes por si el slug cambia un poco
       if (tmdb.year != null) {
-        out.add('$prefix$slug-${tmdb.year}');
+        out.add('$_kBase/pelicula/${tmdb.id}/$slug-${tmdb.year}');
       }
     }
-    return out.toSet().toList();
+    return out.toList();
+  }
+
+  /// Serie: /serie/{tmdbId}/{slug}/temporada/{s}/episodio/{e}
+  static List<String> _buildEpisodeCandidates(
+    _TmdbInfo tmdb,
+    int season,
+    int episode,
+  ) {
+    final titles = [tmdb.latino, tmdb.castellano, tmdb.ingles];
+    final out = <String>{};
+
+    for (final title in titles) {
+      if (title.trim().isEmpty) continue;
+      final slug = _slugify(title);
+      if (slug.isEmpty) continue;
+
+      out.add(
+        '$_kBase/serie/${tmdb.id}/$slug/temporada/$season/episodio/$episode',
+      );
+    }
+    return out.toList();
   }
 
   static Future<_FoundPage?> _findWorkingUrl(
     List<String> candidates, {
-    required bool movie,
+    required bool isMovie,
   }) async {
-    final needle = movie ? '"thisMovie"' : '"thisSerie"';
+    final needle = isMovie ? '"thisMovie"' : '"episode"';
     for (final url in candidates) {
       final html = await _fetch(url);
       if (html == null) continue;
@@ -269,10 +251,11 @@ class CuevanaService {
   }
 
   static List<_VideoGroup> _getVideoGroupsFromData(Map<String, dynamic> videos) {
+    // Mapeo de claves que usa Poseidon (idéntico a Cuevana)
     const langMap = {
       'latino': 'Español Latino',
       'spanish': 'Español Castellano',
-      'english': 'Inglés',
+      'english': 'Inglés / Subtitulado',
       'japanese': 'Japonés',
     };
 
@@ -300,9 +283,8 @@ class CuevanaService {
     return groups;
   }
 
-  // ─── Player resolve (antes player.php) ──────────────────────────────────
+  // ─── Resolver player.php (igual que el PHP) ─────────────────────────────
 
-  /// Descarga la página del cyberlocker y extrae `var url = '...'`.
   static Future<String?> _resolvePlayer(String sourceUrl) async {
     if (sourceUrl.isEmpty) return null;
 
@@ -311,48 +293,43 @@ class CuevanaService {
 
     String? videoUrl;
 
-    final m1 = RegExp(r"var url = '([^']+)'").firstMatch(html);
+    // Patrón principal: var url = 'https://...'
+    final m1 = RegExp(r"var\s+url\s*=\s*'([^']+)'").firstMatch(html);
     if (m1 != null) videoUrl = m1.group(1);
 
     if (videoUrl == null) {
-      final m2 = RegExp(r'var url = "([^"]+)"').firstMatch(html);
+      final m2 = RegExp(r'var\s+url\s*=\s*"([^"]+)"').firstMatch(html);
       if (m2 != null) videoUrl = m2.group(1);
     }
 
-    // Fallbacks comunes en embeds
+    // Fallback: window.location.href
     if (videoUrl == null) {
       final m3 = RegExp(
-        r'''(?:file|src|source)\s*[:=]\s*["'](https?://[^"']+\.m3u8[^"']*)["']''',
-        caseSensitive: false,
+        r"window\.location\.href\s*=\s*'([^']+)'",
       ).firstMatch(html);
       if (m3 != null) videoUrl = m3.group(1);
     }
 
-    if (videoUrl == null || videoUrl.isEmpty) return null;
-
-    return _mapDomain(videoUrl);
-  }
-
-  static String _mapDomain(String url) {
-    try {
-      final uri = Uri.parse(url);
-      final host = uri.host.toLowerCase();
-      for (final entry in _kDomainMap.entries) {
-        if (host.contains(entry.key)) {
-          final newHost = host.replaceFirst(entry.key, entry.value);
-          return uri.replace(host: newHost).toString();
-        }
-      }
-    } catch (_) {}
-    return url;
-  }
-
-  static bool _isAllowedServer(String name) {
-    final n = name.toLowerCase();
-    for (final a in _kAllowed) {
-      if (n.contains(a.toLowerCase())) return true;
+    // Fallback m3u8
+    if (videoUrl == null) {
+      final m4 = RegExp(
+        r'''(?:file|src|source)\s*[:=]\s*["'](https?://[^"']+\.m3u8[^"']*)["']''',
+        caseSensitive: false,
+      ).firstMatch(html);
+      if (m4 != null) videoUrl = m4.group(1);
     }
-    return false;
+
+    if (videoUrl == null || videoUrl.isEmpty) return null;
+    return videoUrl;
+  }
+
+  /// Reemplaza dominios conocidos en la URL resuelta.
+  static String _replaceDomain(String url) {
+    var out = url;
+    _kDomainMap.forEach((from, to) {
+      out = out.replaceAll(from, to);
+    });
+    return out;
   }
 
   // ─── HTTP / slug ────────────────────────────────────────────────────────
@@ -367,6 +344,7 @@ class CuevanaService {
               'Accept':
                   'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
               'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+              'Referer': '$_kBase/',
             },
           )
           .timeout(const Duration(seconds: 18));
@@ -377,7 +355,6 @@ class CuevanaService {
 
   static String _slugify(String title) {
     var s = title.trim().toLowerCase();
-    // Quitar acentos básicos
     const map = {
       'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a',
       'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
@@ -410,7 +387,7 @@ class CuevanaService {
 
 // ─── Modelos ──────────────────────────────────────────────────────────────
 
-class CuevanaServer {
+class PoseidonServer {
   final String cyberlocker;
   final String url;
   final String quality;
@@ -419,7 +396,7 @@ class CuevanaServer {
   final int season;
   final int episode;
 
-  const CuevanaServer({
+  const PoseidonServer({
     required this.cyberlocker,
     required this.url,
     this.quality = 'HD',
@@ -434,12 +411,12 @@ class CuevanaServer {
         ? 'Servidor'
         : '${cyberlocker[0].toUpperCase()}${cyberlocker.substring(1)}';
     return {
-      'servidor_nombre': 'Cuevana · $name',
+      'servidor_nombre': 'Poseidon · $name',
       'servidor_url': url,
       'calidad': quality,
       'idioma': idiomaCode,
       'estado': 'activo',
-      'es_cuevana': true,
+      'es_poseidon': true,
       'tmdb_id': tmdbId,
       'season': season,
       'episode': episode,

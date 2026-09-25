@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 /// Servidores permitidos (mismo filtro que el PHP original).
-const _kAllowedServers = ['Vimeos', 'Hlswish', 'voe', 'Videoapp'];
+const _kAllowedServers = ['Vimeos', 'Hlswish'];
 
 const _kTmdbApiKey = 'a2d9bbed370d9f678e34006f8750a5a5';
 const _kTmdbBase = 'https://api.themoviedb.org/3';
