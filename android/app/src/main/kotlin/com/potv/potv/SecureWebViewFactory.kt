@@ -2,7 +2,6 @@ package com.potv.potv
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
 import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -78,7 +77,7 @@ private class SecureWebViewPlatformView(
 
     override fun dispose() {
         webView.stopLoading()
-        webView.webViewClient = null
+        webView.webViewClient = WebViewClient()
         webView.removeAllViews()
         webView.destroy()
     }
@@ -230,7 +229,7 @@ private class SecureWebViewPlatformView(
     private fun sandboxHtml(url: String): String {
         val escaped =
             url.replace("&", "&amp;")
-                .replace(""", "&quot;")
+                .replace("\"", "&quot;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
 
