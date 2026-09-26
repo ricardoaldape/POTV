@@ -18,6 +18,7 @@ import '../../data/sources/http_source_repository.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
+import '../player/player_preferences.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   static final Uri _telegramUri = Uri.parse('https://t.me/potv_oficial');
@@ -35,11 +36,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _diagnosticText = '';
   bool _webViewAdBlockingEnabled = true;
   bool _webViewAdBlockingLoaded = false;
+  PlayerPreferences _playerPreferences = const PlayerPreferences();
+  bool _playerPreferencesLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _loadWebViewAdBlocking();
+    _loadPlayerPreferences();
   }
 
   Future<void> _loadWebViewAdBlocking() async {
@@ -58,6 +62,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await preferences.setBool(_adBlockingPreferenceKey, enabled);
     if (!mounted) return;
     setState(() => _webViewAdBlockingEnabled = enabled);
+  }
+
+  Future<void> _loadPlayerPreferences() async {
+    final value = await PlayerPreferences.load();
+    if (!mounted) return;
+    setState(() {
+      _playerPreferences = value;
+      _playerPreferencesLoaded = true;
+    });
+  }
+
+  Future<void> _setAudioPreference(PreferredAudioLanguage value) async {
+    await PlayerPreferences.saveAudioLanguage(value);
+    if (!mounted) return;
+    setState(() {
+      _playerPreferences = PlayerPreferences(
+        audioLanguage: value,
+        subtitleMode: _playerPreferences.subtitleMode,
+        autoplay: _playerPreferences.autoplay,
+      );
+    });
+  }
+
+  Future<void> _setSubtitlePreference(PreferredSubtitleMode value) async {
+    await PlayerPreferences.saveSubtitleMode(value);
+    if (!mounted) return;
+    setState(() {
+      _playerPreferences = PlayerPreferences(
+        audioLanguage: _playerPreferences.audioLanguage,
+        subtitleMode: value,
+        autoplay: _playerPreferences.autoplay,
+      );
+    });
+  }
+
+  Future<void> _setAutoplay(bool value) async {
+    await PlayerPreferences.saveAutoplay(value);
+    if (!mounted) return;
+    setState(() {
+      _playerPreferences = PlayerPreferences(
+        audioLanguage: _playerPreferences.audioLanguage,
+        subtitleMode: _playerPreferences.subtitleMode,
+        autoplay: value,
+      );
+    });
   }
 
   Future<void> _openTelegram(BuildContext context) async {
@@ -207,6 +256,80 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ? (enabled) => _setWebViewAdBlocking(enabled)
                 : null,
           ),
+          if (_playerPreferencesLoaded) ...[
+            ListTile(
+              leading: const Icon(Icons.audiotrack_rounded),
+              title: const Text('Idioma de audio preferido'),
+              subtitle: Text(
+                switch (_playerPreferences.audioLanguage) {
+                  PreferredAudioLanguage.spanish => 'Español',
+                  PreferredAudioLanguage.english => 'Inglés',
+                  PreferredAudioLanguage.any => 'Cualquiera',
+                },
+              ),
+              trailing: DropdownButton<PreferredAudioLanguage>(
+                value: _playerPreferences.audioLanguage,
+                onChanged: (value) {
+                  if (value != null) _setAudioPreference(value);
+                },
+                items: const [
+                  DropdownMenuItem(
+                    value: PreferredAudioLanguage.spanish,
+                    child: Text('Español'),
+                  ),
+                  DropdownMenuItem(
+                    value: PreferredAudioLanguage.english,
+                    child: Text('Inglés'),
+                  ),
+                  DropdownMenuItem(
+                    value: PreferredAudioLanguage.any,
+                    child: Text('Cualquiera'),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.subtitles_rounded),
+              title: const Text('Subtítulos'),
+              subtitle: Text(
+                switch (_playerPreferences.subtitleMode) {
+                  PreferredSubtitleMode.enabled => 'Activados',
+                  PreferredSubtitleMode.disabled => 'Desactivados',
+                  PreferredSubtitleMode.whenNoSpanishAudio =>
+                    'Solo si no hay audio en español',
+                },
+              ),
+              trailing: DropdownButton<PreferredSubtitleMode>(
+                value: _playerPreferences.subtitleMode,
+                onChanged: (value) {
+                  if (value != null) _setSubtitlePreference(value);
+                },
+                items: const [
+                  DropdownMenuItem(
+                    value: PreferredSubtitleMode.enabled,
+                    child: Text('Activados'),
+                  ),
+                  DropdownMenuItem(
+                    value: PreferredSubtitleMode.disabled,
+                    child: Text('Desactivados'),
+                  ),
+                  DropdownMenuItem(
+                    value: PreferredSubtitleMode.whenNoSpanishAudio,
+                    child: Text('Auto'),
+                  ),
+                ],
+              ),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.play_circle_fill_rounded),
+              title: const Text('Autoplay'),
+              subtitle: const Text(
+                'Inicia la reproducción automáticamente al abrir una fuente.',
+              ),
+              value: _playerPreferences.autoplay,
+              onChanged: _setAutoplay,
+            ),
+          ],
           const Divider(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
