@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
+import '../../domain/services/stream_candidate_ranker.dart';
 import '../debug/debug_log_provider.dart';
 import '../extractors/resolver_manager.dart';
 import 'provider_registry.dart';
@@ -24,6 +25,7 @@ class SourceAggregator {
   final Duration cacheTtl;
   final Duration negativeCacheTtl;
   final ResolverManager? resolverManager;
+  final StreamCandidateRanker _ranker = const StreamCandidateRanker();
 
   final Map<String, _CachedResolution> _cache = {};
   final Map<String, Future<ProviderResolutionResult>> _inFlight = {};
@@ -31,8 +33,8 @@ class SourceAggregator {
   SourceAggregator(
     this.providers, {
     this.providerTimeout = const Duration(seconds: 18),
-    this.resolutionTimeout = const Duration(seconds: 30),
-    this.firstCandidateGrace = const Duration(seconds: 9),
+    this.resolutionTimeout = const Duration(seconds: 20),
+    this.firstCandidateGrace = const Duration(milliseconds: 1200),
     this.cacheTtl = const Duration(minutes: 5),
     this.negativeCacheTtl = const Duration(seconds: 30),
     this.resolverManager,
@@ -113,8 +115,9 @@ class SourceAggregator {
     late final Timer globalTimer;
 
     ProviderResolutionResult snapshot() {
+      final ranked = _ranker.rank(candidates);
       return ProviderResolutionResult(
-        candidates: List<StreamCandidate>.unmodifiable(candidates),
+        candidates: List<StreamCandidate>.unmodifiable(ranked),
         providersEligible: eligible.length,
         providersCompleted: completed,
         providersFailed: failed,
@@ -126,6 +129,14 @@ class SourceAggregator {
       graceTimer?.cancel();
       globalTimer.cancel();
       final result = snapshot();
+      for (final candidate in result.candidates) {
+        final score = _ranker.analyze(candidate);
+        final rankingLog =
+            '[SourceRanking] Fuente \${candidate.label} puntuada con '
+            '\${score.total} puntos: \${score.reasons.join(', ')}';
+        debugPrint(rankingLog);
+        addDebugLog(rankingLog);
+      }
       final finishLog =
           'SourceAggregator END -> ${result.candidates.length} fuentes; '
           'providers elegibles=${result.providersEligible}, '
