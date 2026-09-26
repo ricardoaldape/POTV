@@ -133,7 +133,7 @@ class SourceAggregator {
         final score = _ranker.analyze(candidate);
         final rankingLog =
             '[SourceRanking] Fuente \${candidate.label} puntuada con '
-            '\${score.total} puntos: \${score.reasons.join(', ')}';
+            '\${score.total} puntos: \${score.reasons.join(", ")}';
         debugPrint(rankingLog);
         addDebugLog(rankingLog);
       }
