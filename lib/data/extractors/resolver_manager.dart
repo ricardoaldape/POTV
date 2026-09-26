@@ -86,6 +86,9 @@ class ResolverManager {
         ...extracted.headers,
       },
       externalAudioUri: extracted.externalAudioUri ?? source.externalAudioUri,
+      subtitles: extracted.subtitles.isNotEmpty
+          ? extracted.subtitles
+          : source.subtitles,
       allowedHosts: {
         ...source.allowedHosts,
         ...extracted.allowedHosts,
