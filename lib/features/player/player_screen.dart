@@ -395,7 +395,142 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  void _attachMedia3Controller(_Media3CastController controller) {
+    media3StateTimer?.cancel();
+    media3Controller?.dispose();
+    media3Controller = controller;
+    controller.setLogHandler((message) {
+      addDebugLog(message);
+      debugPrint(message);
+    });
+    unawaited(_refreshMedia3State());
+    media3StateTimer = Timer.periodic(
+      const Duration(milliseconds: 750),
+      (_) => unawaited(_refreshMedia3State()),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _refreshMedia3State() async {
+    final controller = media3Controller;
+    if (controller == null) return;
+    try {
+      final state = await controller.state();
+      if (!mounted || state == null) return;
+      setState(() => media3State = state);
+    } catch (_) {}
+  }
+
+  Future<void> _showMedia3AudioTracks() async {
+    final controller = media3Controller;
+    if (controller == null) return;
+    final tracks = await controller.audioTracks();
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0D1418),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text(
+                'Audio',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            if (tracks.isEmpty)
+              const ListTile(
+                title: Text('La fuente no expone pistas de audio seleccionables.'),
+              ),
+            for (final track in tracks)
+              ListTile(
+                leading: Icon(
+                  track.selected
+                      ? Icons.check_circle
+                      : Icons.circle_outlined,
+                ),
+                title: Text(track.displayName),
+                subtitle: track.sampleMimeType == null
+                    ? null
+                    : Text(track.sampleMimeType!),
+                enabled: track.supported,
+                onTap: track.supported
+                    ? () async {
+                        await controller.selectAudioTrack(track);
+                        if (context.mounted) Navigator.of(context).pop();
+                        await _refreshMedia3State();
+                      }
+                    : null,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMedia3SubtitleTracks() async {
+    final controller = media3Controller;
+    if (controller == null) return;
+    final tracks = await controller.subtitleTracks();
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0D1418),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text(
+                'Subtítulos',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            ListTile(
+              leading: Icon(
+                tracks.every((track) => !track.selected)
+                    ? Icons.check_circle
+                    : Icons.circle_outlined,
+              ),
+              title: const Text('Desactivados'),
+              onTap: () async {
+                await controller.disableSubtitles();
+                if (context.mounted) Navigator.of(context).pop();
+              },
+            ),
+            for (final track in tracks)
+              ListTile(
+                leading: Icon(
+                  track.selected
+                      ? Icons.check_circle
+                      : Icons.circle_outlined,
+                ),
+                title: Text(track.displayName),
+                subtitle: track.sampleMimeType == null
+                    ? null
+                    : Text(track.sampleMimeType!),
+                enabled: track.supported,
+                onTap: track.supported
+                    ? () async {
+                        await controller.selectSubtitleTrack(track);
+                        if (context.mounted) Navigator.of(context).pop();
+                      }
+                    : null,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showAudioTracks() async {
+    if (media3Controller != null) {
+      return _showMedia3AudioTracks();
+    }
+
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.audio;
@@ -431,6 +566,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _showSubtitleTracks() async {
+    if (media3Controller != null) {
+      return _showMedia3SubtitleTracks();
+    }
+
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.subtitle;
