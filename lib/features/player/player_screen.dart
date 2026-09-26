@@ -182,7 +182,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               inputUrl,
               httpHeaders: currentStream.headers,
             ),
-            play: true,
+            play: playerPreferences.autoplay,
           );
           final externalAudioUri = currentStream.externalAudioUri;
           if (externalAudioUri != null) {
@@ -399,9 +399,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
     media3StateTimer?.cancel();
     media3Controller?.dispose();
     media3Controller = controller;
-    controller.setLogHandler((message) {
-      addDebugLog(message);
-      debugPrint(message);
+    controller.setEventHandlers(
+      onLog: (message) {
+        addDebugLog(message);
+        debugPrint(message);
+      },
+      onError: (message) {
+        if (!failoverInProgress) {
+          unawaited(_autoFailover(message));
+        }
+      },
+    );
+
+    startupTimer?.cancel();
+    startupTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted || failoverInProgress) return;
+      if (media3State?.isPlaying == true) return;
+      unawaited(
+        _autoFailover(
+          "[Player] Media3 no inició en 10s · ${currentStream.label}",
+        ),
+      );
     });
     unawaited(_refreshMedia3State());
     media3StateTimer = Timer.periodic(
@@ -417,6 +435,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       final state = await controller.state();
       if (!mounted || state == null) return;
+      if (state.isPlaying) startupTimer?.cancel();
       setState(() => media3State = state);
     } catch (_) {}
   }
@@ -912,11 +931,18 @@ class _Media3CastController {
   _Media3CastController(int viewId)
       : _channel = MethodChannel('potv/media3_cast/$viewId');
 
-  void setLogHandler(ValueChanged<String> onLog) {
+  void setEventHandlers({
+    required ValueChanged<String> onLog,
+    required ValueChanged<String> onError,
+  }) {
     _channel.setMethodCallHandler((call) async {
+      final message = call.arguments?.toString();
+      if (message == null || message.isEmpty) return null;
+
       if (call.method == 'playerLog') {
-        final message = call.arguments?.toString();
-        if (message != null && message.isNotEmpty) onLog(message);
+        onLog(message);
+      } else if (call.method == 'playerError') {
+        onError(message);
       }
       return null;
     });
