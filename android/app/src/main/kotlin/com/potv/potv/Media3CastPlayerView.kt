@@ -107,7 +107,10 @@ private class Media3CastPlayerView(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    emitLog("[Player] Error Media3: ${error.errorCodeName} · ${error.message ?: ""}")
+                    val message =
+                        "[Player] Error Media3: ${error.errorCodeName} · ${error.message ?: ""}"
+                    emitLog(message)
+                    channel.invokeMethod("playerError", message)
                 }
             },
         )
