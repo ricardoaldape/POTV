@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -46,6 +47,8 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   Player? player;
   VideoController? videoController;
+  _Media3CastController? media3Controller;
+  Duration? media3ResumeAt;
   Timer? hideTimer;
   Timer? historyTimer;
   Timer? startupTimer;
@@ -100,6 +103,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await player?.dispose();
     player = null;
     videoController = null;
+    media3Controller = null;
+    media3ResumeAt = null;
     playbackError = null;
 
     var effectiveResumeAt = resumeAt;
@@ -119,6 +124,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         addDebugLog(inputLog);
 
         if (currentStream.backend == PlaybackBackend.native) {
+          if (Platform.isAndroid) {
+            media3ResumeAt = effectiveResumeAt;
+            _armHistorySave();
+            break;
+          }
+
           final nextPlayer = Player();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
@@ -226,7 +237,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     failoverInProgress = true;
-    final resumeAt = player?.state.position;
+    final resumeAt = await _currentPosition();
     final failed = currentStream.label;
     currentIndex += 1;
 
@@ -248,6 +259,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Future<Duration?> _currentPosition() async {
+    final p = player;
+    if (p != null) return p.state.position;
+    return media3Controller?.position();
+  }
+
   void _armHistorySave() {
     historyTimer?.cancel();
     if (widget.session.playbackContext == null) return;
@@ -259,11 +276,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _saveProgress() async {
     final playbackContext = widget.session.playbackContext;
-    final p = player;
-    if (playbackContext == null || p == null) return;
+    if (playbackContext == null) return;
 
-    final position = p.state.position;
-    final duration = p.state.duration;
+    final p = player;
+    Duration position;
+    Duration duration;
+
+    if (p != null) {
+      position = p.state.position;
+      duration = p.state.duration;
+    } else {
+      final nativeState = await media3Controller?.state();
+      if (nativeState == null) return;
+      position = Duration(milliseconds: nativeState.positionMs);
+      duration = Duration(milliseconds: nativeState.durationMs);
+    }
     if (position < const Duration(seconds: 2)) return;
 
     await historyRepository.save(
@@ -307,7 +334,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    final resumeAt = player?.state.position;
+    final resumeAt = await _currentPosition();
     if (mounted) Navigator.of(context).pop();
     currentIndex = index;
     await _openCurrent(resumeAt: resumeAt);
@@ -507,13 +534,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     } else {
       content = switch (currentStream.backend) {
-        PlaybackBackend.native => videoController == null
-            ? const Center(child: CircularProgressIndicator())
-            : Video(
-                controller: videoController!,
-                controls: NoVideoControls,
-                fit: BoxFit.contain,
-              ),
+        PlaybackBackend.native => Platform.isAndroid
+            ? _Media3NativePlayer(
+                key: ValueKey('media3-${currentStream.id}'),
+                stream: currentStream,
+                title: widget.session.title,
+                resumeAt: media3ResumeAt,
+                onController: (controller) {
+                  media3Controller = controller;
+                  if (mounted) setState(() {});
+                },
+              )
+            : videoController == null
+                ? const Center(child: CircularProgressIndicator())
+                : Video(
+                    controller: videoController!,
+                    controls: NoVideoControls,
+                    fit: BoxFit.contain,
+                  ),
         PlaybackBackend.webView => SecureWebViewPlayer(
             key: ValueKey(currentStream.id),
             stream: currentStream,
@@ -554,6 +592,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onAudio: p == null ? null : _showAudioTracks,
                     onSubtitles: p == null ? null : _showSubtitleTracks,
                     onQuality: p == null ? null : _showVideoTracks,
+                    onCast: Platform.isAndroid &&
+                            currentStream.backend == PlaybackBackend.native &&
+                            media3Controller != null
+                        ? () => unawaited(media3Controller!.toggleCast())
+                        : null,
                     onServers: _showServers,
                   ),
                 ),
@@ -563,6 +606,86 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
       ),
     );
+  }
+}
+
+class _Media3NativePlayer extends StatelessWidget {
+  final StreamCandidate stream;
+  final String title;
+  final Duration? resumeAt;
+  final ValueChanged<_Media3CastController> onController;
+
+  const _Media3NativePlayer({
+    super.key,
+    required this.stream,
+    required this.title,
+    required this.resumeAt,
+    required this.onController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AndroidView(
+      viewType: 'potv/media3_cast_player',
+      creationParams: <String, Object?>{
+        'uri': stream.uri.toString(),
+        'headers': stream.headers,
+        'title': title,
+        'startPositionMs': resumeAt?.inMilliseconds ?? 0,
+      },
+      creationParamsCodec: const StandardMessageCodec(),
+      onPlatformViewCreated: (viewId) {
+        onController(_Media3CastController(viewId));
+      },
+    );
+  }
+}
+
+class _Media3CastState {
+  final int positionMs;
+  final int durationMs;
+  final bool isPlaying;
+  final bool isCasting;
+
+  const _Media3CastState({
+    required this.positionMs,
+    required this.durationMs,
+    required this.isPlaying,
+    required this.isCasting,
+  });
+}
+
+class _Media3CastController {
+  final MethodChannel _channel;
+
+  _Media3CastController(int viewId)
+      : _channel = MethodChannel('potv/media3_cast/$viewId');
+
+  Future<void> toggleCast() => _channel.invokeMethod<void>('toggleCast');
+
+  Future<void> playPause() => _channel.invokeMethod<void>('playPause');
+
+  Future<void> seekTo(Duration position) => _channel.invokeMethod<void>(
+        'seekTo',
+        <String, Object?>{'positionMs': position.inMilliseconds},
+      );
+
+  Future<_Media3CastState?> state() async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('getState');
+    if (raw == null) return null;
+    return _Media3CastState(
+      positionMs: (raw['positionMs'] as num?)?.toInt() ?? 0,
+      durationMs: (raw['durationMs'] as num?)?.toInt() ?? 0,
+      isPlaying: raw['isPlaying'] == true,
+      isCasting: raw['isCasting'] == true,
+    );
+  }
+
+  Future<Duration?> position() async {
+    final current = await state();
+    return current == null
+        ? null
+        : Duration(milliseconds: current.positionMs);
   }
 }
 
@@ -691,6 +814,7 @@ class _PlayerOverlay extends StatelessWidget {
   final VoidCallback? onAudio;
   final VoidCallback? onSubtitles;
   final VoidCallback? onQuality;
+  final VoidCallback? onCast;
   final VoidCallback onServers;
 
   const _PlayerOverlay({
@@ -702,6 +826,7 @@ class _PlayerOverlay extends StatelessWidget {
     required this.onAudio,
     required this.onSubtitles,
     required this.onQuality,
+    required this.onCast,
     required this.onServers,
   });
 
@@ -804,6 +929,12 @@ class _PlayerOverlay extends StatelessWidget {
                         label: 'Calidad',
                         onPressed: onQuality,
                       ),
+                      if (onCast != null)
+                        _ActionButton(
+                          icon: Icons.cast,
+                          label: 'Cast',
+                          onPressed: onCast,
+                        ),
                       _ActionButton(
                         icon: Icons.dns_outlined,
                         label: 'Servidores',
