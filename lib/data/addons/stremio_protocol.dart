@@ -90,12 +90,47 @@ class StremioProtocol {
           language: _language(value),
           quality: _quality(value),
           headers: _requestHeaders(value['behaviorHints']),
+          subtitles: _subtitles(value['subtitles']),
           backend: backend,
         ),
       );
     }
 
     return result;
+  }
+
+  static List<ExternalSubtitleTrack> _subtitles(Object? raw) {
+    if (raw is! List) return const [];
+
+    final result = <ExternalSubtitleTrack>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final urlText = _text(item['url']);
+      if (urlText == null) continue;
+      final uri = Uri.tryParse(urlText);
+      if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+        continue;
+      }
+
+      final language = _text(item['lang']) ?? _text(item['language']);
+      final label = _text(item['label']) ?? _text(item['title']);
+      final lowerPath = uri.path.toLowerCase();
+      final mimeType = lowerPath.endsWith('.vtt')
+          ? 'text/vtt'
+          : lowerPath.endsWith('.srt')
+              ? 'application/x-subrip'
+              : null;
+
+      result.add(
+        ExternalSubtitleTrack(
+          uri: uri,
+          language: language,
+          label: label,
+          mimeType: mimeType,
+        ),
+      );
+    }
+    return List<ExternalSubtitleTrack>.unmodifiable(result);
   }
 
   static Map<String, String> _requestHeaders(Object? behaviorHints) {
