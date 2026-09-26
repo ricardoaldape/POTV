@@ -864,11 +864,67 @@ class _Media3CastState {
   });
 }
 
+class _Media3Track {
+  final int groupIndex;
+  final int trackIndex;
+  final String? language;
+  final String? label;
+  final String? sampleMimeType;
+  final bool selected;
+  final bool supported;
+
+  const _Media3Track({
+    required this.groupIndex,
+    required this.trackIndex,
+    required this.language,
+    required this.label,
+    required this.sampleMimeType,
+    required this.selected,
+    required this.supported,
+  });
+
+  String get displayName {
+    final parts = <String>[
+      if (label != null && label!.trim().isNotEmpty) label!.trim(),
+      if (language != null && language!.trim().isNotEmpty) language!.trim(),
+    ];
+    return parts.isEmpty
+        ? 'Pista ${trackIndex + 1}'
+        : parts.toSet().join(' · ');
+  }
+
+  factory _Media3Track.fromMap(Map<Object?, Object?> raw) {
+    return _Media3Track(
+      groupIndex: (raw['groupIndex'] as num?)?.toInt() ?? -1,
+      trackIndex: (raw['trackIndex'] as num?)?.toInt() ?? -1,
+      language: raw['language']?.toString(),
+      label: raw['label']?.toString(),
+      sampleMimeType: raw['sampleMimeType']?.toString(),
+      selected: raw['selected'] == true,
+      supported: raw['supported'] == true,
+    );
+  }
+}
+
 class _Media3CastController {
   final MethodChannel _channel;
 
   _Media3CastController(int viewId)
       : _channel = MethodChannel('potv/media3_cast/$viewId');
+
+  void setLogHandler(ValueChanged<String> onLog) {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'playerLog') {
+        final message = call.arguments?.toString();
+        if (message != null && message.isNotEmpty) onLog(message);
+      }
+      return null;
+    });
+  }
+
+  void dispose() {
+    _channel.setMethodCallHandler(null);
+  }
 
   Future<void> toggleCast() => _channel.invokeMethod<void>('toggleCast');
 
@@ -889,6 +945,45 @@ class _Media3CastController {
       isCasting: raw['isCasting'] == true,
     );
   }
+
+  Future<List<_Media3Track>> audioTracks() =>
+      _tracks('getAudioTracks');
+
+  Future<List<_Media3Track>> subtitleTracks() =>
+      _tracks('getSubtitleTracks');
+
+  Future<List<_Media3Track>> _tracks(String method) async {
+    final raw = await _channel.invokeListMethod<Object?>(method);
+    if (raw == null) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map)
+          _Media3Track.fromMap(item),
+    ];
+  }
+
+  Future<void> selectAudioTrack(_Media3Track track) {
+    return _channel.invokeMethod<void>(
+      'selectAudioTrack',
+      <String, Object?>{
+        'groupIndex': track.groupIndex,
+        'trackIndex': track.trackIndex,
+      },
+    );
+  }
+
+  Future<void> selectSubtitleTrack(_Media3Track track) {
+    return _channel.invokeMethod<void>(
+      'selectSubtitleTrack',
+      <String, Object?>{
+        'groupIndex': track.groupIndex,
+        'trackIndex': track.trackIndex,
+      },
+    );
+  }
+
+  Future<void> disableSubtitles() =>
+      _channel.invokeMethod<void>('disableSubtitles');
 
   Future<Duration?> position() async {
     final current = await state();
