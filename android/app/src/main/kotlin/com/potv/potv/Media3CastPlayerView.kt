@@ -1,15 +1,22 @@
 package com.potv.potv
 
 import android.content.Context
+import android.net.Uri
 import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.media3.cast.Cast
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.MediaRouteButtonFactory
+import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -50,6 +57,12 @@ private class Media3CastPlayerView(
     private val mediaSession: MediaSession
     private val channel = MethodChannel(messenger, "potv/media3_cast/$viewId")
 
+    private val audioPreference = params["audioPreference"]?.toString() ?: "spanish"
+    private val subtitlePreference =
+        params["subtitlePreference"]?.toString() ?: "whenNoSpanishAudio"
+    private val autoplay = params["autoplay"] != false
+    private var automaticSelectionApplied = false
+
     init {
         val headers =
             (params["headers"] as? Map<*, *>)
@@ -71,19 +84,38 @@ private class Media3CastPlayerView(
         localPlayer =
             ExoPlayer.Builder(context)
                 .setMediaSourceFactory(
-                    DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory),
+                    DefaultMediaSourceFactory(context)
+                        .setDataSourceFactory(dataSourceFactory),
                 )
                 .build()
+
+        applyLanguageConstraints(localPlayer)
 
         castPlayer =
             CastPlayer.Builder(context)
                 .setLocalPlayer(localPlayer)
                 .build()
 
+        castPlayer.addListener(
+            object : Player.Listener {
+                override fun onTracksChanged(tracks: Tracks) {
+                    if (!automaticSelectionApplied && !tracks.isEmpty) {
+                        automaticSelectionApplied = true
+                        applyAutomaticTracks(tracks)
+                    }
+                    logSelectedTracks(castPlayer.currentTracks)
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    emitLog("[Player] Error Media3: ${error.errorCodeName} · ${error.message ?: ""}")
+                }
+            },
+        )
+
         mediaSession = MediaSession.Builder(context, castPlayer).build()
 
         playerView.player = castPlayer
-        playerView.useController = true
+        playerView.useController = false
         playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
 
         root.addView(
@@ -97,7 +129,6 @@ private class Media3CastPlayerView(
         routeButton.alpha = 0.01f
         routeButton.isClickable = true
         root.addView(routeButton, FrameLayout.LayoutParams(1, 1))
-
         MediaRouteButtonFactory.setUpMediaRouteButton(context, routeButton)
 
         val uri = params["uri"]?.toString().orEmpty()
@@ -105,7 +136,8 @@ private class Media3CastPlayerView(
         val startPositionMs = (params["startPositionMs"] as? Number)?.toLong() ?: 0L
 
         if (uri.isNotBlank()) {
-            val mediaItem =
+            val subtitleConfigurations = subtitleConfigurations(params["subtitles"])
+            val mediaItemBuilder =
                 MediaItem.Builder()
                     .setUri(uri)
                     .setMediaMetadata(
@@ -113,14 +145,23 @@ private class Media3CastPlayerView(
                             .setTitle(title)
                             .build(),
                     )
-                    .build()
 
-            castPlayer.setMediaItem(mediaItem)
+            if (subtitleConfigurations.isNotEmpty()) {
+                mediaItemBuilder.setSubtitleConfigurations(subtitleConfigurations)
+                subtitleConfigurations.forEach { subtitle ->
+                    emitLog(
+                        "[Player] Subtítulos cargados: ${subtitle.language ?: "sin idioma"} " +
+                            "(URL externa)",
+                    )
+                }
+            }
+
+            castPlayer.setMediaItem(mediaItemBuilder.build())
             if (startPositionMs > 0L) {
                 castPlayer.seekTo(startPositionMs)
             }
             castPlayer.prepare()
-            castPlayer.playWhenReady = true
+            castPlayer.playWhenReady = autoplay
         }
 
         channel.setMethodCallHandler(this)
@@ -128,8 +169,233 @@ private class Media3CastPlayerView(
 
     override fun getView(): View = root
 
+    private fun applyLanguageConstraints(player: ExoPlayer) {
+        val builder = player.trackSelectionParameters.buildUpon()
+
+        when (audioPreference) {
+            "spanish" -> builder.setPreferredAudioLanguage("es")
+            "english" -> builder.setPreferredAudioLanguage("en")
+        }
+
+        when (subtitlePreference) {
+            "disabled" -> builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            else -> {
+                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                builder.setPreferredTextLanguage("es")
+            }
+        }
+
+        player.trackSelectionParameters = builder.build()
+    }
+
+    private fun applyAutomaticTracks(tracks: Tracks) {
+        val audio =
+            when (audioPreference) {
+                "spanish" ->
+                    findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isSpanish)
+                        ?: findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isEnglish)
+                "english" ->
+                    findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isEnglish)
+                        ?: findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isSpanish)
+                else -> null
+            }
+
+        if (audio != null) {
+            selectTrack(audio.groupIndex, audio.trackIndex)
+        }
+
+        val spanishAudioSelected =
+            audio?.let {
+                val format =
+                    tracks.groups[it.groupIndex].getTrackFormat(it.trackIndex)
+                isSpanish(format.language, format.label)
+            } ?: selectedAudioIsSpanish(tracks)
+
+        when (subtitlePreference) {
+            "disabled" -> setSubtitlesDisabled(true)
+            "enabled" -> {
+                val spanishSubtitle =
+                    findTrack(tracks, C.TRACK_TYPE_TEXT, ::isSpanish)
+                if (spanishSubtitle != null) {
+                    selectTrack(spanishSubtitle.groupIndex, spanishSubtitle.trackIndex)
+                }
+            }
+            else -> {
+                if (spanishAudioSelected) {
+                    setSubtitlesDisabled(true)
+                } else {
+                    val spanishSubtitle =
+                        findTrack(tracks, C.TRACK_TYPE_TEXT, ::isSpanish)
+                    if (spanishSubtitle != null) {
+                        selectTrack(
+                            spanishSubtitle.groupIndex,
+                            spanishSubtitle.trackIndex,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun findTrack(
+        tracks: Tracks,
+        trackType: Int,
+        predicate: (String?, String?) -> Boolean,
+    ): TrackRef? {
+        tracks.groups.forEachIndexed { groupIndex, group ->
+            if (group.type != trackType) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                if (!group.isTrackSupported(trackIndex)) continue
+                val format = group.getTrackFormat(trackIndex)
+                if (predicate(format.language, format.label)) {
+                    return TrackRef(groupIndex, trackIndex)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun selectedAudioIsSpanish(tracks: Tracks): Boolean {
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO) continue
+            for (trackIndex in 0 until group.length) {
+                if (!group.isTrackSelected(trackIndex)) continue
+                val format = group.getTrackFormat(trackIndex)
+                return isSpanish(format.language, format.label)
+            }
+        }
+        return false
+    }
+
+    private fun selectTrack(groupIndex: Int, trackIndex: Int) {
+        val groups = castPlayer.currentTracks.groups
+        if (groupIndex !in groups.indices) return
+        val group = groups[groupIndex]
+        if (trackIndex !in 0 until group.length) return
+
+        castPlayer.trackSelectionParameters =
+            castPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(group.type, false)
+                .setOverrideForType(
+                    TrackSelectionOverride(group.mediaTrackGroup, trackIndex),
+                )
+                .build()
+    }
+
+    private fun setSubtitlesDisabled(disabled: Boolean) {
+        castPlayer.trackSelectionParameters =
+            castPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, disabled)
+                .build()
+    }
+
+    private fun trackList(trackType: Int): List<Map<String, Any?>> {
+        val result = mutableListOf<Map<String, Any?>>()
+        castPlayer.currentTracks.groups.forEachIndexed { groupIndex, group ->
+            if (group.type != trackType) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                result.add(
+                    mapOf(
+                        "groupIndex" to groupIndex,
+                        "trackIndex" to trackIndex,
+                        "language" to format.language,
+                        "label" to format.label,
+                        "sampleMimeType" to format.sampleMimeType,
+                        "selected" to group.isTrackSelected(trackIndex),
+                        "supported" to group.isTrackSupported(trackIndex),
+                    ),
+                )
+            }
+        }
+        return result
+    }
+
+    private fun logSelectedTracks(tracks: Tracks) {
+        tracks.groups.forEachIndexed { groupIndex, group ->
+            for (trackIndex in 0 until group.length) {
+                if (!group.isTrackSelected(trackIndex)) continue
+                val format = group.getTrackFormat(trackIndex)
+                if (group.type == C.TRACK_TYPE_AUDIO) {
+                    val language = displayLanguage(format.language, format.label)
+                    emitLog(
+                        "[Player] Pista de audio seleccionada: $language " +
+                            "(index $trackIndex, grupo $groupIndex)",
+                    )
+                } else if (group.type == C.TRACK_TYPE_TEXT) {
+                    val language = displayLanguage(format.language, format.label)
+                    emitLog(
+                        "[Player] Subtítulo seleccionado: $language " +
+                            "(index $trackIndex, grupo $groupIndex)",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun subtitleConfigurations(raw: Any?): List<MediaItem.SubtitleConfiguration> {
+        if (raw !is List<*>) return emptyList()
+
+        return raw.mapNotNull { item ->
+            if (item !is Map<*, *>) return@mapNotNull null
+            val url = item["uri"]?.toString()?.trim().orEmpty()
+            if (url.isEmpty()) return@mapNotNull null
+            val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return@mapNotNull null
+            val language = item["language"]?.toString()?.takeIf { it.isNotBlank() }
+            val explicitMime = item["mimeType"]?.toString()?.takeIf { it.isNotBlank() }
+            val mimeType =
+                explicitMime ?: when {
+                    uri.path.lowercase().endsWith(".vtt") -> MimeTypes.TEXT_VTT
+                    uri.path.lowercase().endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
+                    else -> MimeTypes.TEXT_VTT
+                }
+
+            MediaItem.SubtitleConfiguration.Builder(uri)
+                .setMimeType(mimeType)
+                .apply {
+                    if (language != null) setLanguage(language)
+                }
+                .build()
+        }
+    }
+
     private fun toggleCast() {
         routeButton.performClick()
+    }
+
+    private fun isSpanish(language: String?, label: String?): Boolean {
+        val value = "${language ?: ""} ${label ?: ""}".lowercase()
+        return value == "es" ||
+            value.contains("es-") ||
+            value.contains("spa") ||
+            value.contains("spanish") ||
+            value.contains("español") ||
+            value.contains("latino") ||
+            value.contains("castellano")
+    }
+
+    private fun isEnglish(language: String?, label: String?): Boolean {
+        val value = "${language ?: ""} ${label ?: ""}".lowercase()
+        return value == "en" ||
+            value.contains("en-") ||
+            value.contains("eng") ||
+            value.contains("english")
+    }
+
+    private fun displayLanguage(language: String?, label: String?): String {
+        return when {
+            isSpanish(language, label) -> "español"
+            isEnglish(language, label) -> "inglés"
+            !label.isNullOrBlank() -> label
+            !language.isNullOrBlank() -> language
+            else -> "desconocido"
+        }
+    }
+
+    private fun emitLog(message: String) {
+        channel.invokeMethod("playerLog", message)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -167,6 +433,31 @@ private class Media3CastPlayerView(
                 )
             }
 
+            "getAudioTracks" -> result.success(trackList(C.TRACK_TYPE_AUDIO))
+            "getSubtitleTracks" -> result.success(trackList(C.TRACK_TYPE_TEXT))
+
+            "selectAudioTrack" -> {
+                val groupIndex = call.argument<Number>("groupIndex")?.toInt() ?: -1
+                val trackIndex = call.argument<Number>("trackIndex")?.toInt() ?: -1
+                selectTrack(groupIndex, trackIndex)
+                logSelectedTracks(castPlayer.currentTracks)
+                result.success(null)
+            }
+
+            "selectSubtitleTrack" -> {
+                val groupIndex = call.argument<Number>("groupIndex")?.toInt() ?: -1
+                val trackIndex = call.argument<Number>("trackIndex")?.toInt() ?: -1
+                selectTrack(groupIndex, trackIndex)
+                logSelectedTracks(castPlayer.currentTracks)
+                result.success(null)
+            }
+
+            "disableSubtitles" -> {
+                setSubtitlesDisabled(true)
+                emitLog("[Player] Subtítulos desactivados manualmente")
+                result.success(null)
+            }
+
             else -> result.notImplemented()
         }
     }
@@ -178,4 +469,9 @@ private class Media3CastPlayerView(
         castPlayer.release()
         localPlayer.release()
     }
+
+    private data class TrackRef(
+        val groupIndex: Int,
+        val trackIndex: Int,
+    )
 }
