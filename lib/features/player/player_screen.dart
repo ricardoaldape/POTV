@@ -12,6 +12,7 @@ import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
+import 'player_preferences.dart';
 import 'secure_webview_player.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -48,10 +49,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Player? player;
   VideoController? videoController;
   _Media3CastController? media3Controller;
+  _Media3CastState? media3State;
   Duration? media3ResumeAt;
+  PlayerPreferences playerPreferences = const PlayerPreferences();
+  bool preferencesLoaded = false;
   Timer? hideTimer;
   Timer? historyTimer;
   Timer? startupTimer;
+  Timer? media3StateTimer;
   StreamSubscription<bool>? playingSubscription;
   bool _startupPlaying = false;
   StreamSubscription<String>? playerErrorSubscription;
@@ -71,8 +76,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     currentIndex = widget.session.initialIndex
         .clamp(0, widget.session.candidates.length - 1)
         .toInt();
-    unawaited(_openCurrent(notify: false));
+    unawaited(_initializePlayback());
     _armAutoHide();
+  }
+
+  Future<void> _initializePlayback() async {
+    playerPreferences = await PlayerPreferences.load();
+    if (!mounted) return;
+    setState(() => preferencesLoaded = true);
+    await _openCurrent(notify: false);
   }
 
   @override
@@ -81,6 +93,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     hideTimer?.cancel();
     historyTimer?.cancel();
     startupTimer?.cancel();
+    media3StateTimer?.cancel();
     unawaited(playingSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
@@ -104,6 +117,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     player = null;
     videoController = null;
     media3Controller = null;
+    media3State = null;
+    media3StateTimer?.cancel();
+    media3StateTimer = null;
     media3ResumeAt = null;
     playbackError = null;
 
