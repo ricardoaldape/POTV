@@ -348,10 +348,11 @@ private class Media3CastPlayerView(
             val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return@mapNotNull null
             val language = item["language"]?.toString()?.takeIf { it.isNotBlank() }
             val explicitMime = item["mimeType"]?.toString()?.takeIf { it.isNotBlank() }
+            val path = uri.path.orEmpty().lowercase()
             val mimeType =
                 explicitMime ?: when {
-                    uri.path.lowercase().endsWith(".vtt") -> MimeTypes.TEXT_VTT
-                    uri.path.lowercase().endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
+                    path.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+                    path.endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
                     else -> MimeTypes.TEXT_VTT
                 }
 
