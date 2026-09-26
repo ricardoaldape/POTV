@@ -66,6 +66,38 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     return result;
   }
 
+  bool _isSportsChannel(LiveChannel channel) {
+    final text = '${channel.group ?? ''} ${channel.name}'.toLowerCase();
+    const terms = <String>[
+      'sport',
+      'deporte',
+      'futbol',
+      'fútbol',
+      'soccer',
+      'football',
+      'basket',
+      'nba',
+      'nfl',
+      'baseball',
+      'beisbol',
+      'béisbol',
+      'tennis',
+      'tenis',
+      'motor',
+      'formula',
+      'f1',
+      'racing',
+      'mma',
+      'ufc',
+      'boxing',
+      'boxeo',
+      'hockey',
+      'golf',
+      'fifa',
+    ];
+    return terms.any(text.contains);
+  }
+
   Future<void> _pickDate() async {
     final value = await showDatePicker(
       context: context,
@@ -91,7 +123,13 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     final addonSportsState = ref.watch(addonSportsItemsProvider(selectedSport));
     final addonSportsItems =
         addonSportsState.asData?.value ?? const <AddonSportsItem>[];
-    final channels = _mergeChannels(liveChannels, sportsChannels);
+    final customSportsChannels = liveChannels
+        .where(_isSportsChannel)
+        .toList(growable: false);
+    final channels = _mergeChannels(
+      sportsChannels,
+      customSportsChannels,
+    );
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
         const <EpgProgram>[];
 
@@ -217,7 +255,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
           ],
           if (sportsChannelsState.isLoading)
             const LinearProgressIndicator(minHeight: 2),
-          if (sportsChannels.isNotEmpty) ...[
+          if (channels.isNotEmpty) ...[
             const SizedBox(height: 8),
             const Text(
               'Canales deportivos disponibles',
@@ -227,7 +265,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            SportsChannelRail(channels: sportsChannels),
+            SportsChannelRail(channels: channels),
           ],
           const SizedBox(height: 22),
           if (eventsState.isLoading)
@@ -249,7 +287,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             _SportsEventCard(
               event: event,
               channels: channels,
-              fallbackChannels: sportsChannels,
+              fallbackChannels: channels,
               programs: programs,
             ),
           if (!eventsState.isLoading &&
