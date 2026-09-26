@@ -551,16 +551,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       content = switch (currentStream.backend) {
         PlaybackBackend.native => Platform.isAndroid
-            ? _Media3NativePlayer(
-                key: ValueKey('media3-${currentStream.id}'),
-                stream: currentStream,
-                title: widget.session.title,
-                resumeAt: media3ResumeAt,
-                onController: (controller) {
-                  media3Controller = controller;
-                  if (mounted) setState(() {});
-                },
-              )
+            ? !preferencesLoaded
+                ? const Center(child: CircularProgressIndicator())
+                : _Media3NativePlayer(
+                    key: ValueKey('media3-${currentStream.id}'),
+                    stream: currentStream,
+                    title: widget.session.title,
+                    resumeAt: media3ResumeAt,
+                    preferences: playerPreferences,
+                    onController: _attachMedia3Controller,
+                  )
             : videoController == null
                 ? const Center(child: CircularProgressIndicator())
                 : Video(
@@ -629,6 +629,7 @@ class _Media3NativePlayer extends StatelessWidget {
   final StreamCandidate stream;
   final String title;
   final Duration? resumeAt;
+  final PlayerPreferences preferences;
   final ValueChanged<_Media3CastController> onController;
 
   const _Media3NativePlayer({
@@ -636,6 +637,7 @@ class _Media3NativePlayer extends StatelessWidget {
     required this.stream,
     required this.title,
     required this.resumeAt,
+    required this.preferences,
     required this.onController,
   });
 
@@ -648,6 +650,18 @@ class _Media3NativePlayer extends StatelessWidget {
         'headers': stream.headers,
         'title': title,
         'startPositionMs': resumeAt?.inMilliseconds ?? 0,
+        'audioPreference': preferences.media3AudioPreference,
+        'subtitlePreference': preferences.media3SubtitlePreference,
+        'autoplay': preferences.autoplay,
+        'subtitles': [
+          for (final subtitle in stream.subtitles)
+            <String, Object?>{
+              'uri': subtitle.uri.toString(),
+              'language': subtitle.language,
+              'label': subtitle.label,
+              'mimeType': subtitle.mimeType,
+            },
+        ],
       },
       creationParamsCodec: const StandardMessageCodec(),
       onPlatformViewCreated: (viewId) {
