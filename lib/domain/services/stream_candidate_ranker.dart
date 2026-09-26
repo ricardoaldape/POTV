@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import '../models/stream_candidate.dart';
 
 class StreamCandidateScore {
