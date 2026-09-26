@@ -28,10 +28,9 @@ jobs:
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate Android platform
+      - name: Verify Android platform
         run: |
-          flutter create --platforms=android --org com.potv --project-name potv .
-          cp tool/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          test -d android || flutter create --platforms=android --org com.potv --project-name potv .
           cp tool/icons/mipmap-mdpi/ic_launcher.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
           cp tool/icons/mipmap-hdpi/ic_launcher.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
           cp tool/icons/mipmap-xhdpi/ic_launcher.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
