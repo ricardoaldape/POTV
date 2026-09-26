@@ -94,6 +94,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     historyTimer?.cancel();
     startupTimer?.cancel();
     media3StateTimer?.cancel();
+    media3Controller?.dispose();
     unawaited(playingSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
@@ -116,6 +117,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await player?.dispose();
     player = null;
     videoController = null;
+    media3Controller?.dispose();
     media3Controller = null;
     media3State = null;
     media3StateTimer?.cancel();
