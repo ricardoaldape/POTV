@@ -187,10 +187,14 @@ class SourceAggregator {
                 final bestScore = candidates
                     .map(_ranker.score)
                     .fold<int>(-9999, (best, score) => score > best ? score : best);
-                final adaptiveGrace = bestScore >= 200
+                final suggestedGrace = bestScore >= 200
                     ? const Duration(milliseconds: 550)
                     : bestScore >= 150
                         ? const Duration(milliseconds: 850)
+                        : firstCandidateGrace;
+                final adaptiveGrace =
+                    suggestedGrace.compareTo(firstCandidateGrace) < 0
+                        ? suggestedGrace
                         : firstCandidateGrace;
                 final graceLog =
                     '[SourceRanking] Primera tanda: mejor score=$bestScore; '
