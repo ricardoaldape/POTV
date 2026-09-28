@@ -195,10 +195,12 @@ private class Media3CastPlayerView(
         val audio =
             when (audioPreference) {
                 "spanish" ->
-                    findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isSpanish)
+                    findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isLatinoSpanish)
+                        ?: findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isSpanish)
                         ?: findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isEnglish)
                 "english" ->
                     findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isEnglish)
+                        ?: findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isLatinoSpanish)
                         ?: findTrack(tracks, C.TRACK_TYPE_AUDIO, ::isSpanish)
                 else -> null
             }
@@ -369,8 +371,16 @@ private class Media3CastPlayerView(
         routeButton.performClick()
     }
 
+    private fun isLatinoSpanish(language: String?, label: String?): Boolean {
+        val value = "${language ?: ""} ${label ?: ""}".lowercase().trim()
+        return value.contains("es-mx") ||
+            value.contains("es-419") ||
+            value.contains("latino") ||
+            value.contains("latin spanish")
+    }
+
     private fun isSpanish(language: String?, label: String?): Boolean {
-        val value = "${language ?: ""} ${label ?: ""}".lowercase()
+        val value = "${language ?: ""} ${label ?: ""}".lowercase().trim()
         return value == "es" ||
             value.contains("es-") ||
             value.contains("spa") ||
@@ -381,7 +391,7 @@ private class Media3CastPlayerView(
     }
 
     private fun isEnglish(language: String?, label: String?): Boolean {
-        val value = "${language ?: ""} ${label ?: ""}".lowercase()
+        val value = "${language ?: ""} ${label ?: ""}".lowercase().trim()
         return value == "en" ||
             value.contains("en-") ||
             value.contains("eng") ||
@@ -390,6 +400,7 @@ private class Media3CastPlayerView(
 
     private fun displayLanguage(language: String?, label: String?): String {
         return when {
+            isLatinoSpanish(language, label) -> "español latino"
             isSpanish(language, label) -> "español"
             isEnglish(language, label) -> "inglés"
             !label.isNullOrBlank() -> label
