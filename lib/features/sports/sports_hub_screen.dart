@@ -98,6 +98,63 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     return terms.any(text.contains);
   }
 
+  bool _matchesSelectedSport(LiveChannel channel) {
+    final text = '${channel.group ?? ''} ${channel.name}'.toLowerCase();
+
+    final terms = switch (selectedSport) {
+      'Soccer' => const ['soccer', 'futbol', 'fútbol', 'liga', 'champions', 'fifa'],
+      'Basketball' => const ['basket', 'basketball', 'nba', 'wnba'],
+      'American Football' => const ['nfl', 'american football', 'americano'],
+      'Baseball' => const ['baseball', 'beisbol', 'béisbol', 'mlb'],
+      'Ice Hockey' => const ['hockey', 'nhl'],
+      'Motorsport' => const ['motor', 'formula', 'f1', 'racing', 'nascar', 'moto'],
+      'Tennis' => const ['tennis', 'tenis', 'atp', 'wta'],
+      'Fighting' => const ['mma', 'ufc', 'boxing', 'boxeo', 'fight', 'combate'],
+      _ => const <String>[],
+    };
+
+    return terms.any(text.contains);
+  }
+
+  bool _isGeneralSportsChannel(LiveChannel channel) {
+    final text = '${channel.group ?? ''} ${channel.name}'.toLowerCase();
+    const general = [
+      'sports',
+      'sport',
+      'deportes',
+      'deporte',
+      'espn',
+      'fox sports',
+      'tudn',
+      'bein',
+      'eurosport',
+    ];
+    if (!general.any(text.contains)) return false;
+
+    const specific = [
+      'soccer',
+      'futbol',
+      'fútbol',
+      'basket',
+      'nba',
+      'nfl',
+      'baseball',
+      'beisbol',
+      'béisbol',
+      'hockey',
+      'motor',
+      'formula',
+      'f1',
+      'tennis',
+      'tenis',
+      'mma',
+      'ufc',
+      'boxing',
+      'boxeo',
+    ];
+    return !specific.any(text.contains);
+  }
+
   Future<void> _pickDate() async {
     final value = await showDatePicker(
       context: context,
@@ -126,10 +183,17 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     final customSportsChannels = liveChannels
         .where(_isSportsChannel)
         .toList(growable: false);
-    final channels = _mergeChannels(
+    final allSportsChannels = _mergeChannels(
       sportsChannels,
       customSportsChannels,
     );
+    final channels = allSportsChannels
+        .where(
+          (channel) =>
+              _matchesSelectedSport(channel) ||
+              _isGeneralSportsChannel(channel),
+        )
+        .toList(growable: false);
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
         const <EpgProgram>[];
 
