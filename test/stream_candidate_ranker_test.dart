@@ -51,4 +51,41 @@ void main() {
 
     expect(ranked, hasLength(1));
   });
+
+  test('scores Latino dual-audio 1080p above foreign-language 4K', () {
+    final latino = StreamCandidate(
+      id: 'latino',
+      label: 'Movie Latino Dual-Audio 1080p',
+      uri: Uri.parse('https://example.com/movie.latino.dual-audio.1080p.mkv'),
+      language: 'es-MX',
+    );
+    final foreign = StreamCandidate(
+      id: 'foreign',
+      label: 'Movie French 4K',
+      uri: Uri.parse('https://example.com/movie.fr-fr.4k.mkv'),
+      language: 'fr-FR',
+    );
+
+    expect(ranker.score(latino), greaterThan(ranker.score(foreign)));
+    expect(ranker.analyze(latino).reasons, contains('audio/español +100'));
+    expect(ranker.analyze(latino).reasons, contains('multi audio/subs +50'));
+  });
+
+  test('adds subtitle bonus when Spanish subtitles are available', () {
+    final candidate = StreamCandidate(
+      id: 'subs',
+      label: 'English 1080p',
+      uri: Uri.parse('https://example.com/movie.en.1080p.mkv'),
+      language: 'en',
+      subtitles: [
+        ExternalSubtitleTrack(
+          uri: Uri.parse('https://example.com/subtitles.es.vtt'),
+          language: 'es',
+        ),
+      ],
+    );
+
+    expect(ranker.analyze(candidate).reasons, contains('subtítulos ES +10'));
+  });
+
 }

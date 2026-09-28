@@ -147,6 +147,14 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
       if (seen.add(key)) result.add(channel);
     }
 
+    result.sort((a, b) {
+      final groupA = (a.group ?? '').trim().toLowerCase();
+      final groupB = (b.group ?? '').trim().toLowerCase();
+      final byGroup = groupA.compareTo(groupB);
+      if (byGroup != 0) return byGroup;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
     return result;
   }
 }

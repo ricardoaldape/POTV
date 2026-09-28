@@ -26,8 +26,8 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generate missing platform folders
-        run: flutter create --platforms=android --org com.potv --project-name potv .
+      - name: Verify Android platform
+        run: test -d android || flutter create --platforms=android --org com.potv --project-name potv .
 
       - name: Decode release keystore
         run: |

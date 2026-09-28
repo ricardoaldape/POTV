@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
+import 'player_preferences.dart';
 import 'secure_webview_player.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -46,9 +48,15 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   Player? player;
   VideoController? videoController;
+  _Media3CastController? media3Controller;
+  _Media3CastState? media3State;
+  Duration? media3ResumeAt;
+  PlayerPreferences playerPreferences = const PlayerPreferences();
+  bool preferencesLoaded = false;
   Timer? hideTimer;
   Timer? historyTimer;
   Timer? startupTimer;
+  Timer? media3StateTimer;
   StreamSubscription<bool>? playingSubscription;
   bool _startupPlaying = false;
   StreamSubscription<String>? playerErrorSubscription;
@@ -68,8 +76,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     currentIndex = widget.session.initialIndex
         .clamp(0, widget.session.candidates.length - 1)
         .toInt();
-    unawaited(_openCurrent(notify: false));
+    unawaited(_initializePlayback());
     _armAutoHide();
+  }
+
+  Future<void> _initializePlayback() async {
+    playerPreferences = await PlayerPreferences.load();
+    if (!mounted) return;
+    setState(() => preferencesLoaded = true);
+    await _openCurrent(notify: false);
   }
 
   @override
@@ -78,6 +93,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     hideTimer?.cancel();
     historyTimer?.cancel();
     startupTimer?.cancel();
+    media3StateTimer?.cancel();
+    media3Controller?.dispose();
     unawaited(playingSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
@@ -100,6 +117,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await player?.dispose();
     player = null;
     videoController = null;
+    media3Controller?.dispose();
+    media3Controller = null;
+    media3State = null;
+    media3StateTimer?.cancel();
+    media3StateTimer = null;
+    media3ResumeAt = null;
     playbackError = null;
 
     var effectiveResumeAt = resumeAt;
@@ -119,6 +142,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         addDebugLog(inputLog);
 
         if (currentStream.backend == PlaybackBackend.native) {
+          if (Platform.isAndroid) {
+            media3ResumeAt = effectiveResumeAt;
+            _armHistorySave();
+            break;
+          }
+
           final nextPlayer = Player();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
@@ -155,7 +184,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               inputUrl,
               httpHeaders: currentStream.headers,
             ),
-            play: true,
+            play: playerPreferences.autoplay,
           );
           final externalAudioUri = currentStream.externalAudioUri;
           if (externalAudioUri != null) {
@@ -226,7 +255,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     failoverInProgress = true;
-    final resumeAt = player?.state.position;
+    final resumeAt = await _currentPosition();
     final failed = currentStream.label;
     currentIndex += 1;
 
@@ -248,6 +277,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Future<Duration?> _currentPosition() async {
+    final p = player;
+    if (p != null) return p.state.position;
+    return media3Controller?.position();
+  }
+
   void _armHistorySave() {
     historyTimer?.cancel();
     if (widget.session.playbackContext == null) return;
@@ -259,11 +294,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _saveProgress() async {
     final playbackContext = widget.session.playbackContext;
-    final p = player;
-    if (playbackContext == null || p == null) return;
+    if (playbackContext == null) return;
 
-    final position = p.state.position;
-    final duration = p.state.duration;
+    final p = player;
+    Duration position;
+    Duration duration;
+
+    if (p != null) {
+      position = p.state.position;
+      duration = p.state.duration;
+    } else {
+      final nativeState = await media3Controller?.state();
+      if (nativeState == null) return;
+      position = Duration(milliseconds: nativeState.positionMs);
+      duration = Duration(milliseconds: nativeState.durationMs);
+    }
     if (position < const Duration(seconds: 2)) return;
 
     await historyRepository.save(
@@ -307,7 +352,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    final resumeAt = player?.state.position;
+    final resumeAt = await _currentPosition();
     if (mounted) Navigator.of(context).pop();
     currentIndex = index;
     await _openCurrent(resumeAt: resumeAt);
@@ -352,7 +397,171 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  void _attachMedia3Controller(_Media3CastController controller) {
+    media3StateTimer?.cancel();
+    media3Controller?.dispose();
+    media3Controller = controller;
+    controller.setEventHandlers(
+      onLog: (message) {
+        addDebugLog(message);
+        debugPrint(message);
+      },
+      onError: (message) {
+        if (!failoverInProgress) {
+          unawaited(_autoFailover(message));
+        }
+      },
+    );
+
+    startupTimer?.cancel();
+    startupTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted || failoverInProgress) return;
+      if (media3State?.isPlaying == true) return;
+      unawaited(
+        _autoFailover(
+          "[Player] Media3 no inició en 10s · ${currentStream.label}",
+        ),
+      );
+    });
+    unawaited(_refreshMedia3State());
+    media3StateTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(_refreshMedia3State()),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _refreshMedia3State() async {
+    final controller = media3Controller;
+    if (controller == null) return;
+    try {
+      final state = await controller.state();
+      if (!mounted || state == null) return;
+      if (state.isPlaying) startupTimer?.cancel();
+
+      final previous = media3State;
+      final shouldRebuild =
+          controlsVisible ||
+          previous == null ||
+          previous.isPlaying != state.isPlaying ||
+          previous.isCasting != state.isCasting ||
+          previous.durationMs != state.durationMs;
+
+      media3State = state;
+      if (shouldRebuild) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _showMedia3AudioTracks() async {
+    final controller = media3Controller;
+    if (controller == null) return;
+    final tracks = await controller.audioTracks();
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0D1418),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text(
+                'Audio',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            if (tracks.isEmpty)
+              const ListTile(
+                title: Text('La fuente no expone pistas de audio seleccionables.'),
+              ),
+            for (final track in tracks)
+              ListTile(
+                leading: Icon(
+                  track.selected
+                      ? Icons.check_circle
+                      : Icons.circle_outlined,
+                ),
+                title: Text(track.displayName),
+                subtitle: track.sampleMimeType == null
+                    ? null
+                    : Text(track.sampleMimeType!),
+                enabled: track.supported,
+                onTap: track.supported
+                    ? () async {
+                        await controller.selectAudioTrack(track);
+                        if (context.mounted) Navigator.of(context).pop();
+                        await _refreshMedia3State();
+                      }
+                    : null,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMedia3SubtitleTracks() async {
+    final controller = media3Controller;
+    if (controller == null) return;
+    final tracks = await controller.subtitleTracks();
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0D1418),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text(
+                'Subtítulos',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            ListTile(
+              leading: Icon(
+                tracks.every((track) => !track.selected)
+                    ? Icons.check_circle
+                    : Icons.circle_outlined,
+              ),
+              title: const Text('Desactivados'),
+              onTap: () async {
+                await controller.disableSubtitles();
+                if (context.mounted) Navigator.of(context).pop();
+              },
+            ),
+            for (final track in tracks)
+              ListTile(
+                leading: Icon(
+                  track.selected
+                      ? Icons.check_circle
+                      : Icons.circle_outlined,
+                ),
+                title: Text(track.displayName),
+                subtitle: track.sampleMimeType == null
+                    ? null
+                    : Text(track.sampleMimeType!),
+                enabled: track.supported,
+                onTap: track.supported
+                    ? () async {
+                        await controller.selectSubtitleTrack(track);
+                        if (context.mounted) Navigator.of(context).pop();
+                      }
+                    : null,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showAudioTracks() async {
+    if (media3Controller != null) {
+      return _showMedia3AudioTracks();
+    }
+
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.audio;
@@ -388,6 +597,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _showSubtitleTracks() async {
+    if (media3Controller != null) {
+      return _showMedia3SubtitleTracks();
+    }
+
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.subtitle;
@@ -471,20 +684,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.enter) {
-      player?.playOrPause();
+      if (media3Controller != null) {
+        unawaited(media3Controller!.playPause());
+      } else {
+        player?.playOrPause();
+      }
       return KeyEventResult.handled;
     }
 
     final p = player;
-    if (p != null && key == LogicalKeyboardKey.arrowLeft) {
-      final target = p.state.position - const Duration(seconds: 10);
-      p.seek(target.isNegative ? Duration.zero : target);
-      return KeyEventResult.handled;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (media3Controller != null && media3State != null) {
+        final target = Duration(
+          milliseconds: media3State!.positionMs - 10000,
+        );
+        unawaited(
+          media3Controller!.seekTo(
+            target.isNegative ? Duration.zero : target,
+          ),
+        );
+        return KeyEventResult.handled;
+      }
+      if (p != null) {
+        final target = p.state.position - const Duration(seconds: 10);
+        p.seek(target.isNegative ? Duration.zero : target);
+        return KeyEventResult.handled;
+      }
     }
-    if (p != null && key == LogicalKeyboardKey.arrowRight) {
-      final target = p.state.position + const Duration(seconds: 10);
-      p.seek(target);
-      return KeyEventResult.handled;
+    if (key == LogicalKeyboardKey.arrowRight) {
+      if (media3Controller != null && media3State != null) {
+        unawaited(
+          media3Controller!.seekTo(
+            Duration(milliseconds: media3State!.positionMs + 10000),
+          ),
+        );
+        return KeyEventResult.handled;
+      }
+      if (p != null) {
+        final target = p.state.position + const Duration(seconds: 10);
+        p.seek(target);
+        return KeyEventResult.handled;
+      }
     }
 
     return KeyEventResult.ignored;
@@ -507,13 +747,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     } else {
       content = switch (currentStream.backend) {
-        PlaybackBackend.native => videoController == null
-            ? const Center(child: CircularProgressIndicator())
-            : Video(
-                controller: videoController!,
-                controls: NoVideoControls,
-                fit: BoxFit.contain,
-              ),
+        PlaybackBackend.native => Platform.isAndroid
+            ? !preferencesLoaded
+                ? const Center(child: CircularProgressIndicator())
+                : _Media3NativePlayer(
+                    key: ValueKey('media3-${currentStream.id}'),
+                    stream: currentStream,
+                    title: widget.session.title,
+                    resumeAt: media3ResumeAt,
+                    preferences: playerPreferences,
+                    onController: _attachMedia3Controller,
+                  )
+            : videoController == null
+                ? const Center(child: CircularProgressIndicator())
+                : Video(
+                    controller: videoController!,
+                    controls: NoVideoControls,
+                    fit: BoxFit.contain,
+                  ),
         PlaybackBackend.webView => SecureWebViewPlayer(
             key: ValueKey(currentStream.id),
             stream: currentStream,
@@ -549,11 +800,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     title: widget.session.title,
                     stream: currentStream,
                     player: p,
+                    media3State: media3State,
                     isLive: widget.session.isLive,
                     onBack: () => Navigator.of(context).maybePop(),
-                    onAudio: p == null ? null : _showAudioTracks,
-                    onSubtitles: p == null ? null : _showSubtitleTracks,
+                    onAudio: (p != null || media3Controller != null)
+                        ? _showAudioTracks
+                        : null,
+                    onSubtitles: (p != null || media3Controller != null)
+                        ? _showSubtitleTracks
+                        : null,
                     onQuality: p == null ? null : _showVideoTracks,
+                    onMedia3PlayPause: media3Controller == null
+                        ? null
+                        : () => unawaited(media3Controller!.playPause()),
+                    onMedia3Seek: media3Controller == null
+                        ? null
+                        : (position) => unawaited(
+                              media3Controller!.seekTo(position),
+                            ),
+                    onCast: Platform.isAndroid &&
+                            currentStream.backend == PlaybackBackend.native &&
+                            media3Controller != null
+                        ? () => unawaited(media3Controller!.toggleCast())
+                        : null,
                     onServers: _showServers,
                   ),
                 ),
@@ -563,6 +832,202 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
       ),
     );
+  }
+}
+
+class _Media3NativePlayer extends StatelessWidget {
+  final StreamCandidate stream;
+  final String title;
+  final Duration? resumeAt;
+  final PlayerPreferences preferences;
+  final ValueChanged<_Media3CastController> onController;
+
+  const _Media3NativePlayer({
+    super.key,
+    required this.stream,
+    required this.title,
+    required this.resumeAt,
+    required this.preferences,
+    required this.onController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AndroidView(
+      viewType: 'potv/media3_cast_player',
+      creationParams: <String, Object?>{
+        'uri': stream.uri.toString(),
+        'headers': stream.headers,
+        'title': title,
+        'startPositionMs': resumeAt?.inMilliseconds ?? 0,
+        'audioPreference': preferences.media3AudioPreference,
+        'subtitlePreference': preferences.media3SubtitlePreference,
+        'autoplay': preferences.autoplay,
+        'subtitles': [
+          for (final subtitle in stream.subtitles)
+            <String, Object?>{
+              'uri': subtitle.uri.toString(),
+              'language': subtitle.language,
+              'label': subtitle.label,
+              'mimeType': subtitle.mimeType,
+            },
+        ],
+      },
+      creationParamsCodec: const StandardMessageCodec(),
+      onPlatformViewCreated: (viewId) {
+        onController(_Media3CastController(viewId));
+      },
+    );
+  }
+}
+
+class _Media3CastState {
+  final int positionMs;
+  final int durationMs;
+  final bool isPlaying;
+  final bool isCasting;
+
+  const _Media3CastState({
+    required this.positionMs,
+    required this.durationMs,
+    required this.isPlaying,
+    required this.isCasting,
+  });
+}
+
+class _Media3Track {
+  final int groupIndex;
+  final int trackIndex;
+  final String? language;
+  final String? label;
+  final String? sampleMimeType;
+  final bool selected;
+  final bool supported;
+
+  const _Media3Track({
+    required this.groupIndex,
+    required this.trackIndex,
+    required this.language,
+    required this.label,
+    required this.sampleMimeType,
+    required this.selected,
+    required this.supported,
+  });
+
+  String get displayName {
+    final parts = <String>[
+      if (label != null && label!.trim().isNotEmpty) label!.trim(),
+      if (language != null && language!.trim().isNotEmpty) language!.trim(),
+    ];
+    return parts.isEmpty
+        ? 'Pista ${trackIndex + 1}'
+        : parts.toSet().join(' · ');
+  }
+
+  factory _Media3Track.fromMap(Map<Object?, Object?> raw) {
+    return _Media3Track(
+      groupIndex: (raw['groupIndex'] as num?)?.toInt() ?? -1,
+      trackIndex: (raw['trackIndex'] as num?)?.toInt() ?? -1,
+      language: raw['language']?.toString(),
+      label: raw['label']?.toString(),
+      sampleMimeType: raw['sampleMimeType']?.toString(),
+      selected: raw['selected'] == true,
+      supported: raw['supported'] == true,
+    );
+  }
+}
+
+class _Media3CastController {
+  final MethodChannel _channel;
+
+  _Media3CastController(int viewId)
+      : _channel = MethodChannel('potv/media3_cast/$viewId');
+
+  void setEventHandlers({
+    required ValueChanged<String> onLog,
+    required ValueChanged<String> onError,
+  }) {
+    _channel.setMethodCallHandler((call) async {
+      final message = call.arguments?.toString();
+      if (message == null || message.isEmpty) return null;
+
+      if (call.method == 'playerLog') {
+        onLog(message);
+      } else if (call.method == 'playerError') {
+        onError(message);
+      }
+      return null;
+    });
+  }
+
+  void dispose() {
+    _channel.setMethodCallHandler(null);
+  }
+
+  Future<void> toggleCast() => _channel.invokeMethod<void>('toggleCast');
+
+  Future<void> playPause() => _channel.invokeMethod<void>('playPause');
+
+  Future<void> seekTo(Duration position) => _channel.invokeMethod<void>(
+        'seekTo',
+        <String, Object?>{'positionMs': position.inMilliseconds},
+      );
+
+  Future<_Media3CastState?> state() async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('getState');
+    if (raw == null) return null;
+    return _Media3CastState(
+      positionMs: (raw['positionMs'] as num?)?.toInt() ?? 0,
+      durationMs: (raw['durationMs'] as num?)?.toInt() ?? 0,
+      isPlaying: raw['isPlaying'] == true,
+      isCasting: raw['isCasting'] == true,
+    );
+  }
+
+  Future<List<_Media3Track>> audioTracks() =>
+      _tracks('getAudioTracks');
+
+  Future<List<_Media3Track>> subtitleTracks() =>
+      _tracks('getSubtitleTracks');
+
+  Future<List<_Media3Track>> _tracks(String method) async {
+    final raw = await _channel.invokeListMethod<Object?>(method);
+    if (raw == null) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map)
+          _Media3Track.fromMap(item),
+    ];
+  }
+
+  Future<void> selectAudioTrack(_Media3Track track) {
+    return _channel.invokeMethod<void>(
+      'selectAudioTrack',
+      <String, Object?>{
+        'groupIndex': track.groupIndex,
+        'trackIndex': track.trackIndex,
+      },
+    );
+  }
+
+  Future<void> selectSubtitleTrack(_Media3Track track) {
+    return _channel.invokeMethod<void>(
+      'selectSubtitleTrack',
+      <String, Object?>{
+        'groupIndex': track.groupIndex,
+        'trackIndex': track.trackIndex,
+      },
+    );
+  }
+
+  Future<void> disableSubtitles() =>
+      _channel.invokeMethod<void>('disableSubtitles');
+
+  Future<Duration?> position() async {
+    final current = await state();
+    return current == null
+        ? null
+        : Duration(milliseconds: current.positionMs);
   }
 }
 
@@ -686,22 +1151,30 @@ class _PlayerOverlay extends StatelessWidget {
   final String title;
   final StreamCandidate stream;
   final Player? player;
+  final _Media3CastState? media3State;
   final bool isLive;
   final VoidCallback onBack;
   final VoidCallback? onAudio;
   final VoidCallback? onSubtitles;
   final VoidCallback? onQuality;
+  final VoidCallback? onMedia3PlayPause;
+  final ValueChanged<Duration>? onMedia3Seek;
+  final VoidCallback? onCast;
   final VoidCallback onServers;
 
   const _PlayerOverlay({
     required this.title,
     required this.stream,
     required this.player,
+    required this.media3State,
     required this.isLive,
     required this.onBack,
     required this.onAudio,
     required this.onSubtitles,
     required this.onQuality,
+    required this.onMedia3PlayPause,
+    required this.onMedia3Seek,
+    required this.onCast,
     required this.onServers,
   });
 
@@ -760,12 +1233,31 @@ class _PlayerOverlay extends StatelessWidget {
                         : Icons.play_arrow_rounded,
                   ),
                 ),
+              )
+            else if (media3State != null && onMedia3PlayPause != null)
+              IconButton.filled(
+                iconSize: 42,
+                onPressed: onMedia3PlayPause,
+                icon: Icon(
+                  media3State!.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                ),
               ),
             const Spacer(),
             if (player != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: _Timeline(player: player!, isLive: isLive),
+              )
+            else if (media3State != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: _Media3Timeline(
+                  state: media3State!,
+                  isLive: isLive,
+                  onSeek: onMedia3Seek,
+                ),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
@@ -804,6 +1296,12 @@ class _PlayerOverlay extends StatelessWidget {
                         label: 'Calidad',
                         onPressed: onQuality,
                       ),
+                      if (onCast != null)
+                        _ActionButton(
+                          icon: Icons.cast,
+                          label: 'Cast',
+                          onPressed: onCast,
+                        ),
                       _ActionButton(
                         icon: Icons.dns_outlined,
                         label: 'Servidores',
@@ -817,6 +1315,56 @@ class _PlayerOverlay extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _Media3Timeline extends StatelessWidget {
+  final _Media3CastState state;
+  final bool isLive;
+  final ValueChanged<Duration>? onSeek;
+
+  const _Media3Timeline({
+    required this.state,
+    required this.isLive,
+    required this.onSeek,
+  });
+
+  String _format(Duration value) {
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final durationMs = state.durationMs;
+    final max = durationMs <= 0 ? 1.0 : durationMs.toDouble();
+    final value = state.positionMs.clamp(0, durationMs <= 0 ? 0 : durationMs)
+        .toDouble();
+
+    return Row(
+      children: [
+        Text(_format(Duration(milliseconds: state.positionMs))),
+        Expanded(
+          child: Slider(
+            min: 0,
+            max: max,
+            value: value.clamp(0, max),
+            onChanged: durationMs <= 0 || onSeek == null
+                ? null
+                : (next) => onSeek!(
+                      Duration(milliseconds: next.round()),
+                    ),
+          ),
+        ),
+        Text(
+          durationMs <= 0
+              ? (isLive ? 'EN VIVO' : '--:--')
+              : _format(Duration(milliseconds: durationMs)),
+        ),
+      ],
     );
   }
 }
