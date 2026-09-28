@@ -132,8 +132,8 @@ class SourceAggregator {
       for (final candidate in result.candidates) {
         final score = _ranker.analyze(candidate);
         final rankingLog =
-            '[SourceRanking] Fuente \${candidate.label} puntuada con '
-            '\${score.total} puntos: \${score.reasons.join(", ")}';
+            '[SourceRanking] Fuente ${candidate.label} puntuada con '
+            '${score.total} puntos: ${score.reasons.join(", ")}';
         debugPrint(rankingLog);
         addDebugLog(rankingLog);
       }
@@ -184,7 +184,20 @@ class SourceAggregator {
               final firstCandidate = candidates.isEmpty;
               candidates.addAll(batch.candidates);
               if (firstCandidate && firstCandidateGrace > Duration.zero) {
-                graceTimer = Timer(firstCandidateGrace, finish);
+                final bestScore = candidates
+                    .map(_ranker.score)
+                    .fold<int>(-9999, (best, score) => score > best ? score : best);
+                final adaptiveGrace = bestScore >= 200
+                    ? const Duration(milliseconds: 550)
+                    : bestScore >= 150
+                        ? const Duration(milliseconds: 850)
+                        : firstCandidateGrace;
+                final graceLog =
+                    '[SourceRanking] Primera tanda: mejor score=$bestScore; '
+                    'ventana adicional=${adaptiveGrace.inMilliseconds}ms.';
+                debugPrint(graceLog);
+                addDebugLog(graceLog);
+                graceTimer = Timer(adaptiveGrace, finish);
               }
             }
           }
