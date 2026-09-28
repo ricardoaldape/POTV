@@ -425,7 +425,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
     unawaited(_refreshMedia3State());
     media3StateTimer = Timer.periodic(
-      const Duration(milliseconds: 750),
+      const Duration(seconds: 1),
       (_) => unawaited(_refreshMedia3State()),
     );
     if (mounted) setState(() {});
@@ -438,7 +438,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final state = await controller.state();
       if (!mounted || state == null) return;
       if (state.isPlaying) startupTimer?.cancel();
-      setState(() => media3State = state);
+
+      final previous = media3State;
+      final shouldRebuild =
+          controlsVisible ||
+          previous == null ||
+          previous.isPlaying != state.isPlaying ||
+          previous.isCasting != state.isCasting ||
+          previous.durationMs != state.durationMs;
+
+      media3State = state;
+      if (shouldRebuild) setState(() {});
     } catch (_) {}
   }
 
