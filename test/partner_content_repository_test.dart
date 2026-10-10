@@ -167,4 +167,27 @@ void main() {
     expect((await repo.load()).hasContent, isFalse);
     expect(requests, 0);
   });
+  test('live channels preserve alternate servers from provider response', () {
+    final catalog = PartnerContentSnapshot.parse({
+      'revision': 'live-2',
+      'channels': [
+        {
+          'id': 'news-1',
+          'name': 'News One',
+          'primary_url': 'https://cdn.example/one.m3u8',
+          'backup_urls': [
+            {'url': 'https://backup.example/two.m3u8', 'quality': '720p'},
+            'https://fallback.example/three.m3u8',
+            'https://cdn.example/one.m3u8',
+          ],
+        }
+      ],
+    });
+    final channel = catalog.channels.single;
+    expect(channel.playbackCandidates, hasLength(3));
+    expect(channel.playbackCandidates[1].uri.host, 'backup.example');
+    expect(channel.playbackCandidates[2].uri.host, 'fallback.example');
+    expect(channel.playbackCandidates[1].quality, '720p');
+  });
+
 }
