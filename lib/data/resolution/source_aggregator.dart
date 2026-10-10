@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/security/media_url_logging.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../debug/debug_log_provider.dart';
@@ -159,7 +160,7 @@ class SourceAggregator {
             final candidate = batch.candidates[index];
             final urlLog =
                 'SourceAggregator ${provider.id} URL ${index + 1}/${batch.candidates.length} '
-                '-> ${candidate.uri}';
+                '-> ${safeMediaUrlForLog(candidate.uri)}';
             debugPrint(urlLog);
             addDebugLog(urlLog);
           }
