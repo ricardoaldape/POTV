@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/security/media_url_logging.dart';
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/playback_history_entry.dart';
@@ -114,7 +115,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     while (true) {
       try {
         final inputUrl = currentStream.uri.toString();
-        final inputLog = 'Resolver: URL de entrada -> $inputUrl';
+        final inputLog = 'Resolver: URL de entrada -> ${safeMediaUrlForLog(currentStream.uri)}';
         debugPrint(inputLog);
         addDebugLog(inputLog);
 
@@ -173,7 +174,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
           }
-          final finalStreamLog = 'Resolver: URL final del stream -> $inputUrl';
+          final finalStreamLog = 'Resolver: URL final del stream -> ${safeMediaUrlForLog(currentStream.uri)}';
           debugPrint(finalStreamLog);
           addDebugLog(finalStreamLog);
           _armHistorySave();
@@ -185,7 +186,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (!opened) {
             throw StateError('No hay una aplicación disponible para abrirlo.');
           }
-          final finalStreamLog = 'Resolver: URL final del stream -> ${currentStream.uri}';
+          final finalStreamLog = 'Resolver: URL final del stream -> ${safeMediaUrlForLog(currentStream.uri)}';
           debugPrint(finalStreamLog);
           addDebugLog(finalStreamLog);
         }
