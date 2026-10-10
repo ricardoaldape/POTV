@@ -7,6 +7,10 @@ class LiveChannel {
   final String? epgId;
   final Uri? logo;
   final StreamCandidate stream;
+  final List<StreamCandidate> backupStreams;
+
+  List<StreamCandidate> get playbackCandidates =>
+      [stream, ...backupStreams];
 
   const LiveChannel({
     required this.id,
@@ -15,5 +19,6 @@ class LiveChannel {
     this.epgId,
     this.logo,
     required this.stream,
+    this.backupStreams = const [],
   });
 }
