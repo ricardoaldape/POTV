@@ -386,7 +386,7 @@ class _SportsEventCard extends StatelessWidget {
                       '/player',
                       extra: PlaybackSession(
                         title: channel.name,
-                        candidates: [channel.stream],
+                        candidates: channel.playbackCandidates,
                         isLive: true,
                       ),
                     );
@@ -451,7 +451,8 @@ class _SportsEventCard extends StatelessWidget {
                   final session = PlaybackSession(
                     title: event.title,
                     candidates: [
-                      for (final match in matches) match.channel.stream,
+                      for (final match in matches)
+                        ...match.channel.playbackCandidates,
                     ],
                     isLive: true,
                   );
