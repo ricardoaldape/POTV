@@ -32,7 +32,7 @@ class SourceAggregator {
     this.providers, {
     this.providerTimeout = const Duration(seconds: 18),
     this.resolutionTimeout = const Duration(seconds: 17),
-    this.firstCandidateGrace = const Duration(milliseconds: 900),
+    this.firstCandidateGrace = const Duration(seconds: 4),
     this.cacheTtl = const Duration(minutes: 5),
     this.negativeCacheTtl = const Duration(seconds: 30),
     this.resolverManager,
@@ -172,7 +172,15 @@ class SourceAggregator {
             if (batch.candidates.isNotEmpty) {
               final firstCandidate = candidates.isEmpty;
               candidates.addAll(batch.candidates);
-              if (firstCandidate && firstCandidateGrace > Duration.zero) {
+              // A fast embed must not hide slower, actually playable sources.
+              // Give other providers an opportunity to return native media.
+              if (firstCandidate &&
+                  candidates.any((c) => c.backend == PlaybackBackend.native) &&
+                  firstCandidateGrace > Duration.zero) {
+                graceTimer = Timer(firstCandidateGrace, finish);
+              } else if (graceTimer == null &&
+                  candidates.any((c) => c.backend == PlaybackBackend.native) &&
+                  firstCandidateGrace > Duration.zero) {
                 graceTimer = Timer(firstCandidateGrace, finish);
               }
             }
@@ -180,7 +188,7 @@ class SourceAggregator {
 
           if (remaining == 0) {
             finish();
-          } else if (candidates.isNotEmpty &&
+          } else if (candidates.any((c) => c.backend == PlaybackBackend.native) &&
               firstCandidateGrace <= Duration.zero) {
             finish();
           }
