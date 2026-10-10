@@ -88,3 +88,87 @@ credential securely. Do not expose unprotected paid-media resolution endpoints.
 
 This branch improves **local playback/source plumbing**, but is not a live
 NOVA catalog connection. Production access must follow their documented terms.
+
+## Live content mirror: the actual collaboration proof
+
+POTV's Home, Live TV and Sports Hub now read a common `PartnerContentSnapshot`.
+This is deliberately **vendor-neutral** and does **not** introduce partner branding,
+account creation, checkout screens, payment providers or device-based subscription
+limits.
+
+The partner gateway serves **fresh snapshots** from HTTPS. POTV checks for updates
+every 2 minutes while the relevant screen is in the foreground, refreshes again
+when the app resumes, and retains its last-known snapshot temporarily if the
+gateway becomes unreachable. HTTP ETags avoid downloading unchanged payloads.
+This is content/configuration refresh, **not executable app hot swapping**.
+
+Set the non-secret GitHub Actions repository variable
+`POTV_PARTNER_CATALOG_URL` to the **POTV-authorized content gateway HTTPS URL**.
+The value is passed as a Flutter `--dart-define` to Android builds. For example:
+
+```
+POTV_PARTNER_CATALOG_URL=https://YOUR-POTV-GATEWAY.example/content/catalog
+```
+
+The partner catalog schema is normalized by **our gateway**:
+
+```json
+{
+  "data": {
+    "revision": "catalog-2026-10-20-01",
+    "movies": [
+      {"tmdb_id": 550, "title": "A Film", "poster": "https://images.example/550.jpg"}
+    ],
+    "series": [
+      {"tmdb_id": 1399, "title": "A Series"}
+    ],
+    "anime": [
+      {"anilist_id": 21, "title": "An Anime"}
+    ],
+    "channels": [
+      {"id": "tv-7", "name": "Channel 7", "group": "News", "stream_url": "https://cdn.example/watch/7"}
+    ],
+    "sports_channels": [
+      {"id": "sport-8", "name": "Sports 8", "stream_url": "https://cdn.example/watch/8"}
+    ],
+    "sports_events": [
+      {"id": "match-1", "sport": "Soccer", "competition": "League", "home": "Home", "away": "Away",
+       "starts_at": "2026-10-20T20:00:00Z", "is_live": false}
+    ]
+  }
+}
+```
+
+- `tmdb_id` is mandatory for films/series; `anilist_id` for anime, since those
+  are the ID spaces POTV's playback coordinator understands today.
+- Catalog metadata is **not proof of playback**: movies and episodes still need
+  a working resolver endpoint (configured via `POTV_RESOLVER_ENDPOINTS_JSON`)
+  and valid user entitlements on the gateway. Movie/channel rights must permit
+  the integration.
+- `channels` / `sports_channels` are playable URLs with their correct,
+  short-lived session authorization. The gateway must not return an unprotected
+  public list of paid streams.
+- Any newly delivered app-only functionality still requires an explicit
+  POTV code change, integration tests and release signing.
+
+**Automated demo:** `test/partner_content_repository_test.dart` changes a
+mock gateway from `rev-1` (one movie, one TV channel) to `rev-2`
+(two movies, two channels) and checks the new items are reflected **without
+changing client code or rebuilding an APK**. It also tests anime, sports,
+invalid IDs, invalid stream URLs and offline fallback.
+
+**Real partner acceptance test:** after our gateway is configured with authorized
+access, the partner publishes a specific new title, channel, stream or match;
+POTV fetches the next catalog revision; confirm the item and play it on Android
+and Android TV. No claim of real partner connectivity is made until that passes.
+
+## Upstream app-release watcher
+
+Set GitHub Actions variable `POTV_PARTNER_RELEASE_REPO` to the allowed upstream
+GitHub `owner/repo`. Workflow `.github/workflows/partner-release-watch.yml`
+checks the latest published release every six hours **after the workflow is
+merged to the default branch**, records its tag and asset digest, and creates
+a POTV review issue for any new release not already recorded. This is a
+version-change alert, **not** blind APK re-signing, private credential reuse
+or an automatic app-code merge. Nothing vendor-specific or payment-related is
+rendered in the POTV application.
