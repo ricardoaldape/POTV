@@ -55,8 +55,12 @@ jobs:
       - name: Build release APK
         env:
           POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
+          POTV_PARTNER_SOURCES_URL: ${{ vars.POTV_PARTNER_SOURCES_URL }}
         run: |
           args=()
+          if [ -n "$POTV_PARTNER_SOURCES_URL" ]; then
+            args+=("--dart-define=POTV_PARTNER_SOURCES_URL=$POTV_PARTNER_SOURCES_URL")
+          fi
           if [ -n "$POTV_PARTNER_CATALOG_URL" ]; then
             args+=("--dart-define=POTV_PARTNER_CATALOG_URL=$POTV_PARTNER_CATALOG_URL")
           fi
