@@ -336,4 +336,49 @@ void main() {
     expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 250)));
   });
 
+  test('fast embed does not hide a later playable native source', () async {
+    final aggregator = SourceAggregator(
+      [
+        _FakeProvider(
+          id: 'embed',
+          displayName: 'Embed only',
+          priority: 1,
+          supportedMediaTypes: const {'movie'},
+          handler: (_) async => [
+            StreamCandidate(
+              id: 'embed-result',
+              label: 'Web embed',
+              uri: Uri.parse('https://example.org/embed'),
+              backend: PlaybackBackend.webView,
+            ),
+          ],
+        ),
+        _FakeProvider(
+          id: 'native',
+          displayName: 'Native later',
+          priority: 2,
+          supportedMediaTypes: const {'movie'},
+          handler: (_) async {
+            await Future<void>.delayed(const Duration(milliseconds: 60));
+            return [
+              StreamCandidate(
+                id: 'native-result',
+                label: 'Direct video',
+                uri: Uri.parse('https://example.org/video.mp4'),
+                backend: PlaybackBackend.native,
+              ),
+            ];
+          },
+        ),
+      ],
+      firstCandidateGrace: const Duration(milliseconds: 15),
+      resolutionTimeout: const Duration(milliseconds: 300),
+    );
+
+    final result = await aggregator.resolve(
+      const ProviderResolveRequest(mediaType: 'movie', mediaId: 'film-1'),
+    );
+    expect(result.candidates.map((candidate) => candidate.id),
+        containsAll(['embed-result', 'native-result']));
+  });
 }
