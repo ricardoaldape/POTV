@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/app_theme.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
+import '../../data/catalog/partner_content_repository.dart';
 import '../../data/history/playback_history_repository.dart';
 import '../../data/resolution/resolver_status.dart';
 import '../../domain/models/media_item.dart';
@@ -23,13 +26,44 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
+  Timer? _catalogTimer;
+
+  void _refreshCatalog() => ref.invalidate(partnerContentProvider);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshCatalog();
+      _catalogTimer ??= Timer.periodic(
+        const Duration(minutes: 2),
+        (_) => _refreshCatalog(),
+      );
+    } else {
+      _catalogTimer?.cancel();
+      _catalogTimer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _catalogTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   static bool _vodSetupPromptedThisSession = false;
   MediaType selectedType = MediaType.movie;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _catalogTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) => _refreshCatalog(),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeShowVodSetup();
     });
@@ -40,7 +74,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _vodSetupPromptedThisSession = true;
     try {
       final status = await ref.read(resolverStatusProvider.future);
-      if (!mounted || status.externalRoutes > 0) return;
+      if (!mounted || status.externalRoutes > 0 ||
+          ref.read(partnerContentRepositoryProvider).configured) return;
       await context.push<bool>('/setup-vod');
     } catch (_) {
       // El catálogo debe seguir funcionando aunque falle la comprobación local.
@@ -162,6 +197,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       MediaType.tv => tvGenres,
       MediaType.anime => animeGenres,
     };
+    final partnerSnapshot = ref.watch(partnerContentProvider).asData?.value;
+    final partnerItems =
+        partnerSnapshot?.forType(selectedType) ?? const <MediaItem>[];
     final historyState = ref.watch(playbackHistoryProvider);
     final historyItems =
         historyState.asData?.value ?? const <PlaybackHistoryEntry>[];
@@ -293,6 +331,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
           ),
+          if (partnerItems.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 18),
+                child: MediaRail(
+                  title: 'Novedades del catálogo',
+                  items: partnerItems,
+                  onPlay: _openItem,
+                ),
+              ),
+            ),
           if (popularItems.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
