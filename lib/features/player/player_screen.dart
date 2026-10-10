@@ -56,6 +56,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   DateTime? _playbackStartedAt;
   int _openGeneration = 0;
   int _consecutiveInterruptions = 0;
+  bool _handlingPlaybackError = false;
   StreamSubscription<String>? playerErrorSubscription;
   bool controlsVisible = true;
   bool failoverInProgress = false;
@@ -85,6 +86,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _openGeneration++;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     hideTimer?.cancel();
     historyTimer?.cancel();
@@ -214,7 +216,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         unawaited(serverHealthRepository.reportError(
           _serverMediaKey, currentStream,
         ));
-        final errorLog = 'Resolver error: $error';
+        final errorLog = 'Resolver error: ${safePlaybackErrorForLog(error.toString())}';
         final stackLog = 'Resolver stack: $stack';
         debugPrint(errorLog);
         debugPrint(stackLog);
@@ -232,7 +234,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           continue;
         }
 
-        playbackError = error.toString();
+        playbackError = safePlaybackErrorForLog(error.toString());
         break;
       }
     }
@@ -245,7 +247,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// that remained healthy for over one minute clears the prior interruption
   /// count. Subtitle-only errors are not video-server failures.
   Future<void> _recoverFromPlayerError(String message) async {
-    if (!mounted || failoverInProgress) return;
+    if (!mounted || failoverInProgress || _handlingPlaybackError) return;
+    _handlingPlaybackError = true;
+    try {
     final error = message.toLowerCase();
     if ((error.contains('subtitle') || error.contains('subtítulo')) &&
         !error.contains('video') && !error.contains('demux')) {
@@ -274,6 +278,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
     await _autoFailover(message, reportFailure: false);
+    } finally {
+      _handlingPlaybackError = false;
+    }
   }
 
   Future<void> _autoFailover(
@@ -287,7 +294,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ));
     }
     if (currentIndex + 1 >= widget.session.candidates.length) {
-      setState(() => playbackError = message);
+      setState(() => playbackError = safePlaybackErrorForLog(message));
       return;
     }
 
