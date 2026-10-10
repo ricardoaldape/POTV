@@ -33,7 +33,7 @@ class SourceAggregator {
     this.providers, {
     this.providerTimeout = const Duration(seconds: 18),
     this.resolutionTimeout = const Duration(seconds: 17),
-    this.firstCandidateGrace = const Duration(seconds: 4),
+    this.firstCandidateGrace = const Duration(milliseconds: 900),
     this.cacheTtl = const Duration(minutes: 5),
     this.negativeCacheTtl = const Duration(seconds: 30),
     this.resolverManager,
