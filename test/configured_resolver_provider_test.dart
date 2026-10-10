@@ -218,4 +218,46 @@ void main() {
     expect(streams.single.backend.name, 'webView');
   });
 
+  test('partner gateway envelope and MIME classify signed media', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(onRequest: (options, handler) {
+        handler.resolve(
+          Response<Object?>(
+            requestOptions: options,
+            statusCode: 200,
+            data: {
+              'data': {
+                'sources': [
+                  {
+                    'name': 'Partner CDN',
+                    'streamUrl': 'https://media.example/play?id=123',
+                    'content_type': 'video/mp4',
+                    'language': 'es-MX',
+                    'headers': {'X-Media-Token': 'opaque'},
+                  },
+                ],
+              },
+            },
+          ),
+        );
+      }),
+    );
+    final provider = ConfiguredResolverProvider(
+      ResolverEndpointConfig.fromJson({
+        'id': 'partner',
+        'name': 'Partner gateway',
+        'endpoint': 'https://partner-gateway.example/resolve',
+        'media_types': ['movie'],
+      }),
+      dio: dio,
+    );
+    final streams = await provider.resolve(
+      const ProviderResolveRequest(mediaType: 'movie', mediaId: '101'),
+    );
+    expect(streams, hasLength(1));
+    expect(streams.single.backend.name, 'native');
+    expect(streams.single.language, 'es-MX');
+    expect(streams.single.headers['X-Media-Token'], 'opaque');
+  });
 }
