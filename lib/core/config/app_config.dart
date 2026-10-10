@@ -10,6 +10,12 @@ class AppConfig {
   // The endpoint is public; partner secrets must stay on the server.
   // Normalized source resolver served by the authorized POTV gateway.
   // New source servers are delivered as data; no rebuild needed.
+  // Authorized provider API base, no tokens embedded.
+  static const partnerApiBaseUrl = String.fromEnvironment(
+    'POTV_PARTNER_API_BASE_URL',
+    defaultValue: '',
+  );
+
   static const partnerSourcesUrl = String.fromEnvironment(
     'POTV_PARTNER_SOURCES_URL',
     defaultValue: '',
