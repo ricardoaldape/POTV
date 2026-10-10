@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/security/media_url_logging.dart';
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
+import '../../data/history/stream_server_health_repository.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
@@ -52,12 +53,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? startupTimer;
   StreamSubscription<bool>? playingSubscription;
   bool _startupPlaying = false;
+  DateTime? _playbackStartedAt;
+  int _openGeneration = 0;
+  int _consecutiveInterruptions = 0;
   StreamSubscription<String>? playerErrorSubscription;
   bool controlsVisible = true;
   bool failoverInProgress = false;
   String? playbackError;
   late int currentIndex;
   final historyRepository = const PlaybackHistoryRepository();
+  final serverHealthRepository = const StreamServerHealthRepository();
+
+  String get _serverMediaKey =>
+      widget.session.playbackContext?.historyKey ??
+      'live:${widget.session.title}';
+
 
   StreamCandidate get currentStream =>
       widget.session.candidates[currentIndex];
@@ -90,6 +100,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     bool notify = true,
     Duration? resumeAt,
   }) async {
+    final generation = ++_openGeneration;
     historyTimer?.cancel();
     startupTimer?.cancel();
     _startupPlaying = false;
@@ -124,31 +135,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
 
-          // Start listening to `playing` state to detect successful startup.
+          // Listen before open(): it can report errors on startup.
+          final openedAt = DateTime.now();
           _startupPlaying = false;
           playingSubscription = nextPlayer.stream.playing.listen((isPlaying) {
-            if (isPlaying) {
+            if (!mounted || generation != _openGeneration) return;
+            if (isPlaying && !_startupPlaying) {
               _startupPlaying = true;
-              final startedAt = DateTime.now();
-              final seconds = startupTimer == null || startupTimer!.isActive == false
-                  ? 0
-                  : DateTime.now().difference(startedAt).inSeconds;
-              addDebugLog("Player: '${currentStream.label}' arrancó en ${seconds}s");
+              _playbackStartedAt = DateTime.now();
+              final seconds = DateTime.now().difference(openedAt).inSeconds;
+              addDebugLog(
+                "Player: '${currentStream.label}' arrancó en ${seconds}s",
+              );
               startupTimer?.cancel();
-              unawaited(playingSubscription?.cancel());
-              playingSubscription = null;
+              unawaited(serverHealthRepository.reportPlaying(
+                _serverMediaKey, currentStream,
+              ));
+            }
+          });
+          playerErrorSubscription = nextPlayer.stream.error.listen((message) {
+            if (mounted && generation == _openGeneration) {
+              unawaited(_recoverFromPlayerError(message));
             }
           });
 
-          // Start the startup timeout before opening. If playback doesn't
-          // start within 10s, trigger failover.
-          startupTimer = Timer(const Duration(seconds: 10), () {
-            if (!mounted) return;
-            if (failoverInProgress) return;
-            if (_startupPlaying) return;
-            final msg = "Player: timeout de arranque para '${currentStream.label}' después de 10s → failover";
-            addDebugLog(msg);
-            unawaited(_autoFailover(msg));
+          startupTimer = Timer(const Duration(seconds: 12), () {
+            if (!mounted ||
+                generation != _openGeneration ||
+                failoverInProgress ||
+                _startupPlaying) {
+              return;
+            }
+            addDebugLog("Player: arranque agotado, probando otra fuente");
+            unawaited(_autoFailover('No inició la señal después de 12s'));
           });
 
           await nextPlayer.open(
@@ -167,9 +186,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             );
           }
-          playerErrorSubscription = nextPlayer.stream.error.listen(
-            (message) => unawaited(_autoFailover(message)),
-          );
+          if (!mounted || generation != _openGeneration) return;
           if (effectiveResumeAt != null &&
               effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
@@ -193,6 +210,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
         break;
       } catch (error, stack) {
+        if (!mounted || generation != _openGeneration) return;
+        unawaited(serverHealthRepository.reportError(
+          _serverMediaKey, currentStream,
+        ));
         final errorLog = 'Resolver error: $error';
         final stackLog = 'Resolver stack: $stack';
         debugPrint(errorLog);
@@ -219,14 +240,59 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (mounted && (notify || playbackError != null)) setState(() {});
   }
 
-  Future<void> _autoFailover(String message) async {
+  /// Recover a stream interruption twice on the same source; after the
+  /// third consecutive interruption, move on to the next server. A playback
+  /// that remained healthy for over one minute clears the prior interruption
+  /// count. Subtitle-only errors are not video-server failures.
+  Future<void> _recoverFromPlayerError(String message) async {
     if (!mounted || failoverInProgress) return;
+    final error = message.toLowerCase();
+    if ((error.contains('subtitle') || error.contains('subtítulo')) &&
+        !error.contains('video') && !error.contains('demux')) {
+      addDebugLog('Player: problema aislado de subtítulos');
+      return;
+    }
+    final startedAt = _playbackStartedAt;
+    if (_startupPlaying &&
+        startedAt != null &&
+        DateTime.now().difference(startedAt) >=
+            const Duration(minutes: 1)) {
+      _consecutiveInterruptions = 0;
+    }
+    await serverHealthRepository.reportError(_serverMediaKey, currentStream);
+    if (!mounted || failoverInProgress) return;
+    if (_startupPlaying && _consecutiveInterruptions < 2) {
+      _consecutiveInterruptions++;
+      failoverInProgress = true;
+      final resumeAt = widget.session.isLive ? null : player?.state.position;
+      addDebugLog('Player: recuperando fuente ${_consecutiveInterruptions}/2');
+      try {
+        await _openCurrent(resumeAt: resumeAt);
+      } finally {
+        failoverInProgress = false;
+      }
+      return;
+    }
+    await _autoFailover(message, reportFailure: false);
+  }
+
+  Future<void> _autoFailover(
+    String message, {
+    bool reportFailure = true,
+  }) async {
+    if (!mounted || failoverInProgress) return;
+    if (reportFailure) {
+      unawaited(serverHealthRepository.reportError(
+        _serverMediaKey, currentStream,
+      ));
+    }
     if (currentIndex + 1 >= widget.session.candidates.length) {
       setState(() => playbackError = message);
       return;
     }
 
     failoverInProgress = true;
+    _consecutiveInterruptions = 0;
     final resumeAt = player?.state.position;
     final failed = currentStream.label;
     currentIndex += 1;
@@ -253,7 +319,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     historyTimer?.cancel();
     if (widget.session.playbackContext == null) return;
     historyTimer = Timer.periodic(
-      const Duration(seconds: 5),
+      const Duration(seconds: 15),
       (_) => unawaited(_saveProgress()),
     );
   }
@@ -311,6 +377,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final resumeAt = player?.state.position;
     if (mounted) Navigator.of(context).pop();
     currentIndex = index;
+    _consecutiveInterruptions = 0;
     await _openCurrent(resumeAt: resumeAt);
     _showControls();
   }
