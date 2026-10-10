@@ -45,7 +45,6 @@ jobs:
               `- Tag: ${release.tag_name}`,
               `- Published: ${release.published_at || 'unknown'}`,
               `- Package fingerprint: ${apk?.digest || 'not published'}`,
-              `- Release reference: ${release.html_url}`,
               '',
               '### POTV reflection checklist',
               '- [ ] Check whether new films, series, anime, live channels and sports events already appear via the configured content gateway.',
