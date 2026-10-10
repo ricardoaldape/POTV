@@ -53,7 +53,14 @@ jobs:
         run: flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release
+        env:
+          POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
+        run: |
+          args=()
+          if [ -n "$POTV_PARTNER_CATALOG_URL" ]; then
+            args+=("--dart-define=POTV_PARTNER_CATALOG_URL=$POTV_PARTNER_CATALOG_URL")
+          fi
+          flutter build apk --release "${args[@]}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
