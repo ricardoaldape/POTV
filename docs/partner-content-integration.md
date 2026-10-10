@@ -172,3 +172,72 @@ a POTV review issue for any new release not already recorded. This is a
 version-change alert, **not** blind APK re-signing, private credential reuse
 or an automatic app-code merge. Nothing vendor-specific or payment-related is
 rendered in the POTV application.
+
+## Server infrastructure, recovered API routes and source failover
+
+The authorized Android APK was inspected **statically** to identify
+route names and transport data structures, without retrieving or exporting
+credentials. The adapter `PartnerApiSourceResolver` understands:
+
+| POTV type | Primary route | Legacy fallback |
+| --- | --- | --- |
+| Movie | `vod/sources/movie/{tmdbId}` | `sources/movie/{tmdbId}` |
+| Series episode | `vod/sources/tv/{tmdbId}/{season}/{episode}` | `sources/tv/{tmdbId}/{season}/{episode}` |
+| Anime | Same episode route after AniList-to-TMDB mapping | `sources/anime/{tmdbId}/{season}/{episode}` |
+
+The APK's `SourcesResponse` carries a `sources` collection; individual
+source descriptors may include `embed_url`, `origin_url`,
+`requires_extraction`, `provider`, `host`, `quality`, `language`
+and `priority`. Another source representation includes `real_url`,
+`url`, `working` and quality. POTV normalizes these fields and gives
+embedded links to its configured extractor/WebView path rather than pretending
+they are directly playable video.
+
+The APK's channel-stream schema contains `primary_url` and
+`backup_urls`. POTV's `LiveChannel.playbackCandidates` now forwards all
+authorized, HTTPS alternatives into its native player's **Servers** selector,
+including Live TV and Sports Hub. The native player retries interruptions
+and changes server after repeated failures. It remembers a successful server
+for 3 hours per title (only hashed source identifiers in preferences).
+
+**Two different optional integrations are available:**
+
+1. Set `POTV_PARTNER_API_BASE_URL` to the approved HTTPS API **root**,
+   including the correct versioned prefix if applicable. POTV can request
+   route families above. This option works only when the provider permits the
+   POTV client/session to access those routes. HTTP 401/403 terminates access;
+   there is **no auth bypass**. The adapter accepts a runtime session header
+   provider but no production credentials are currently provisioned.
+2. Set `POTV_PARTNER_SOURCES_URL` to an authorized normalized HTTPS gateway
+   endpoint. The gateway can add/remove servers dynamically in its response
+   `{ "data": { "servers": [...] } }` without a new APK. Each server may have
+   `backup_urls` and `content_type`, and can be disabled with
+   `"enabled": false`. For paid/entitled sources, this endpoint must require
+   authenticated user-scoped access; do **not** serve it as a public dump.
+
+You can choose either route, or both if backend owners support the combined
+contract. All app builds accept those variable names through GitHub Actions.
+`POTV_PARTNER_CATALOG_URL` is independent (movies, anime, TV and sports
+discovery rather than per-title source resolution).
+
+### Demonstration steps agreed with the partner
+
+- Provision a **dedicated authorized test account/session** for POTV, without
+  partner billing, partner-branded login or per-screen subscription coupling.
+- Capture the specific release revision/servers list and play a movie,
+  an episode and a live channel. Confirm actual audio/video decode in Android.
+- Provider adds one new server or replaces a failing primary with a backup.
+  POTV requests that title again (the source cache is time-limited) and
+  displays the newly delivered server without installing another APK.
+- Pull the original/backup stream offline during playback and verify recovery,
+  source change, Spanish-language preferences and saved position.
+- After the provider's next release, verify the source/content change mirrors
+  in POTV. APK-only UI/code changes are tracked by the release workflow for
+  adaptation and QA; they cannot be transplanted automatically.
+- Verify partner branding, payment, account/device limits and proprietary
+  access credentials **do not appear** in POTV.
+
+**Not yet validated:** the live provider API root, its session authentication
+contract, content distribution entitlements, device playback under that
+session and real content availability. The current tests use controlled
+response fixtures; they do not demonstrate an authenticated NOVA session.
