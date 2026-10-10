@@ -8,6 +8,13 @@ class AppConfig {
 
   // HTTPS endpoint for a POTV-operated, authorized content gateway.
   // The endpoint is public; partner secrets must stay on the server.
+  // Normalized source resolver served by the authorized POTV gateway.
+  // New source servers are delivered as data; no rebuild needed.
+  static const partnerSourcesUrl = String.fromEnvironment(
+    'POTV_PARTNER_SOURCES_URL',
+    defaultValue: '',
+  );
+
   static const partnerCatalogUrl = String.fromEnvironment(
     'POTV_PARTNER_CATALOG_URL',
     defaultValue: '',
