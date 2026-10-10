@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../data/catalog/partner_content_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/sports/addon_sports_repository.dart';
 import '../../data/live_tv/live_tv_repository.dart';
@@ -82,7 +83,17 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
   Widget build(BuildContext context) {
     final query = (day: selectedDay, sport: selectedSport);
     final eventsState = ref.watch(sportsEventsProvider(query));
-    final events = eventsState.asData?.value ?? const <SportsEvent>[];
+    final partnerSnapshot = ref.watch(partnerContentProvider).asData?.value;
+    final partnerEvents = partnerSnapshot?.sportsEvents
+            .where((event) =>
+                DateUtils.isSameDay(event.startsAt, selectedDay) &&
+                event.sport.toLowerCase() == selectedSport.toLowerCase())
+            .toList(growable: false) ??
+        const <SportsEvent>[];
+    final events = <SportsEvent>[
+      ...partnerEvents,
+      ...eventsState.asData?.value ?? const <SportsEvent>[],
+    ];
     final liveChannels = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
     final sportsChannelsState = ref.watch(builtInSportsChannelsProvider);
@@ -91,7 +102,14 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     final addonSportsState = ref.watch(addonSportsItemsProvider(selectedSport));
     final addonSportsItems =
         addonSportsState.asData?.value ?? const <AddonSportsItem>[];
-    final channels = _mergeChannels(liveChannels, sportsChannels);
+    final channels = _mergeChannels(
+      [
+        ...partnerSnapshot?.sportsChannels ?? const <LiveChannel>[],
+        ...partnerSnapshot?.channels ?? const <LiveChannel>[],
+        ...liveChannels,
+      ],
+      sportsChannels,
+    );
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
         const <EpgProgram>[];
 
@@ -103,6 +121,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             tooltip: 'Actualizar eventos',
             onPressed: () {
               ref.invalidate(sportsEventsProvider(query));
+              ref.invalidate(partnerContentProvider);
               ref.invalidate(addonSportsItemsProvider(selectedSport));
               ref.invalidate(builtInSportsChannelsProvider);
             },
