@@ -56,8 +56,12 @@ jobs:
         env:
           POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
           POTV_PARTNER_SOURCES_URL: ${{ vars.POTV_PARTNER_SOURCES_URL }}
+          POTV_PARTNER_API_BASE_URL: ${{ vars.POTV_PARTNER_API_BASE_URL }}
         run: |
           args=()
+          if [ -n "$POTV_PARTNER_API_BASE_URL" ]; then
+            args+=("--dart-define=POTV_PARTNER_API_BASE_URL=$POTV_PARTNER_API_BASE_URL")
+          fi
           if [ -n "$POTV_PARTNER_SOURCES_URL" ]; then
             args+=("--dart-define=POTV_PARTNER_SOURCES_URL=$POTV_PARTNER_SOURCES_URL")
           fi
