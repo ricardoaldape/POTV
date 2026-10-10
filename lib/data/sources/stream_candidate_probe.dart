@@ -25,7 +25,10 @@ class StreamCandidateProbe {
     List<StreamCandidate> ranked, {
     int maxProbe = 6,
   }) async {
-    if (ranked.length <= 1) return ranked;
+    if (ranked.isEmpty ||
+        (ranked.length == 1 && ranked.first.backend != PlaybackBackend.webView)) {
+      return ranked;
+    }
 
     final toProbe = ranked.take(maxProbe).toList(growable: false);
     final results = await Future.wait([
