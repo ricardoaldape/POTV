@@ -13,4 +13,13 @@ void main() {
     expect(safeMediaUrlForLog(Uri.parse('file:///private/secret.mp4')),
         '[media-url-redacted]');
   });
+  test('player errors redact signed URLs and bearer tokens', () {
+    final error = safePlaybackErrorForLog(
+      'media https://cdn.example/play?token=abc123 authorization=secret999',
+    );
+    expect(error, isNot(contains('cdn.example')));
+    expect(error, isNot(contains('abc123')));
+    expect(error, isNot(contains('secret999')));
+  });
+
 }
