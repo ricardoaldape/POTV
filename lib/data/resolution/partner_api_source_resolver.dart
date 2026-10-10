@@ -100,7 +100,10 @@ class PartnerApiSourceResolver extends ProviderResolver {
     }
 
     for (final route in segments) {
-      final endpoint = baseUrl.resolve(route);
+      final root = baseUrl.replace(
+        path: baseUrl.path.endsWith('/') ? baseUrl.path : '${baseUrl.path}/',
+      );
+      final endpoint = root.resolve(route);
       if (endpoint.host != baseUrl.host || endpoint.scheme != 'https') {
         continue;
       }
