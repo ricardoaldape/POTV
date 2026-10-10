@@ -152,11 +152,17 @@ class ConfiguredResolverProvider extends ProviderResolver {
 
       for (var alternate = 0; alternate < sources.length; alternate++) {
         final source = sources[alternate];
-        final url = _text(source['stream_url']) ??
+        final url = _text(source['real_url']) ??
+            _text(source['realUrl']) ??
+            _text(source['stream_url']) ??
             _text(source['streamUrl']) ??
             _text(source['playback_url']) ??
             _text(source['resolved_m3u8']) ??
             _text(source['servidor_url']) ??
+            _text(source['embed_url']) ??
+            _text(source['embedUrl']) ??
+            _text(source['origin_url']) ??
+            _text(source['originUrl']) ??
             _text(source['url']) ??
             _text(source['uri']);
         final uri = Uri.tryParse(url ?? '');
@@ -190,6 +196,8 @@ class ConfiguredResolverProvider extends ProviderResolver {
 
   String _name(Map<String, dynamic> item, int index) {
     return _text(item['name']) ??
+        _text(item['provider']) ??
+        _text(item['host']) ??
         _text(item['server']) ??
         _text(item['servidor_nombre']) ??
         'Servidor ${index + 1}';
@@ -197,6 +205,13 @@ class ConfiguredResolverProvider extends ProviderResolver {
 
   PlaybackBackend _backend(Map<String, dynamic> item, Uri uri) {
     final explicit = item['backend']?.toString().trim().toLowerCase();
+    // Embedded web URLs are passed through POTV's configured extractor
+    // pipeline; never mislabel them as native video without verification.
+    if (item['requires_extraction'] == true ||
+        item['requiresExtraction'] == true ||
+        item['is_iframe'] == true) {
+      return PlaybackBackend.webView;
+    }
     switch (explicit) {
       case 'native':
         return PlaybackBackend.native;
@@ -207,6 +222,10 @@ class ConfiguredResolverProvider extends ProviderResolver {
         return PlaybackBackend.external;
     }
 
+    if (_text(item['embed_url']) != null ||
+        _text(item['embedUrl']) != null) {
+      return PlaybackBackend.webView;
+    }
     final contentType = (_text(item['content_type']) ??
             _text(item['mime_type']) ??
             _text(item['mimeType']) ??
