@@ -54,8 +54,12 @@ class StreamServerHealthRepository {
     final fresh = DateTime.now().millisecondsSinceEpoch - lastAt <
             _preferenceLifetime.inMilliseconds &&
         lastAt > 0;
+    final failureAt = (item['lastErrorAt'] as num?)?.toInt() ?? 0;
+    final errorsFresh = failureAt > 0 &&
+        DateTime.now().millisecondsSinceEpoch - failureAt <
+            _preferenceLifetime.inMilliseconds;
     final failures = item['failures'];
-    final stored = failures is Map ? failures : const {};
+    final stored = errorsFresh && failures is Map ? failures : const {};
     int score(StreamCandidate source) {
       final id = _sourceKey(source);
       final preference = fresh && preferred == id ? 200 : 0;
@@ -96,6 +100,13 @@ class StreamServerHealthRepository {
     final data = await _read(prefs);
     final entry = _entry(data, titleKey);
     final key = _sourceKey(source);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final previousErrorAt = (entry['lastErrorAt'] as num?)?.toInt() ?? 0;
+    if (previousErrorAt == 0 ||
+        now - previousErrorAt > _preferenceLifetime.inMilliseconds) {
+      entry['failures'] = <String, dynamic>{};
+    }
+    entry['lastErrorAt'] = now;
     final failures = entry['failures'] is Map<String, dynamic>
         ? entry['failures'] as Map<String, dynamic>
         : <String, dynamic>{};
