@@ -36,12 +36,13 @@ class StreamCandidateProbe {
     final unknown = <StreamCandidate>[];
 
     for (var i = 0; i < toProbe.length; i++) {
-      switch (results[i]) {
+      final assessed = results[i];
+      switch (assessed.status) {
         case _ProbeResult.healthy:
-          healthy.add(toProbe[i]);
+          healthy.add(assessed.candidate);
           break;
         case _ProbeResult.unknown:
-          unknown.add(toProbe[i]);
+          unknown.add(assessed.candidate);
           break;
         case _ProbeResult.dead:
           break;
@@ -64,21 +65,59 @@ class StreamCandidateProbe {
     ];
   }
 
-  Future<_ProbeResult> _check(StreamCandidate candidate) async {
-    if (candidate.backend != PlaybackBackend.native) {
-      return _ProbeResult.unknown;
+  // A URL without .m3u8/.mp4 is not necessarily an embed. Many legitimate
+  // partner CDNs serve signed media behind extensionless paths.
+  Future<_ProbeAssessment> _check(StreamCandidate candidate) async {
+    if (candidate.uri.scheme != 'http' &&
+        candidate.uri.scheme != 'https') {
+      return _ProbeAssessment(_ProbeResult.unknown, candidate);
     }
 
-    final uri = candidate.uri;
-    if (uri.scheme != 'http' && uri.scheme != 'https') {
-      return _ProbeResult.unknown;
+    if (candidate.backend == PlaybackBackend.webView) {
+      // HEAD never downloads a movie. A failed/disallowed HEAD is inconclusive:
+      // do not turn an embed into a dead stream.
+      try {
+        final response = await _dio.headUri<Object?>(
+          candidate.uri,
+          options: Options(headers: candidate.headers),
+        );
+        final contentType =
+            response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
+                '';
+        final isDirect = contentType.startsWith('video/') ||
+            contentType.contains('mpegurl') ||
+            contentType.contains('dash+xml');
+        if (isDirect) {
+          return _ProbeAssessment(
+            _ProbeResult.healthy,
+            StreamCandidate(
+              id: candidate.id,
+              label: candidate.label,
+              uri: candidate.uri,
+              language: candidate.language,
+              quality: candidate.quality,
+              backend: PlaybackBackend.native,
+              headers: candidate.headers,
+              externalAudioUri: candidate.externalAudioUri,
+              allowedHosts: candidate.allowedHosts,
+              directWebView: candidate.directWebView,
+            ),
+          );
+        }
+      } on DioException {
+        // HEAD can fail on perfectly valid signed URLs. Keep the embed.
+      }
+      return _ProbeAssessment(_ProbeResult.unknown, candidate);
     }
 
-    if (!_looksLikeHls(uri)) return _ProbeResult.unknown;
+    if (candidate.backend != PlaybackBackend.native ||
+        !_looksLikeHls(candidate.uri)) {
+      return _ProbeAssessment(_ProbeResult.unknown, candidate);
+    }
 
     try {
       final response = await _dio.getUri<String>(
-        uri,
+        candidate.uri,
         options: Options(
           responseType: ResponseType.plain,
           headers: {
@@ -89,10 +128,14 @@ class StreamCandidateProbe {
       );
 
       final body = response.data?.trimLeft() ?? '';
-      if (body.startsWith('#EXTM3U')) return _ProbeResult.healthy;
-      return _ProbeResult.dead;
+      return _ProbeAssessment(
+        body.startsWith('#EXTM3U')
+            ? _ProbeResult.healthy
+            : _ProbeResult.dead,
+        candidate,
+      );
     } on DioException {
-      return _ProbeResult.dead;
+      return _ProbeAssessment(_ProbeResult.dead, candidate);
     }
   }
 
@@ -112,3 +155,10 @@ class StreamCandidateProbe {
 }
 
 enum _ProbeResult { healthy, dead, unknown }
+
+class _ProbeAssessment {
+  final _ProbeResult status;
+  final StreamCandidate candidate;
+
+  const _ProbeAssessment(this.status, this.candidate);
+}
