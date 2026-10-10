@@ -6,6 +6,6 @@ String safeMediaUrlForLog(Uri uri) {
   if ((scheme != 'http' && scheme != 'https') || uri.host.isEmpty) {
     return '[media-url-redacted]';
   }
-  final port = uri.hasPort ? ':\u0024{uri.port}' : '';
-  return '\u0024scheme://\u0024{uri.host}\u0024port/[redacted]';
+  final port = uri.hasPort ? ':${uri.port}' : '';
+  return '$scheme://${uri.host}$port/[redacted]';
 }
