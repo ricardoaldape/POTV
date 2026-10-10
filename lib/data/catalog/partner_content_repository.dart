@@ -15,7 +15,7 @@ final partnerContentRepositoryProvider = Provider<PartnerContentRepository>((ref
 });
 
 final partnerContentProvider = FutureProvider<PartnerContentSnapshot>((ref) async {
-  return ref.read(partnerContentRepositoryProvider).load();
+  return ref.read(partnerContentRepositoryProvider).load(forceRefresh: true);
 });
 
 /// Dynamic HTTPS content snapshot, refreshed without installing a new APK.
