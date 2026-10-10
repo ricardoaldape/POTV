@@ -260,4 +260,69 @@ void main() {
     expect(streams.single.language, 'es-MX');
     expect(streams.single.headers['X-Media-Token'], 'opaque');
   });
+  test('server list updates, backups, and disabled sources require no APK update',
+      () async {
+    var revision = 1;
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(onRequest: (options, handler) {
+        handler.resolve(Response<Object?>(
+          requestOptions: options,
+          statusCode: 200,
+          data: {
+            'data': {
+              'revision': revision.toString(),
+              'servers': [
+                {
+                  'name': 'Latino',
+                  'language': 'es-MX',
+                  'content_type': 'application/vnd.apple.mpegurl',
+                  'stream_url': 'https://cdn.example/hls/live',
+                  'backup_urls': [
+                    'https://backup.example/hls/live'
+                  ],
+                },
+                if (revision >= 2)
+                  {
+                    'name': 'New provider',
+                    'streamUrl': 'https://new.example/play?id=1',
+                    'content_type': 'video/mp4',
+                  },
+                {
+                  'name': 'Blocked',
+                  'enabled': false,
+                  'url': 'https://disabled.example/test.mp4',
+                },
+              ],
+            }
+          },
+        ));
+      }),
+    );
+    final provider = ConfiguredResolverProvider(
+      ResolverEndpointConfig.fromJson({
+        'id': 'partner',
+        'name': 'POTV',
+        'endpoint': 'https://gateway.example/sources',
+        'media_types': ['movie'],
+      }),
+      dio: dio,
+    );
+    final request = ProviderResolveRequest(mediaType: 'movie', mediaId: '123');
+    final first = await provider.resolve(request);
+    expect(first, hasLength(2));
+    expect(first.first.label, contains('Servidor 1'));
+    expect(first.last.label, contains('respaldo 1'));
+    expect(first.first.language, 'es-MX');
+    expect(first.last.uri.host, 'backup.example');
+
+    revision = 2;
+    final updated = await provider.resolve(request);
+    expect(updated, hasLength(3));
+    expect(updated.last.label, contains('Servidor 2'));
+    expect(updated.last.uri.host, 'new.example');
+    expect(updated.last.backend.name, 'native');
+    expect(updated.any((s) => s.uri.host == 'disabled.example'), isFalse);
+  });
+
 }
