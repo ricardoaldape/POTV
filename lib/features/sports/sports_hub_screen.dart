@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -44,7 +46,41 @@ class SportsHubScreen extends ConsumerStatefulWidget {
   ConsumerState<SportsHubScreen> createState() => _SportsHubScreenState();
 }
 
-class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
+class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
+    with WidgetsBindingObserver {
+  Timer? _catalogTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _catalogTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) => ref.invalidate(partnerContentProvider),
+    );
+  }
+
+  @override
+  void dispose() {
+    _catalogTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(partnerContentProvider);
+      _catalogTimer ??= Timer.periodic(
+        const Duration(minutes: 2),
+        (_) => ref.invalidate(partnerContentProvider),
+      );
+    } else {
+      _catalogTimer?.cancel();
+      _catalogTimer = null;
+    }
+  }
+
   String selectedSport = 'Soccer';
   DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
 
