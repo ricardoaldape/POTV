@@ -1,8 +1,8 @@
-# POTV — partner content integration (NOVA or another authorized provider)
+# POTV — partner content integration (any explicitly authorized provider)
 
-This is the **client-side contract**, not a claim that NOVA's private API has been connected.
+This is the **client-side contract**, not a claim that the partner's private API has been connected.
 The release APK does not publish a supported API specification. Do not copy embedded
-private tokens, impersonate NOVA users, or bypass subscription/device enforcement.
+private tokens, impersonate the partner users, or bypass subscription/device enforcement.
 
 ## Content ownership and account boundaries
 
@@ -74,7 +74,7 @@ credential securely. Do not expose unprotected paid-media resolution endpoints.
 ## Validation required before announcing partner content works
 
 1. Confirm the actual partner API schema, auth scheme, rate limits and renewal
-   flow with NOVA. Document license/usage restrictions.
+   flow with the partner. Document license/usage restrictions.
 2. Verify authorized movie, series episode, anime episode, live TV and sports
    sources with test accounts on real Android and Android TV devices.
 3. Confirm source validity (200/206, correct MIME and manifest) and check audio
@@ -87,7 +87,7 @@ credential securely. Do not expose unprotected paid-media resolution endpoints.
    require normal signed releases for native/app code updates.
 
 This branch improves **local playback/source plumbing**, but is not a live
-NOVA catalog connection. Production access must follow their documented terms.
+the partner catalog connection. Production access must follow their documented terms.
 
 ## Live content mirror: the actual collaboration proof
 
