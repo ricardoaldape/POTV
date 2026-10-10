@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/catalog/partner_content_repository.dart';
 import '../../data/live_tv/live_tv_favorites.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../domain/models/epg_program.dart';
@@ -18,7 +20,41 @@ class LiveTvScreen extends ConsumerStatefulWidget {
   ConsumerState<LiveTvScreen> createState() => _LiveTvScreenState();
 }
 
-class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
+class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
+    with WidgetsBindingObserver {
+  Timer? _partnerRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _partnerRefreshTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) => ref.invalidate(partnerContentProvider),
+    );
+  }
+
+  @override
+  void dispose() {
+    _partnerRefreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(partnerContentProvider);
+      _partnerRefreshTimer ??= Timer.periodic(
+        const Duration(minutes: 2),
+        (_) => ref.invalidate(partnerContentProvider),
+      );
+    } else {
+      _partnerRefreshTimer?.cancel();
+      _partnerRefreshTimer = null;
+    }
+  }
+
   String searchQuery = '';
   String? selectedGroup;
   bool favoritesOnly = false;
@@ -138,6 +174,8 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
   @override
   Widget build(BuildContext context) {
     final channelsState = ref.watch(liveChannelsProvider);
+    final partnerChannels = ref.watch(partnerContentProvider)
+            .asData?.value.channels ?? const <LiveChannel>[];
     final epgState = ref.watch(epgProgramsProvider);
     final favoritesState = ref.watch(liveTvFavoritesProvider);
     final programs = epgState.asData?.value ?? const <EpgProgram>[];
@@ -151,6 +189,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
             tooltip: 'Actualizar',
             onPressed: () {
               ref.read(liveChannelsProvider.notifier).refresh();
+              ref.invalidate(partnerContentProvider);
               ref.read(epgProgramsProvider.notifier).refresh();
             },
             icon: const Icon(Icons.refresh),
@@ -173,7 +212,12 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen> {
         ],
       ),
       body: channelsState.when(
-        data: (items) {
+        data: (localItems) {
+          final seen = <String>{};
+          final items = <LiveChannel>[
+            for (final channel in [...partnerChannels, ...localItems])
+              if (seen.add(channel.id)) channel,
+          ];
           if (items.isEmpty) {
             return _EmptyTv(onAdd: _addSource);
           }
