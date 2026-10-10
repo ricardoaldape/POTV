@@ -91,7 +91,15 @@ class ConfiguredResolverProvider extends ProviderResolver {
   List<StreamCandidate> _parse(Object? raw) {
     Object? streamsRaw;
     if (raw is Map<String, dynamic>) {
-      streamsRaw = raw['streams'] ?? raw['results'] ?? raw['servidores'];
+      streamsRaw = raw['streams'] ??
+          raw['sources'] ??
+          raw['results'] ??
+          raw['servidores'];
+      // Partner gateways sometimes wrap their payload as {"data": {...}}.
+      if (streamsRaw == null && raw['data'] is Map) {
+        final data = raw['data'] as Map;
+        streamsRaw = data['streams'] ?? data['sources'] ?? data['results'];
+      }
     } else if (raw is List) {
       streamsRaw = raw;
     }
@@ -108,6 +116,8 @@ class ConfiguredResolverProvider extends ProviderResolver {
       final uri = Uri.tryParse(
         item['url']?.toString() ??
             item['stream_url']?.toString() ??
+            item['streamUrl']?.toString() ??
+            item['playback_url']?.toString() ??
             item['servidor_url']?.toString() ??
             item['resolved_m3u8']?.toString() ??
             item['uri']?.toString() ??
@@ -155,8 +165,15 @@ class ConfiguredResolverProvider extends ProviderResolver {
         return PlaybackBackend.external;
     }
 
-    if (_text(item['resolved_m3u8']) != null ||
-        _text(item['stream_url']) != null ||
+    final contentType = (_text(item['content_type']) ??
+            _text(item['mime_type']) ??
+            _text(item['mimeType']) ??
+            '')
+        .toLowerCase();
+    if (contentType.startsWith('video/') ||
+        contentType.contains('mpegurl') ||
+        contentType.contains('dash+xml') ||
+        _text(item['resolved_m3u8']) != null ||
         _looksLikeDirectMedia(uri)) {
       return PlaybackBackend.native;
     }
