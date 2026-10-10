@@ -11,6 +11,7 @@ import '../sources/http_source_resolver.dart';
 import '../sources/public_domain_movie_resolver.dart';
 import 'configured_resolver_catalog.dart';
 import 'configured_resolver_provider.dart';
+import 'partner_api_source_resolver.dart';
 import 'provider_adapters.dart';
 import 'lolplus_adapters.dart';
 
@@ -20,6 +21,7 @@ final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
   // A whitelabel partner source endpoint is called on each title resolution.
   // Its backend may add, remove, reprioritize or repair servers independently
   // of the installed POTV APK.
+  final partnerApi = Uri.tryParse(AppConfig.partnerApiBaseUrl.trim());
   final partnerUrl = Uri.tryParse(AppConfig.partnerSourcesUrl.trim());
   final partnerEnabled = partnerUrl != null &&
       partnerUrl.scheme == 'https' &&
@@ -27,6 +29,12 @@ final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
       partnerUrl.userInfo.isEmpty;
 
   final providers = <ProviderResolver>[
+    if (partnerApi != null && partnerApi.scheme == 'https' &&
+        partnerApi.host.isNotEmpty && partnerApi.userInfo.isEmpty)
+      PartnerApiSourceResolver(
+        baseUrl: partnerApi,
+        animeMapping: ref.read(animeIdMappingServiceProvider),
+      ),
     if (partnerEnabled)
       ConfiguredResolverProvider(ResolverEndpointConfig(
         id: 'potv_partner_sources',
