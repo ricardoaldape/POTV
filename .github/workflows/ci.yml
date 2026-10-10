@@ -69,11 +69,15 @@ jobs:
         env:
           POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
           POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
+          POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           args=()
           if [ -n "$POTV_RESOLVER_ENDPOINTS_JSON" ]; then
             args+=("--dart-define=POTV_RESOLVER_ENDPOINTS_JSON=$POTV_RESOLVER_ENDPOINTS_JSON")
+          fi
+          if [ -n "$POTV_PARTNER_CATALOG_URL" ]; then
+            args+=("--dart-define=POTV_PARTNER_CATALOG_URL=$POTV_PARTNER_CATALOG_URL")
           fi
           if [ -n "$POTV_CONTROL_URL" ]; then
             args+=("--dart-define=POTV_CONTROL_URL=$POTV_CONTROL_URL")
