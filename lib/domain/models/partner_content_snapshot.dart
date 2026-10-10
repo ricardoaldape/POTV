@@ -131,7 +131,11 @@ class PartnerContentSnapshot {
       final id = _text(item['id']);
       final name = _text(item['name'] ?? item['title']);
       final url = _httpsUri(
-        item['stream_url'] ?? item['streamUrl'] ?? item['url'],
+        item['stream_url'] ??
+            item['streamUrl'] ??
+            item['primary_url'] ??
+            item['primaryUrl'] ??
+            item['url'],
       );
       if (id == null || name == null || url == null || !seen.add(id)) {
         continue;
@@ -146,15 +150,50 @@ class PartnerContentSnapshot {
           }
         }
       }
-      final backend = item['backend'] == 'webview'
+      final backend = item['backend'] == 'webview' ||
+              item['is_iframe'] == true
           ? PlaybackBackend.webView
           : PlaybackBackend.native;
+      final backups = <StreamCandidate>[];
+      final rawBackups = item['backup_urls'] ??
+          item['backupUrls'] ??
+          item['backups'] ??
+          item['alternatives'];
+      if (rawBackups is List) {
+        final unique = <String>{url.toString()};
+        for (var i = 0; i < rawBackups.length; i++) {
+          final rawBackup = rawBackups[i];
+          final backup = rawBackup is Map ? _map(rawBackup) : null;
+          final backupUri = _httpsUri(
+            backup == null
+                ? rawBackup
+                : backup['url'] ??
+                    backup['stream_url'] ??
+                    backup['streamUrl'],
+          );
+          if (backupUri == null || !unique.add(backupUri.toString())) {
+            continue;
+          }
+          backups.add(StreamCandidate(
+            id: 'partner:$category:$id:backup:${i + 1}',
+            label: '$name · respaldo ${i + 1}',
+            uri: backupUri,
+            backend: backup?['is_iframe'] == true
+                ? PlaybackBackend.webView
+                : backend,
+            headers: headers,
+            language: _text(backup?['language']) ?? _text(item['language']),
+            quality: _text(backup?['quality']) ?? _text(item['quality']),
+          ));
+        }
+      }
       result.add(LiveChannel(
         id: 'partner:$category:$id',
         name: name,
         group: _text(item['group']),
         epgId: _text(item['epg_id'] ?? item['epgId']),
         logo: _httpsUri(item['logo']),
+        backupStreams: List.unmodifiable(backups),
         stream: StreamCandidate(
           id: 'partner:$category:$id:stream',
           label: name,
