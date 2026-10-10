@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/history/stream_server_health_repository.dart';
 import '../../data/sources/stream_candidate_probe.dart';
 import '../../data/resolution/resolver_status.dart';
 import '../../data/sources/unified_source_resolver.dart';
@@ -88,9 +89,20 @@ class MediaPlaybackCoordinator {
           .where((candidate) => candidate.backend != PlaybackBackend.external)
           .toList(growable: false);
       final ranked = _ranker.rank(inAppCandidates);
-      final playable = ranked.isEmpty
+      final probed = ranked.isEmpty
           ? ranked
           : await ref.read(streamCandidateProbeProvider).preferReachable(ranked);
+      final playbackContext = PlaybackContext(
+        mediaId: item.id,
+        mediaType: item.mediaTypeName,
+        title: item.title,
+        externalId: item.externalId,
+        season: season,
+        episode: episode,
+        poster: item.poster?.toString(),
+      );
+      final playable = await const StreamServerHealthRepository()
+          .rankFor(playbackContext.historyKey, probed);
 
       if (!context.mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -123,15 +135,7 @@ class MediaPlaybackCoordinator {
         extra: PlaybackSession(
           title: title,
           candidates: playable,
-          playbackContext: PlaybackContext(
-            mediaId: item.id,
-            mediaType: item.mediaTypeName,
-            title: item.title,
-            externalId: item.externalId,
-            season: season,
-            episode: episode,
-            poster: item.poster?.toString(),
-          ),
+          playbackContext: playbackContext,
         ),
       );
     } catch (error) {
