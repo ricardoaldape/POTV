@@ -336,7 +336,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
                                 '/player',
                                 extra: PlaybackSession(
                                   title: channel.name,
-                                  candidates: [channel.stream],
+                                  candidates: channel.playbackCandidates,
                                   isLive: true,
                                 ),
                               ),
