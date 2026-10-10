@@ -89,20 +89,18 @@ class ConfiguredResolverProvider extends ProviderResolver {
     addDebugLog(stackLog);
   }
 
+  /// Supports a partner's live server directory with multiple alternatives,
+  /// including signed URLs that have no file extension. Server 1 / 2 / N
+  /// always reflects the actual displayed source rather than a name match.
   List<StreamCandidate> _parse(Object? raw) {
-    Object? streamsRaw;
-    if (raw is Map<String, dynamic>) {
-      streamsRaw = raw['streams'] ??
-          raw['sources'] ??
-          raw['results'] ??
-          raw['servidores'];
-      // Partner gateways sometimes wrap their payload as {"data": {...}}.
-      if (streamsRaw == null && raw['data'] is Map) {
-        final data = raw['data'] as Map;
-        streamsRaw = data['streams'] ?? data['sources'] ?? data['results'];
-      }
-    } else if (raw is List) {
-      streamsRaw = raw;
+    Object? streamsRaw = raw;
+    if (raw is Map) {
+      final data = raw['data'] is Map ? raw['data'] as Map : raw;
+      streamsRaw = data['streams'] ??
+          data['sources'] ??
+          data['servers'] ??
+          data['results'] ??
+          data['servidores'];
     }
     if (streamsRaw is! List) return const [];
 
@@ -110,39 +108,82 @@ class ConfiguredResolverProvider extends ProviderResolver {
     for (var index = 0; index < streamsRaw.length; index++) {
       final value = streamsRaw[index];
       if (value is! Map) continue;
-
       final item = value.map(
         (key, value) => MapEntry(key.toString(), value),
       );
-      final uri = Uri.tryParse(
-        item['url']?.toString() ??
-            item['stream_url']?.toString() ??
-            item['streamUrl']?.toString() ??
-            item['playback_url']?.toString() ??
-            item['servidor_url']?.toString() ??
-            item['resolved_m3u8']?.toString() ??
-            item['uri']?.toString() ??
-            '',
-      );
-      if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      final status = _text(item['status'])?.toLowerCase();
+      if (item['enabled'] == false ||
+          status == 'disabled' ||
+          status == 'offline') {
         continue;
       }
 
-      result.add(
-        StreamCandidate(
-          id: '${config.id}:$index',
-          label: '${config.name} · ${_name(item, index)}',
+      // A gateway can send either a single stream or a stream + backups.
+      // Each backup is independently selectable and can be the next fallback.
+      final sources = <Map<String, dynamic>>[item];
+      final backups = item['backup_urls'] ??
+          item['backups'] ??
+          item['mirrors'] ??
+          item['alternatives'];
+      if (backups is List) {
+        for (final entry in backups) {
+          if (entry is String) {
+            sources.add({...item, 'stream_url': entry, 'url': entry});
+          } else if (entry is Map) {
+            sources.add({
+              ...item,
+              ...entry.map((key, value) => MapEntry(key.toString(), value)),
+            });
+          }
+        }
+      }
+      final inner = item['sources'];
+      if (inner is List && inner.isNotEmpty) {
+        sources.clear();
+        for (final source in inner) {
+          if (source is Map) {
+            sources.add({
+              ...item,
+              ...source.map((key, value) => MapEntry(key.toString(), value)),
+            });
+          }
+        }
+      }
+
+      for (var alternate = 0; alternate < sources.length; alternate++) {
+        final source = sources[alternate];
+        final url = _text(source['stream_url']) ??
+            _text(source['streamUrl']) ??
+            _text(source['playback_url']) ??
+            _text(source['resolved_m3u8']) ??
+            _text(source['servidor_url']) ??
+            _text(source['url']) ??
+            _text(source['uri']);
+        final uri = Uri.tryParse(url ?? '');
+        if (uri == null || uri.host.isEmpty ||
+            (uri.scheme != 'https' && uri.scheme != 'http') ||
+            uri.userInfo.isNotEmpty) {
+          continue;
+        }
+        final name = _name(source, index);
+        final label = alternate == 0
+            ? 'Servidor ${index + 1} · $name'
+            : 'Servidor ${index + 1} · $name (respaldo $alternate)';
+        result.add(StreamCandidate(
+          id: '${config.id}:${index + 1}:$alternate',
+          label: label,
           uri: uri,
-          language: _text(item['language']) ?? _text(item['idioma']),
-          quality: _text(item['quality']) ?? _text(item['calidad']),
-          backend: _backend(item, uri),
-          headers: _headers(item['headers']),
-          allowedHosts:
-              _stringSet(item['allowed_hosts'] ?? item['allowedHosts']),
-          directWebView:
-              item['direct_webview'] == true || item['directWebView'] == true,
-        ),
-      );
+          language: _text(source['language']) ?? _text(source['idioma']),
+          quality: _text(source['quality']) ?? _text(source['calidad']),
+          backend: _backend(source, uri),
+          headers: _headers(source['headers']),
+          allowedHosts: _stringSet(
+            source['allowed_hosts'] ?? source['allowedHosts'],
+          ),
+          directWebView: source['direct_webview'] == true ||
+              source['directWebView'] == true,
+        ));
+      }
     }
     return result;
   }
