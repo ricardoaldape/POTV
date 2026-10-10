@@ -61,7 +61,7 @@ class ConfiguredResolverProvider extends ProviderResolver {
         uri,
         options: Options(responseType: ResponseType.json),
       );
-      final candidates = _parse(response.data);
+      final candidates = parseResponse(response.data);
       _log('Resolver ${config.name}: ${candidates.length} URLs.');
       for (var index = 0; index < candidates.length; index++) {
         _log(
@@ -92,7 +92,7 @@ class ConfiguredResolverProvider extends ProviderResolver {
   /// Supports a partner's live server directory with multiple alternatives,
   /// including signed URLs that have no file extension. Server 1 / 2 / N
   /// always reflects the actual displayed source rather than a name match.
-  List<StreamCandidate> _parse(Object? raw) {
+  List<StreamCandidate> parseResponse(Object? raw) {
     Object? streamsRaw = raw;
     if (raw is Map) {
       final data = raw['data'] is Map ? raw['data'] as Map : raw;
