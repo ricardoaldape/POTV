@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/security/media_url_logging.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../../domain/resolution/resolver_endpoint_config.dart';
@@ -55,7 +56,7 @@ class ConfiguredResolverProvider extends ProviderResolver {
 
     try {
       final uri = config.endpoint.replace(queryParameters: query);
-      _log('Resolver ${config.name} GET -> $uri');
+      _log('Resolver ${config.name} GET -> ${safeMediaUrlForLog(uri)}');
       final response = await dio.getUri<Object?>(
         uri,
         options: Options(responseType: ResponseType.json),
@@ -65,7 +66,7 @@ class ConfiguredResolverProvider extends ProviderResolver {
       for (var index = 0; index < candidates.length; index++) {
         _log(
           'Resolver ${config.name} URL ${index + 1}/${candidates.length} '
-          '-> ${candidates[index].uri}',
+          '-> ${safeMediaUrlForLog(candidates[index].uri)}',
         );
       }
       return candidates;
