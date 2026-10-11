@@ -131,7 +131,172 @@ class LiveTvRepository {
       final dir = await getApplicationSupportDirectory();
       final path = key.substring(5);
       final prefix = '${dir.path}${Platform.pathSeparator}live_tv_import_';
-      if (path.startsWith(prefix) && path.endsWith('.m3u')) {
+      if (path.startsWith(prefix) &&
+          RegExp(r'^[0-9a-f]{20}\\.m3u
+    }
+  }
+
+  Future<String?> _loadSource(String key) async {
+    try {
+      if (key.startsWith('file:')) {
+        final file = File(key.substring(5));
+        if (!await file.exists()) return null;
+        if (await file.length() > 10 * 1024 * 1024) return null;
+        return file.readAsString();
+      }
+      if (!key.startsWith('url:')) return null;
+      final uri = Uri.tryParse(key.substring(4));
+      if (uri == null || !uri.hasAuthority ||
+          (uri.scheme != 'https' && uri.scheme != 'http')) return null;
+      final response = await _dio.get<String>(
+        uri.toString(),
+        options: Options(
+          responseType: ResponseType.plain,
+          sendTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
+      final data = response.data;
+      if (data == null || data.length > 10 * 1024 * 1024) return null;
+      return data;
+    } on DioException {
+      return null; // One unavailable list must not hide the remaining lists.
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<List<LiveChannel>> loadChannels() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = await _savedKeys(prefs);
+    if (keys.isEmpty) return const [];
+    final raws = await Future.wait([for (final key in keys) _loadSource(key)]);
+    final channels = <LiveChannel>[];
+    for (final raw in raws) {
+      if (raw == null || raw.isEmpty || !raw.trimLeft().startsWith('#EXTM3U')) {
+        continue;
+      }
+      final epg = M3uParser.epgUri(raw);
+      if (epg != null && prefs.getString(_epgSourceKey)?.isEmpty != false) {
+        await prefs.setString(_epgSourceKey, epg.toString());
+      }
+      channels.addAll(M3uParser.parse(raw));
+    }
+    return const LiveTvOrganizer().merge(
+      partner: const [],
+      local: channels,
+      partnerSports: const [],
+      publicSports: const [],
+    );
+  }
+
+}
+
+class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
+  @override
+  Future<List<LiveChannel>> build() async {
+    final sources = await Future.wait([
+      ref.read(builtInLiveSourceRegistryProvider).mexico(),
+      ref.read(liveTvRepositoryProvider).loadChannels(),
+    ]);
+    return _mergeChannels(sources[0], sources[1]);
+  }
+
+  Future<void> setSource(String url) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      await ref.read(liveTvRepositoryProvider).saveSource(url);
+      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+      return _mergeChannels(builtIn, custom);
+    });
+    ref.invalidate(epgProgramsProvider);
+  }
+
+  Future<void> setLocalPlaylist(String raw) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      await ref.read(liveTvRepositoryProvider).saveLocalPlaylist(raw);
+      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+      return _mergeChannels(builtIn, custom);
+    });
+    ref.invalidate(epgProgramsProvider);
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+      return _mergeChannels(builtIn, custom);
+    });
+  }
+
+  Future<void> removeSource(String key) async {
+    await ref.read(liveTvRepositoryProvider).removeSource(key);
+    await refresh();
+  }
+
+  List<LiveChannel> _mergeChannels(
+    List<LiveChannel> builtIn,
+    List<LiveChannel> custom,
+  ) => const LiveTvOrganizer().merge(
+        partner: const [],
+        local: custom,
+        partnerSports: const [],
+        publicSports: builtIn,
+      );
+
+}
+
+final epgProgramsProvider =
+    AsyncNotifierProvider<EpgProgramsController, List<EpgProgram>>(
+  EpgProgramsController.new,
+);
+
+class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
+  static const _sourceKey = 'live_tv_xmltv_url';
+  final Dio _dio = Dio();
+
+  @override
+  Future<List<EpgProgram>> build() async {
+    final prefs = await SharedPreferences.getInstance();
+    final url = prefs.getString(_sourceKey);
+    if (url == null || url.trim().isEmpty) return const [];
+    return _load(url);
+  }
+
+  Future<void> setSource(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_sourceKey, url.trim());
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() => _load(url));
+  }
+
+  Future<void> refresh() async {
+    final prefs = await SharedPreferences.getInstance();
+    final url = prefs.getString(_sourceKey);
+    if (url == null || url.trim().isEmpty) {
+      state = const AsyncData([]);
+      return;
+    }
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() => _load(url));
+  }
+
+  Future<List<EpgProgram>> _load(String url) async {
+    final response = await _dio.get<String>(
+      url,
+      options: Options(responseType: ResponseType.plain),
+    );
+    return XmlTvParser.parse(response.data ?? '');
+  }
+}
+)
+              .hasMatch(path.substring(prefix.length))) {
         final file = File(path);
         if (await file.exists()) await file.delete();
       }
