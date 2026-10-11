@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 
+/// Horizontal directory shared by category pages and "TV deportiva".
+/// Uses a lazy list and deliberately does not truncate the first 18 channels.
 class SportsChannelRail extends StatelessWidget {
   final List<LiveChannel> channels;
 
@@ -14,20 +16,26 @@ class SportsChannelRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visible = channels.take(18).toList(growable: false);
+    if (channels.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 118,
+      height: 150,
       child: ListView.separated(
+        primary: false,
         scrollDirection: Axis.horizontal,
-        itemCount: visible.length,
+        itemCount: channels.length,
         separatorBuilder: (context, index) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
-          final channel = visible[index];
+          final channel = channels[index];
+          final alternatives = channel.playbackCandidates.length - 1;
+
           return SizedBox(
-            width: 168,
+            width: 208,
             child: Card(
+              clipBehavior: Clip.antiAlias,
               child: InkWell(
+                key: ValueKey('sports-channel-${channel.id}'),
+                autofocus: false,
                 onTap: () => context.push(
                   '/player',
                   extra: PlaybackSession(
@@ -41,11 +49,18 @@ class SportsChannelRail extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
-                          Icon(Icons.live_tv_rounded),
-                          Spacer(),
-                          Icon(Icons.play_arrow_rounded),
+                          if (channel.logo != null)
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundImage:
+                                  NetworkImage(channel.logo.toString()),
+                            )
+                          else
+                            const Icon(Icons.live_tv_rounded, size: 28),
+                          const Spacer(),
+                          const Icon(Icons.play_circle_fill_rounded, size: 24),
                         ],
                       ),
                       const Spacer(),
@@ -55,6 +70,19 @@ class SportsChannelRail extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        alternatives > 0
+                            ? '$alternatives señales de respaldo'
+                            : channel.group ?? 'TV deportiva',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 11,
                         ),
                       ),
                     ],
