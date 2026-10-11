@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/security/media_url_logging.dart';
+
 import '../../data/addons/stremio_addon_client.dart';
 import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/live_tv/live_tv_repository.dart';
@@ -358,7 +360,7 @@ class _AddonTile extends StatelessWidget {
         child: ListTile(
           leading: const Icon(Icons.extension_rounded),
           title: Text(addon.name),
-          subtitle: Text(addon.manifestUri.toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(safeMediaUrlForLog(addon.manifestUri), maxLines: 1, overflow: TextOverflow.ellipsis),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             Switch(value: addon.enabled, onChanged: onToggle),
             IconButton(onPressed: onRemove, icon: const Icon(Icons.delete_outline)),
