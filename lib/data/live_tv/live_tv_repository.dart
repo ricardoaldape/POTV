@@ -121,10 +121,29 @@ class LiveTvRepository {
     final prefs = await SharedPreferences.getInstance();
     final old = await _savedKeys(prefs);
     if (!old.contains(key)) return;
-    await prefs.setStringList(
-      _sourcesKey,
-      old.where((item) => item != key).toList(growable: false),
-    );
+    final remaining =
+        old.where((item) => item != key).toList(growable: false);
+    await prefs.setStringList(_sourcesKey, remaining);
+    // Keep legacy single-source fields consistent with the new directory,
+    // so removing a private M3U URL also removes its old stored token.
+    if (key.startsWith('url:') &&
+        prefs.getString(_sourceKey) == key.substring(4)) {
+      final remote = remaining.where((item) => item.startsWith('url:'));
+      if (remote.isEmpty) {
+        await prefs.remove(_sourceKey);
+      } else {
+        await prefs.setString(_sourceKey, remote.last.substring(4));
+      }
+    }
+    if (key.startsWith('file:') &&
+        prefs.getString(_localPathKey) == key.substring(5)) {
+      final local = remaining.where((item) => item.startsWith('file:'));
+      if (local.isEmpty) {
+        await prefs.remove(_localPathKey);
+      } else {
+        await prefs.setString(_localPathKey, local.last.substring(5));
+      }
+    }
     // Only allow deletion of known app-owned imported files. Never trust
     // arbitrary paths from playlist sources or SharedPreferences.
     if (key.startsWith('file:')) {
