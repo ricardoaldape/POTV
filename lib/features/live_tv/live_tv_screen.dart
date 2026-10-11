@@ -107,8 +107,23 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
     controller.dispose();
 
     if (value != null && value.isNotEmpty) {
-      await ref.read(liveChannelsProvider.notifier).setSource(value);
-      if (mounted) setState(() => selectedCategory = LiveTvCategory.all);
+      try {
+        await ref.read(liveChannelsProvider.notifier).setSource(value);
+        if (mounted) {
+          setState(() => selectedCategory = LiveTvCategory.all);
+          if (ref.read(liveChannelsProvider).hasError) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('No se pudo cargar la lista. Revisa su dirección.'),
+            ));
+          }
+        }
+      } on FormatException {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Introduce una URL M3U HTTP(S) válida.'),
+          ));
+        }
+      }
     }
   }
 
@@ -138,8 +153,97 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
       return;
     }
 
-    await ref.read(liveChannelsProvider.notifier).setLocalPlaylist(raw);
-    if (mounted) setState(() => selectedCategory = LiveTvCategory.all);
+    try {
+      await ref.read(liveChannelsProvider.notifier).setLocalPlaylist(raw);
+      if (mounted) setState(() => selectedCategory = LiveTvCategory.all);
+    } on FormatException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('La lista no es válida o supera el tamaño permitido.'),
+        ));
+      }
+    }
+  }
+
+  Future<void> _manageSources() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          child: FutureBuilder(
+            future: ref.read(liveTvRepositoryProvider).configuredSources(),
+            builder: (context, snapshot) {
+              final sources = snapshot.data ?? const <({String key, String label})>[];
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Tus listas de TV',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Las fuentes se consultan desde tu dispositivo. '
+                    'No mostramos tokens ni direcciones privadas en esta lista.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 12),
+                  if (snapshot.connectionState == ConnectionState.waiting)
+                    const Center(child: CircularProgressIndicator()),
+                  if (snapshot.connectionState != ConnectionState.waiting &&
+                      sources.isEmpty)
+                    const Text('No hay listas M3U personalizadas.'),
+                  for (final source in sources)
+                    ListTile(
+                      leading: const Icon(Icons.playlist_play_rounded),
+                      title: Text(source.label),
+                      subtitle: Text(source.key.startsWith('file:')
+                          ? 'Archivo local'
+                          : 'Lista remota'),
+                      trailing: IconButton(
+                        tooltip: 'Eliminar esta lista',
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        onPressed: () async {
+                          final confirmed = await showDialog<bool>(
+                            context: sheetContext,
+                            builder: (confirmContext) => AlertDialog(
+                              title: const Text('Eliminar lista'),
+                              content: Text(
+                                '¿Quitar ${source.label} de POTV? '
+                                'Los demás canales no se modificarán.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(confirmContext, false),
+                                  child: const Text('Cancelar'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(confirmContext, true),
+                                  child: const Text('Quitar'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed != true) return;
+                          await ref.read(liveChannelsProvider.notifier)
+                              .removeSource(source.key);
+                          if (sheetContext.mounted) {
+                            Navigator.pop(sheetContext);
+                          }
+                        },
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _addEpgSource() async {
@@ -279,11 +383,13 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
               if (choice == 'url') _addSource();
               if (choice == 'file') _importPlaylistFile();
               if (choice == 'epg') _addEpgSource();
+              if (choice == 'manage') _manageSources();
             },
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'url', child: Text('Añadir lista M3U')),
               PopupMenuItem(value: 'file', child: Text('Importar archivo M3U')),
               PopupMenuItem(value: 'epg', child: Text('Configurar guía EPG')),
+              PopupMenuItem(value: 'manage', child: Text('Gestionar mis listas')),
             ],
           ),
         ],
