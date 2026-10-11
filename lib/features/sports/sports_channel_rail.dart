@@ -2,16 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../domain/models/live_channel.dart';
+import '../../domain/services/sports_channel_language.dart';
 import '../../domain/models/playback_session.dart';
 
 /// Horizontal directory shared by category pages and "TV deportiva".
 /// Uses a lazy list and deliberately does not truncate the first 18 channels.
 class SportsChannelRail extends StatelessWidget {
   final List<LiveChannel> channels;
+  final SportsLanguagePreference preferredLanguage;
+  static const _language = SportsChannelLanguage();
 
   const SportsChannelRail({
     super.key,
     required this.channels,
+    this.preferredLanguage = SportsLanguagePreference.all,
   });
 
   @override
@@ -27,7 +31,9 @@ class SportsChannelRail extends StatelessWidget {
         separatorBuilder: (context, index) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final channel = channels[index];
-          final alternatives = channel.playbackCandidates.length - 1;
+          final ordered = _language.orderedStreams(channel, preferredLanguage);
+          final alternatives = ordered.length - 1;
+          final spokenLanguage = _language.labelFor(channel);
 
           return SizedBox(
             width: 208,
@@ -40,7 +46,7 @@ class SportsChannelRail extends StatelessWidget {
                   '/player',
                   extra: PlaybackSession(
                     title: channel.name,
-                    candidates: channel.playbackCandidates,
+                    candidates: ordered,
                     isLive: true,
                   ),
                 ),
@@ -60,6 +66,17 @@ class SportsChannelRail extends StatelessWidget {
                           else
                             const Icon(Icons.live_tv_rounded, size: 28),
                           const Spacer(),
+                          if (spokenLanguage != null)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 5),
+                              child: Text(
+                                spokenLanguage,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
                           const Icon(Icons.play_circle_fill_rounded, size: 24),
                         ],
                       ),

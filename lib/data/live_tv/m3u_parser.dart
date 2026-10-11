@@ -66,6 +66,12 @@ class M3uParser {
             uri: parsed.uri,
             headers: headers,
             backend: PlaybackBackend.native,
+            // Preserve explicit M3U audio language metadata for Sports Hub
+            // and playback choice. Never infer language from the channel's
+            // country, title, or URL.
+            language: attrs['tvg-language'] ??
+                attrs['audio-language'] ??
+                attrs['language'],
           ),
         ),
       );

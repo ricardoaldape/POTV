@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/catalog/partner_content_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
@@ -16,6 +17,7 @@ import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
 import '../../domain/services/sports_channel_resolver.dart';
+import '../../domain/services/sports_channel_language.dart';
 import '../../domain/services/sports_hub_organizer.dart';
 import 'addon_sports_rail.dart';
 import 'sports_channel_rail.dart';
@@ -50,6 +52,8 @@ class SportsHubScreen extends ConsumerStatefulWidget {
 class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     with WidgetsBindingObserver {
   static const organizer = SportsHubOrganizer();
+  static const languageService = SportsChannelLanguage();
+  SportsLanguagePreference preferredLanguage = SportsLanguagePreference.spanish;
   SportsHubCategory selectedCategory = SportsHubCategory.soccer;
   DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
   Timer? _catalogTimer;
@@ -59,6 +63,33 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startRefreshTimer();
+    unawaited(_loadPreferredLanguage());
+  }
+
+  Future<void> _loadPreferredLanguage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(SportsChannelLanguage.preferenceKey);
+      if (!mounted || saved == null) return;
+      for (final option in SportsLanguagePreference.values) {
+        if (option.name == saved) {
+          setState(() => preferredLanguage = option);
+          return;
+        }
+      }
+    } catch (_) {
+      // A broken preferences store should not prevent channel browsing.
+    }
+  }
+
+  Future<void> _selectPreferredLanguage(SportsLanguagePreference value) async {
+    setState(() => preferredLanguage = value);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(SportsChannelLanguage.preferenceKey, value.name);
+    } catch (_) {
+      // The in-session choice still works if persistence is unavailable.
+    }
   }
 
   void _startRefreshTimer() {
@@ -144,8 +175,10 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
       localChannels: local,
       partnerGeneral: partner?.channels ?? const <LiveChannel>[],
     );
-    final activeChannels = organizer.channelsFor(allChannels, selectedCategory);
-    final generalChannels = organizer.generalChannels(allChannels);
+    final activeChannels = languageService.preferredChannels(
+      organizer.channelsFor(allChannels, selectedCategory), preferredLanguage);
+    final generalChannels = languageService.preferredChannels(
+      organizer.generalChannels(allChannels), preferredLanguage);
 
     final events = organizer.eventsFor(
       [
@@ -185,6 +218,39 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
             'Eventos, competiciones y canales organizados por deporte.',
             style: TextStyle(color: Colors.white60),
           ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Icon(Icons.language_rounded, size: 18),
+              const SizedBox(width: 7),
+              const Expanded(
+                child: Text(
+                  'Idioma preferido para TV deportiva',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 7,
+            children: [
+              for (final language in SportsLanguagePreference.values)
+                ChoiceChip(
+                  key: ValueKey('sports-language-${language.name}'),
+                  label: Text(language.label),
+                  selected: preferredLanguage == language,
+                  onSelected: (_) => unawaited(_selectPreferredLanguage(language)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Se prioriza el idioma indicado por la fuente. '
+            'Los canales sin idioma identificado permanecen visibles.',
+            style: TextStyle(color: Colors.white60, fontSize: 12),
+          ),
           const SizedBox(height: 18),
           _SectionHeading(
             label: 'EXPLORAR POR DEPORTE',
@@ -211,7 +277,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
           if (isTv) ...[
             _SectionHeading(
               label: 'TV DEPORTIVA',
-              description: '${allChannels.length} canales disponibles en tus fuentes.',
+              description: '${languageService.preferredChannels(allChannels, preferredLanguage).length} canales según tu idioma preferido.',
             ),
             if (builtInState.isLoading && allChannels.isEmpty)
               const LinearProgressIndicator(minHeight: 2),
@@ -224,7 +290,10 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               if (sport != SportsHubCategory.all &&
                   sport != SportsHubCategory.sportsTv &&
                   sport != SportsHubCategory.other &&
-                  organizer.channelsFor(allChannels, sport).isNotEmpty) ...[
+                  languageService.preferredChannels(
+                    organizer.channelsFor(allChannels, sport),
+                    preferredLanguage,
+                  ).isNotEmpty) ...[
                 const SizedBox(height: 19),
                 _SectionHeading(
                   label: 'CANALES · ${sport.title.toUpperCase()}',
@@ -232,7 +301,11 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
                 ),
                 const SizedBox(height: 9),
                 SportsChannelRail(
-                  channels: organizer.channelsFor(allChannels, sport),
+                  channels: languageService.preferredChannels(
+                    organizer.channelsFor(allChannels, sport),
+                    preferredLanguage,
+                  ),
+                  preferredLanguage: preferredLanguage,
                 ),
               ],
             if (generalChannels.isNotEmpty) ...[
@@ -242,7 +315,10 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
                 description: 'Canales que transmiten distintas disciplinas.',
               ),
               const SizedBox(height: 9),
-              SportsChannelRail(channels: generalChannels),
+              SportsChannelRail(
+                channels: generalChannels,
+                preferredLanguage: preferredLanguage,
+              ),
             ],
           ] else ...[
             _SectionHeading(
@@ -305,7 +381,10 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
                 description: 'Señales para esta categoría.',
               ),
               const SizedBox(height: 9),
-              SportsChannelRail(channels: activeChannels),
+              SportsChannelRail(
+                channels: activeChannels,
+                preferredLanguage: preferredLanguage,
+              ),
               const SizedBox(height: 20),
             ],
             if (selectedCategory != SportsHubCategory.all &&
@@ -315,7 +394,10 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
                 description: 'Más señales deportivas disponibles.',
               ),
               const SizedBox(height: 9),
-              SportsChannelRail(channels: generalChannels),
+              SportsChannelRail(
+                channels: generalChannels,
+                preferredLanguage: preferredLanguage,
+              ),
               const SizedBox(height: 22),
             ],
             if (eventsState.isLoading && events.isEmpty)
