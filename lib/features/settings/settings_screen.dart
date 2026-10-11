@@ -385,6 +385,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.system_update_alt_rounded),
+            title: const Text('POTV Update Center'),
+            subtitle: const Text(
+              'Actualizaciones oficiales · Estable / Beta · APK verificada.',
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => context.push('/update-center'),
+          ),
+          const Divider(),
+          ListTile(
             leading: const Icon(Icons.content_copy),
             title: const Text('Copiar configuración local'),
             subtitle: const Text(

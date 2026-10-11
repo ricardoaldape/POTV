@@ -10,6 +10,7 @@ import '../features/player/player_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/updates/update_center_screen.dart';
 import '../features/sources/sources_screen.dart';
 import '../features/sources/vod_source_setup_screen.dart';
 import '../features/sports/sports_hub_screen.dart';
@@ -38,6 +39,10 @@ final potvRouter = GoRouter(
     GoRoute(
       path: '/setup-vod',
       builder: (context, state) => const VodSourceSetupScreen(),
+    ),
+    GoRoute(
+      path: '/update-center',
+      builder: (context, state) => const UpdateCenterScreen(),
     ),
     GoRoute(
       path: '/sources',
