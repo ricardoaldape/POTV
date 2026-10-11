@@ -158,6 +158,20 @@ class LiveTvOrganizer {
     return LiveTvCategory.other;
   }
 
+  LiveChannel _declaredSports(LiveChannel source) {
+    if (const SportsHubOrganizer().isSportsChannel(source)) return source;
+    return LiveChannel(
+      id: source.id,
+      name: source.name,
+      group: 'Deportes' +
+          (source.group?.isNotEmpty == true ? ' · ${source.group}' : ''),
+      epgId: source.epgId,
+      logo: source.logo,
+      stream: source.stream,
+      backupStreams: source.backupStreams,
+    );
+  }
+
   /// Keeps preferred-source order: partner catalog, existing POTV/M3U, sports
   /// feeds. Identical channels consolidate additional candidates as backups.
   /// Conflicting *explicit* EPG identifiers remain separate channels.
@@ -172,7 +186,10 @@ class LiveTvOrganizer {
     final byName = <String, List<int>>{};
 
     for (final channel in [
-      ...partner, ...local, ...partnerSports, ...publicSports,
+      ...partner,
+      ...local,
+      ...partnerSports.map(_declaredSports),
+      ...publicSports.map(_declaredSports),
     ]) {
       final name = normalize(channel.name);
       if (name.isEmpty) continue;
@@ -210,9 +227,12 @@ class LiveTvOrganizer {
       result[current] = LiveChannel(
         id: previous.id,
         name: previous.name,
-        group: (previous.group?.trim().isNotEmpty ?? false)
-            ? previous.group
-            : channel.group,
+        group: !const SportsHubOrganizer().isSportsChannel(previous) &&
+                const SportsHubOrganizer().isSportsChannel(channel)
+            ? channel.group
+            : (previous.group?.trim().isNotEmpty ?? false)
+                ? previous.group
+                : channel.group,
         epgId: previous.epgId ?? channel.epgId,
         logo: previous.logo ?? channel.logo,
         stream: candidates.first,
