@@ -10,6 +10,14 @@ import 'potv_update_catalog.dart';
 
 typedef PotvDownloadProgress = void Function(int received, int total);
 
+/// Streamed SHA-256 verification: doesn't load a large APK into RAM.
+Future<bool> verifyPotvApk(File file, PotvUpdateRelease release) async {
+  if (!await file.exists() || await file.length() != release.size) return false;
+  final digest = await sha256.bind(file.openRead()).first;
+  return digest.toString().toLowerCase() == release.sha256Hex;
+}
+
+
 class PotvUpdateCenter {
   static const _channel = MethodChannel('com.potv.potv/update_center');
   static const _preference = 'potv_update_channel_v1';
@@ -85,13 +93,8 @@ class PotvUpdateCenter {
           onProgress?.call(received, release.size);
         },
       );
-      final length = await temp.length();
-      if (length != release.size) {
-        throw StateError('El tamaño de la actualización no coincide.');
-      }
-      final digest = await sha256.bind(temp.openRead()).first;
-      if (digest.toString().toLowerCase() != release.sha256Hex) {
-        throw StateError('La verificación SHA-256 falló. No se instalará.');
+      if (!await verifyPotvApk(temp, release)) {
+        throw StateError('El tamaño o SHA-256 de la actualización no coincide.');
       }
       await temp.rename(apk.path);
       return apk;
