@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:potv/data/addons/private_addon_link.dart';
 import 'package:potv/data/addons/stremio_addon_repository.dart';
 import 'package:potv/data/addons/stremio_subtitle_service.dart';
 import 'package:potv/domain/models/playback_session.dart';
@@ -24,33 +23,19 @@ class _MemorySecrets implements AddonSecretStore {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('one-time PenguPlay private token builds a URL without modifying token',
-      () {
-    const mockToken = 'TEST_PERSONAL_KEY_AA_BB_CC_DD_EE_FF_12345';
-    final uri = PrivateAddonLink.penguPlay(mockToken);
-    expect(uri.scheme, 'https');
-    expect(uri.host, 'pengu.uk');
-    expect(uri.path, contains('auth_token'));
-    expect(Uri.decodeComponent(uri.pathSegments[0]), contains(mockToken));
-    expect(PrivateAddonLink.penguPlay(uri.toString()), uri);
-    expect(() => PrivateAddonLink.penguPlay('no'), throwsFormatException);
-    expect(() => PrivateAddonLink.penguPlay('https://evil.example/manifest.json'),
-        throwsFormatException);
-  });
-
   test('private addon URI is encrypted by storage adapter, not preferences',
       () async {
     final secrets = _MemorySecrets();
     final repository = StremioAddonRepository(secrets: secrets);
-    final uri = PrivateAddonLink.penguPlay(
-      'TEST_TOKEN_NOT_SECRET_1234567890_AAAA',
+    final uri = Uri.parse(
+      'https://addon.example/hidden-config/manifest.json',
     );
     final item = await repository.add(name: 'Private addon', manifestUri: uri);
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('potv_stremio_addons')!;
     expect(saved, isNot(contains('auth_token')));
     expect(saved, isNot(contains('manifest.json')));
-    expect(saved, isNot(contains('TEST_TOKEN_')));
+    expect(saved, isNot(contains('hidden-config')));
     expect(secrets.values.values.single, uri.toString());
     expect((await repository.load()).single.manifestUri, uri);
     await repository.update(item.copyWith(enabled: false));
@@ -62,9 +47,7 @@ void main() {
 
   test('legacy URLs migrate to encrypted secret store before scrubbing prefs',
       () async {
-    final legacy = PrivateAddonLink.penguPlay(
-      'OLD_DEMO_PERSONAL_TOKEN_NOT_REAL_123456',
-    );
+    final legacy = Uri.parse('https://old-addon.example/private/manifest.json');
     SharedPreferences.setMockInitialValues({
       'potv_stremio_addons': jsonEncode([
         {'id':'legacy-1','name':'Legacy','enabled':true,
