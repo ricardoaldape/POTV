@@ -10,18 +10,16 @@ import '../../data/updates/potv_update_center.dart';
 /// App binary updates are intentionally separate from POTV's live content
 /// refresh. Android will request user permission before installing an APK.
 class UpdateCenterScreen extends StatefulWidget {
-  const UpdateCenterScreen({super.key});
+  final PotvUpdateCenter? updater;
+
+  const UpdateCenterScreen({super.key, this.updater});
 
   @override
   State<UpdateCenterScreen> createState() => _UpdateCenterScreenState();
 }
 
 class _UpdateCenterScreenState extends State<UpdateCenterScreen> {
-  final PotvUpdateCenter _updater = PotvUpdateCenter(
-    Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 8),
-    )),
-  );
+  late final PotvUpdateCenter _updater;
   PotvInstalledVersion? _installed;
   PotvUpdateChannel _channel = PotvUpdateChannel.stable;
   PotvUpdateRelease? _available;
@@ -37,6 +35,9 @@ class _UpdateCenterScreenState extends State<UpdateCenterScreen> {
   @override
   void initState() {
     super.initState();
+    _updater = widget.updater ?? PotvUpdateCenter(
+      Dio(BaseOptions(connectTimeout: const Duration(seconds: 8))),
+    );
     _initialize();
   }
 
