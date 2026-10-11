@@ -34,7 +34,7 @@ function Invoke-Flutter {
 Invoke-Flutter -Arguments @('pub', 'get')
 Invoke-Flutter -Arguments @('analyze', '--no-fatal-infos', '--no-fatal-warnings')
 if (-not $SkipTests) {
-  Invoke-Flutter -Arguments @('test', '--reporter', 'expanded')
+  Invoke-Flutter -Arguments @('test', '--concurrency=1', '--reporter', 'expanded')
 }
 
 if ($BuildApk) {
