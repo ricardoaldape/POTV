@@ -27,6 +27,14 @@ void main() {
   testWidgets('sports categories select NFL separately from soccer', (
     tester,
   ) async {
+    // Large TV-like viewport lets the fixture cards render within the
+    // lazily built vertical list, independently of host test window size.
+    tester.view.physicalSize = const Size(1280, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
     final day = DateUtils.dateOnly(DateTime.now());
     final events = <SportsEvent>[
       SportsEvent(
