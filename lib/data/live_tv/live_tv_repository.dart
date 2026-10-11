@@ -132,7 +132,11 @@ class LiveTvRepository {
       final path = key.substring(5);
       final prefix = '${dir.path}${Platform.pathSeparator}live_tv_import_';
       if (path.startsWith(prefix) &&
-          RegExp(r'^[0-9a-f]{20}\\.m3u
+          RegExp(r'^[0-9a-f]{20}\.m3u$')
+              .hasMatch(path.substring(prefix.length))) {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      }
     }
   }
 
