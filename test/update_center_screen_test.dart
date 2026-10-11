@@ -35,7 +35,7 @@ class _FakeUpdateCenter extends PotvUpdateCenter {
         'v0.9.0-beta.1/POTV-v0.9.0-beta.1.apk',
       ),
       size: 20000000,
-      sha256Hex: 'a' * 64,
+      sha256Hex: ''.padLeft(64, 'a'),
     );
   }
 }
