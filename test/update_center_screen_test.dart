@@ -43,6 +43,12 @@ class _FakeUpdateCenter extends PotvUpdateCenter {
 void main() {
   testWidgets('Update Center shows current version and stable status',
       (tester) async {
+    tester.view.physicalSize = const Size(1280, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
     final fake = _FakeUpdateCenter();
     await tester.pumpWidget(MaterialApp(
       home: UpdateCenterScreen(updater: fake),
