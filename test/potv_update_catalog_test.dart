@@ -50,7 +50,7 @@ void main() {
     expect(PotvUpdateRelease.fromGithub(release(draft: true)), isNull);
     expect(PotvUpdateRelease.fromGithub(release(tag: 'v1')), isNull);
     expect(PotvUpdateRelease.fromGithub(release(code: 0)), isNull);
-    expect(PotvUpdateRelease.fromGithub(release(size: 470000000)), isNull);
+    expect(PotvUpdateRelease.fromGithub(release(size: 480000000)), isNull);
     expect(PotvUpdateRelease.fromGithub(release(
       tag: 'v0.8.0-beta.1',
       prerelease: false,
