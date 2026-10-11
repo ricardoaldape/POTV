@@ -233,7 +233,10 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
     final favoritesState = ref.watch(liveTvFavoritesProvider);
     final partner = partnerState.asData?.value;
     final favorites = favoritesState.asData?.value ?? const <String>{};
-    final programs = epgState.asData?.value ?? const <EpgProgram>[];
+    final programs = [
+      ...partner?.guidePrograms ?? const <EpgProgram>[],
+      ...epgState.asData?.value ?? const <EpgProgram>[],
+    ];
     final guide = LiveTvGuide(programs);
     final channels = _organizer.merge(
       partner: partner?.channels ?? const <LiveChannel>[],
