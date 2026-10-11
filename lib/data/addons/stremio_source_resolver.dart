@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/security/media_url_logging.dart';
 import '../../domain/models/stremio_addon_config.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/source_resolver.dart';
@@ -81,12 +82,12 @@ class StremioSourceResolver implements SourceResolver {
         lines.add('Addon ${addon.name}: ${streams.length} fuentes.');
         for (var index = 0; index < streams.length; index++) {
           lines.add(
-            '  URL ${index + 1}/${streams.length}: ${streams[index].uri}',
+            '  URL ${index + 1}/${streams.length}: ${safeMediaUrlForLog(streams[index].uri)}',
           );
         }
       } catch (error, stack) {
-        lines.add('Addon ${addon.name}: ERROR $error');
-        lines.add('Stack: $stack');
+        lines.add('Addon ${addon.name}: ERROR ${safePlaybackErrorForLog(error.toString())}');
+        lines.add('Stack: ${safePlaybackErrorForLog(stack.toString())}');
       }
     }
 
@@ -186,7 +187,7 @@ class StremioSourceResolver implements SourceResolver {
       type: type,
       itemId: itemId,
     );
-    _log('Stremio addon ${addon.name} GET -> $streamUri');
+    _log('Stremio addon ${addon.name} GET -> ${safeMediaUrlForLog(streamUri)}');
 
     try {
       final response = await _dio.getUri<Object?>(
@@ -202,7 +203,7 @@ class StremioSourceResolver implements SourceResolver {
       for (var index = 0; index < candidates.length; index++) {
         _log(
           'Stremio addon ${addon.name} URL ${index + 1}/${candidates.length} '
-          '-> ${candidates[index].uri}',
+          '-> ${safeMediaUrlForLog(candidates[index].uri)}',
         );
       }
       return candidates;
@@ -262,8 +263,9 @@ class StremioSourceResolver implements SourceResolver {
   }
 
   void _logError(String scope, Object error, StackTrace stackTrace) {
-    final errorLog = '$scope ERROR ${error.runtimeType}: $error';
-    final stackLog = '$scope STACK: $stackTrace';
+    final errorLog = '$scope ERROR ${error.runtimeType}: '
+        '${safePlaybackErrorForLog(error.toString())}';
+    final stackLog = '$scope STACK: ${safePlaybackErrorForLog(stackTrace.toString())}';
     debugPrint(errorLog);
     debugPrint(stackLog);
     addDebugLog(errorLog);
