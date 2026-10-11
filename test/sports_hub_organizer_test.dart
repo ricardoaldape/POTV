@@ -103,6 +103,8 @@ void main() {
           channel('Canal 22', group: 'Cultura'),
           channel('ADN 40', group: 'Noticias'),
           channel('FIFA+', group: 'Fútbol'),
+          channel('ESPN', group: 'Televisión'),
+          channel('DAZN', group: 'Internacional'),
         ],
         partnerGeneral: [
           channel('Partner movie channel', group: 'Movies'),
@@ -115,6 +117,8 @@ void main() {
         'ESPN News',
         'FIFA+',
         'TV Cuatro 4.3',
+        'ESPN',
+        'DAZN',
       ]));
       expect(sports.map((s) => s.name), isNot(contains('Canal 22')));
       expect(sports.map((s) => s.name), isNot(contains('ADN 40')));
