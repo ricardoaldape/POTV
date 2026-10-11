@@ -1,3 +1,4 @@
+import 'epg_program.dart';
 import 'live_channel.dart';
 import 'media_item.dart';
 import 'sports_event.dart';
@@ -13,6 +14,7 @@ class PartnerContentSnapshot {
   final List<MediaItem> anime;
   final List<LiveChannel> channels;
   final List<LiveChannel> sportsChannels;
+  final List<EpgProgram> guidePrograms;
   final List<SportsEvent> sportsEvents;
 
   const PartnerContentSnapshot({
@@ -23,6 +25,7 @@ class PartnerContentSnapshot {
     this.anime = const [],
     this.channels = const [],
     this.sportsChannels = const [],
+    this.guidePrograms = const [],
     this.sportsEvents = const [],
   });
 
@@ -59,6 +62,8 @@ class PartnerContentSnapshot {
       series: _mediaList(payload['series'] ?? payload['tv'], MediaType.tv),
       anime: _mediaList(payload['anime'], MediaType.anime),
       channels: _channelList(payload['channels'], category: 'tv'),
+      guidePrograms: _guideList(payload['now_next'] ??
+          payload['nowNext'] ?? payload['epg'] ?? payload['guide']),
       sportsChannels: _channelList(
         payload['sports_channels'] ?? payload['sportsChannels'],
         category: 'sport',
@@ -190,7 +195,8 @@ class PartnerContentSnapshot {
       result.add(LiveChannel(
         id: 'partner:$category:$id',
         name: name,
-        group: _text(item['group']),
+        group: _text(item['group'] ?? item['category'] ??
+            item['genre'] ?? item['group_title']),
         epgId: _text(item['epg_id'] ?? item['epgId']),
         logo: _httpsUri(item['logo']),
         backupStreams: List.unmodifiable(backups),
@@ -205,6 +211,55 @@ class PartnerContentSnapshot {
       ));
     }
     return List.unmodifiable(result);
+  }
+
+  /// Optional normalized guide delivered by the authorized content gateway.
+  /// Accept both now/next per channel and a flat list of EPG programs.
+  static List<EpgProgram> _guideList(Object? raw) {
+    if (raw is! List) return const [];
+    final programs = <EpgProgram>[];
+    final seen = <String>{};
+    void addProgram(Map source, String? defaultChannel) {
+      final item = _map(source);
+      final channelId = _text(item['channel_id'] ?? item['channelId'] ??
+          item['epg_id'] ?? item['epgId'] ?? defaultChannel);
+      final title = _text(item['title'] ?? item['name']);
+      final start = DateTime.tryParse(
+        _text(item['starts_at'] ?? item['startsAt'] ??
+            item['start'] ?? item['start_time']) ?? '',
+      );
+      final end = DateTime.tryParse(
+        _text(item['ends_at'] ?? item['endsAt'] ??
+            item['end'] ?? item['end_time']) ?? '',
+      );
+      if (channelId == null || title == null || start == null ||
+          end == null || !end.isAfter(start)) return;
+      final key = '$channelId|$title|${start.toUtc().toIso8601String()}';
+      if (!seen.add(key)) return;
+      programs.add(EpgProgram(
+        channelId: channelId,
+        title: title,
+        description: _text(item['description']),
+        startsAt: start.toLocal(),
+        endsAt: end.toLocal(),
+      ));
+    }
+
+    for (final value in raw) {
+      if (value is! Map) continue;
+      final row = _map(value);
+      final channelId = _text(row['channel_id'] ?? row['channelId'] ??
+          row['epg_id'] ?? row['epgId'] ?? row['channel']);
+      final current = row['current'] ?? row['now'];
+      final next = row['next'] ?? row['upcoming'];
+      if (current is Map || next is Map) {
+        if (current is Map) addProgram(current, channelId);
+        if (next is Map) addProgram(next, channelId);
+      } else {
+        addProgram(row, channelId);
+      }
+    }
+    return List.unmodifiable(programs);
   }
 
   static List<SportsEvent> _sportsList(Object? raw) {
