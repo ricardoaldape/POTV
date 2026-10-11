@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -97,7 +98,7 @@ class LiveTvRepository {
       throw const FormatException('La lista M3U supera 10 MB.');
     }
     final dir = await getApplicationSupportDirectory();
-    final digest = sha256.convert(raw.codeUnits).toString().substring(0, 20);
+    final digest = sha256.convert(utf8.encode(raw)).toString().substring(0, 20);
     final file = File(
       '${dir.path}${Platform.pathSeparator}live_tv_import_$digest.m3u',
     );
