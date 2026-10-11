@@ -249,7 +249,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               label: selectedCategory == SportsHubCategory.all
                   ? 'AGENDA DEPORTIVA'
                   : 'AGENDA · ${selectedCategory.title.toUpperCase()}',
-              description: DateFormat('EEE d MMM', 'es').format(selectedDay),
+              description: DateFormat('EEE d MMM').format(selectedDay),
             ),
             const SizedBox(height: 10),
             Wrap(
