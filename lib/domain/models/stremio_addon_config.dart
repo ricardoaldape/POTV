@@ -36,10 +36,11 @@ class StremioAddonConfig {
     );
   }
 
+  /// Public metadata only. The full manifest URL can contain an auth token
+  /// and is persisted separately through encrypted platform storage.
   Map<String, Object?> toJson() => {
         'id': id,
         'name': name,
-        'manifest_uri': manifestUri.toString(),
         'enabled': enabled,
       };
 

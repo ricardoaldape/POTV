@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../data/addons/stremio_addon_repository.dart';
 import '../../domain/models/http_source_config.dart';
 import '../../domain/models/stremio_addon_config.dart';
 
@@ -24,24 +25,27 @@ class ResolverPackBundle {
   static const _uuid = Uuid();
 
   static const _httpSourcesKey = 'potv_http_sources';
-  static const _stremioAddonsKey = 'potv_stremio_addons';
 
+  /// No private addon manifest URI is exported via plain JSON or clipboard.
+  /// Optional provider connections stay encrypted on their original device.
   static Future<String> exportJson() async {
     final prefs = await SharedPreferences.getInstance();
     return jsonEncode({
       'format': format,
       'version': version,
       'http_sources': _decodeList(prefs.getString(_httpSourcesKey)),
-      'stremio_addons': _decodeList(prefs.getString(_stremioAddonsKey)),
+      'stremio_addons': const [],
     });
   }
 
-  static Future<ResolverPackImportResult> importJson(String raw) async {
+  static Future<ResolverPackImportResult> importJson(
+    String raw, {
+    StremioAddonRepository? addonRepository,
+  }) async {
     final decoded = jsonDecode(raw);
     if (decoded is! Map<String, dynamic> || decoded['format'] != format) {
       throw const FormatException('Paquete de resolvers POTV inválido');
     }
-
     final incomingVersion = decoded['version'];
     if (incomingVersion is! int || incomingVersion > version) {
       throw const FormatException('Versión de Resolver Pack no compatible');
@@ -49,12 +53,9 @@ class ResolverPackBundle {
 
     final incomingHttp = _parseHttpSources(decoded['http_sources']);
     final incomingAddons = _parseAddons(decoded['stremio_addons']);
-
     final prefs = await SharedPreferences.getInstance();
-    final currentHttp = _parseHttpSources(_decodeList(prefs.getString(_httpSourcesKey)));
-    final currentAddons =
-        _parseAddons(_decodeList(prefs.getString(_stremioAddonsKey)));
-
+    final currentHttp =
+        _parseHttpSources(_decodeList(prefs.getString(_httpSourcesKey)));
     final httpByEndpoint = <String, HttpSourceConfig>{
       for (final source in currentHttp) _normalizedUri(source.endpoint): source,
     };
@@ -71,31 +72,31 @@ class ResolverPackBundle {
       httpAdded++;
     }
 
-    final addonByManifest = <String, StremioAddonConfig>{
-      for (final addon in currentAddons) _normalizedUri(addon.manifestUri): addon,
+    // A manually imported resolver pack may contain private addon URLs:
+    // immediately transfer them to encrypted platform storage. Never
+    // serialize them into SharedPreferences or debug output.
+    final repository = addonRepository ?? StremioAddonRepository();
+    final existing = await repository.load();
+    final manifests = {
+      for (final addon in existing) _normalizedUri(addon.manifestUri),
     };
     var addonsAdded = 0;
     for (final addon in incomingAddons) {
       final key = _normalizedUri(addon.manifestUri);
-      if (addonByManifest.containsKey(key)) continue;
-      addonByManifest[key] = StremioAddonConfig(
-        id: addon.id.trim().isEmpty ? _uuid.v4() : addon.id,
-        name: addon.name,
-        manifestUri: addon.manifestUri,
-        enabled: addon.enabled,
+      if (!manifests.add(key)) continue;
+      final created = await repository.add(
+        name: addon.name, manifestUri: addon.manifestUri,
       );
+      if (!addon.enabled) {
+        await repository.update(created.copyWith(enabled: false));
+      }
       addonsAdded++;
     }
 
     await prefs.setString(
       _httpSourcesKey,
-      jsonEncode([for (final item in httpByEndpoint.values) item.toJson()]),
+      jsonEncode([for (final source in httpByEndpoint.values) source.toJson()]),
     );
-    await prefs.setString(
-      _stremioAddonsKey,
-      jsonEncode([for (final item in addonByManifest.values) item.toJson()]),
-    );
-
     return ResolverPackImportResult(
       httpSourcesAdded: httpAdded,
       addonsAdded: addonsAdded,
@@ -112,17 +113,15 @@ class ResolverPackBundle {
     }
   }
 
-  static List<HttpSourceConfig> _parseHttpSources(Object? value) {
-    if (value is! List) return const [];
+  static List<HttpSourceConfig> _parseHttpSources(Object? raw) {
+    if (raw is! List) return const [];
     final result = <HttpSourceConfig>[];
-    for (final item in value) {
+    for (final item in raw) {
       if (item is! Map) continue;
       try {
-        result.add(
-          HttpSourceConfig.fromJson(
-            item.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-        );
+        result.add(HttpSourceConfig.fromJson(
+          item.map((key, value) => MapEntry(key.toString(), value)),
+        ));
       } on FormatException {
         throw const FormatException('Resolver HTTP inválido en el paquete');
       }
@@ -130,17 +129,15 @@ class ResolverPackBundle {
     return result;
   }
 
-  static List<StremioAddonConfig> _parseAddons(Object? value) {
-    if (value is! List) return const [];
+  static List<StremioAddonConfig> _parseAddons(Object? raw) {
+    if (raw is! List) return const [];
     final result = <StremioAddonConfig>[];
-    for (final item in value) {
+    for (final item in raw) {
       if (item is! Map) continue;
       try {
-        result.add(
-          StremioAddonConfig.fromJson(
-            item.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-        );
+        result.add(StremioAddonConfig.fromJson(
+          item.map((key, value) => MapEntry(key.toString(), value)),
+        ));
       } on FormatException {
         throw const FormatException('Addon inválido en el paquete');
       }
@@ -149,10 +146,10 @@ class ResolverPackBundle {
   }
 
   static String _normalizedUri(Uri uri) {
-    var value = uri.replace(fragment: null).toString().trim();
-    while (value.endsWith('/')) {
-      value = value.substring(0, value.length - 1);
+    var text = uri.replace(fragment: null).toString().trim();
+    while (text.endsWith('/')) {
+      text = text.substring(0, text.length - 1);
     }
-    return value.toLowerCase();
+    return text.toLowerCase();
   }
 }

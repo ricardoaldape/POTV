@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
@@ -7,12 +8,15 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/security/media_url_logging.dart';
+import '../../data/addons/stremio_addon_repository.dart';
+import '../../data/addons/stremio_subtitle_service.dart';
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
 import '../../data/history/stream_server_health_repository.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
+import '../../domain/services/playback_language_selector.dart';
 import 'secure_webview_player.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -52,6 +56,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? historyTimer;
   Timer? startupTimer;
   StreamSubscription<bool>? playingSubscription;
+  StreamSubscription<Tracks>? _tracksSubscription;
+  final _languageSelector = const PlaybackLanguageSelector();
+  List<StremioSubtitle> _externalSubtitleOptions = const [];
+  bool _audioAutoSelected = false;
+  bool _subtitleAutoSelected = false;
+  bool _subtitleUserSelected = false;
   bool _startupPlaying = false;
   DateTime? _playbackStartedAt;
   int _openGeneration = 0;
@@ -92,6 +102,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     historyTimer?.cancel();
     startupTimer?.cancel();
     unawaited(playingSubscription?.cancel());
+    unawaited(_tracksSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
     player?.dispose();
@@ -108,6 +119,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _startupPlaying = false;
     await playingSubscription?.cancel();
     playingSubscription = null;
+    await _tracksSubscription?.cancel();
+    _tracksSubscription = null;
+    _audioAutoSelected = false;
+    _subtitleAutoSelected = false;
+    _subtitleUserSelected = false;
+    _externalSubtitleOptions = const [];
     await playerErrorSubscription?.cancel();
     playerErrorSubscription = null;
     await _saveProgress();
@@ -136,6 +153,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final nextPlayer = Player();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
+
+          _tracksSubscription = nextPlayer.stream.tracks.listen((tracks) {
+            if (!mounted || generation != _openGeneration) return;
+            unawaited(_selectPreferredAudio(nextPlayer, generation));
+          });
 
           // Listen before open(): it can report errors on startup.
           final openedAt = DateTime.now();
@@ -189,6 +211,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             );
           }
           if (!mounted || generation != _openGeneration) return;
+          unawaited(_selectPreferredAudio(nextPlayer, generation));
+          unawaited(_loadPreferredSubtitles(nextPlayer, generation));
           if (effectiveResumeAt != null &&
               effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
@@ -462,6 +486,72 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  Future<void> _selectPreferredAudio(Player target, int generation) async {
+    if (_audioAutoSelected ||
+        !mounted ||
+        generation != _openGeneration ||
+        currentStream.externalAudioUri != null) return;
+    final preferred = _languageSelector.preferredAudio(target.state.tracks.audio);
+    if (preferred == null) return;
+    _audioAutoSelected = true;
+    try {
+      await target.setAudioTrack(preferred);
+    } catch (_) {
+      // Metadata can disappear during stream failover. Retain default audio.
+    }
+  }
+
+  Future<void> _loadPreferredSubtitles(Player target, int generation) async {
+    final media = widget.session.playbackContext;
+    if (media == null || widget.session.isLive) return;
+    List<StremioSubtitle> available;
+    try {
+      available = await StremioSubtitleService(
+        StremioAddonRepository(),
+        Dio(BaseOptions(
+          connectTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        )),
+      ).forPlayback(media);
+    } catch (_) {
+      return;
+    }
+    if (!mounted || generation != _openGeneration) return;
+    setState(() => _externalSubtitleOptions = available);
+    // Audio and embedded subtitle tracks may arrive after open().
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+    if (!mounted || generation != _openGeneration || _subtitleUserSelected ||
+        _subtitleAutoSelected) return;
+    await _selectPreferredAudio(target, generation);
+    final audio = target.state.track.audio;
+    if (_languageSelector.isSpanishAudio(
+      track: audio,
+      streamLanguage: currentStream.language,
+    )) {
+      return; // Latino dubbing wins; don't cover it with unwanted subtitles.
+    }
+    final embedded = _languageSelector.preferredEmbeddedSubtitle(
+      target.state.tracks.subtitle,
+    );
+    final external = available.where((item) => item.isSpanish);
+    try {
+      if (embedded != null) {
+        _subtitleAutoSelected = true;
+        await target.setSubtitleTrack(embedded);
+      } else if (external.isNotEmpty) {
+        _subtitleAutoSelected = true;
+        final subtitle = external.first;
+        await target.setSubtitleTrack(SubtitleTrack.uri(
+          subtitle.url.toString(),
+          title: subtitle.label,
+          language: subtitle.language,
+        ));
+      }
+    } catch (_) {
+      // Subtitle delivery should never interrupt video playback.
+    }
+  }
+
   Future<void> _showSubtitleTracks() async {
     final p = player;
     if (p == null) return;
@@ -489,7 +579,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       : track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
+                  _subtitleUserSelected = true;
                   p.setSubtitleTrack(track);
+                  Navigator.of(context).pop();
+                },
+              ),
+            for (final subtitle in _externalSubtitleOptions)
+              ListTile(
+                leading: const Icon(Icons.closed_caption_rounded),
+                title: Text(subtitle.isSpanish
+                    ? 'Español · ${subtitle.label}'
+                    : subtitle.label),
+                onTap: () {
+                  _subtitleUserSelected = true;
+                  p.setSubtitleTrack(SubtitleTrack.uri(
+                    subtitle.url.toString(),
+                    title: subtitle.label,
+                    language: subtitle.language,
+                  ));
                   Navigator.of(context).pop();
                 },
               ),

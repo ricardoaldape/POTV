@@ -1,0 +1,125 @@
+name: POTV signed review APK on HP
+
+on:
+  push:
+    branches:
+      - feat/private-penguplay-plug-and-play
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: potv-hp-signed-review
+  cancel-in-progress: false
+
+jobs:
+  signed-review:
+    runs-on: [self-hosted, Windows, X64, potv]
+    timeout-minutes: 100
+
+    steps:
+      - name: Checkout POTV
+        uses: actions/checkout@v4
+
+      - name: Prepare Android and icons
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & 'C:\flutter\bin\flutter.bat' create --platforms=android --org com.potv --project-name potv .
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter Android platform generation failed' }
+          Copy-Item 'tool\AndroidManifest.xml' 'android\app\src\main\AndroidManifest.xml' -Force
+          foreach ($density in @('mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi')) {
+            $from = 'tool\icons\mipmap-' + $density + '\ic_launcher.png'
+            $to = 'android\app\src\main\res\mipmap-' + $density + '\ic_launcher.png'
+            Copy-Item $from $to -Force
+          }
+          New-Item -ItemType Directory -Force -Path 'android\app\src\main\res\drawable' | Out-Null
+          Copy-Item 'tool\tv_banner.png' 'android\app\src\main\res\drawable\tv_banner.png' -Force
+          & 'C:\flutter\bin\flutter.bat' pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Pub dependencies failed' }
+
+      - name: Restore production release key on this authorized HP only
+        shell: powershell
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('KEYSTORE_BASE64','KEYSTORE_PASSWORD','KEY_PASSWORD','KEY_ALIAS')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw ('Release key missing: ' + $name)
+            }
+          }
+          $keystore = Join-Path (Get-Location).Path 'android\app\potv-release.keystore'
+          [System.IO.File]::WriteAllBytes(
+            $keystore,
+            [Convert]::FromBase64String($env:KEYSTORE_BASE64)
+          )
+          if ((Get-Item $keystore).Length -lt 100) { throw 'Invalid keystore file' }
+          $properties = @(
+            'storePassword=' + $env:KEYSTORE_PASSWORD
+            'keyPassword=' + $env:KEY_PASSWORD
+            'keyAlias=' + $env:KEY_ALIAS
+            'storeFile=potv-release.keystore'
+          )
+          [System.IO.File]::WriteAllLines(
+            (Join-Path (Get-Location).Path 'android\key.properties'),
+            $properties,
+            [System.Text.Encoding]::UTF8
+          )
+          & 'python' 'tool\configure_android_release_signing.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Release Gradle signing configuration failed' }
+          Write-Output 'Signing ready; keystore and passwords are not exposed.'
+
+      - name: Build signed APK
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & 'C:\flutter\bin\flutter.bat' build apk --release
+          if ($LASTEXITCODE -ne 0) { throw 'Signed APK build failed' }
+
+      - name: Verify signing and preserve review APK locally
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $apk = 'build\app\outputs\flutter-apk\app-release.apk'
+          if (!(Test-Path $apk)) { throw 'Missing app-release.apk' }
+          $sdk = 'C:\Users\familia\AppData\Local\Android\Sdk\build-tools'
+          $tools = Get-ChildItem $sdk -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (!$tools) { throw 'Android SDK build-tools not installed' }
+          $signer = Join-Path $tools.FullName 'apksigner.bat'
+          $certificate = & $signer verify --print-certs $apk
+          if ($LASTEXITCODE -ne 0) { throw 'Android signature verification failed' }
+          $certLines = @($certificate | Select-String 'Signer #1 certificate')
+          $digestLine = @($certificate | Select-String 'Signer #1 certificate SHA-256 digest:')
+          if ($digestLine.Count -ne 1) { throw 'Signer certificate digest missing' }
+          if ($certificate -match 'CN=Android Debug') {
+            throw 'Signed review release uses Android Debug certificate; refuse packaging'
+          }
+          $aapt = Join-Path $tools.FullName 'aapt.exe'
+          $package = (& $aapt dump badging $apk | Select-Object -First 1)
+          if ($package -notmatch "name='com\.potv\.potv'" -or
+              $package -notmatch "versionCode='13'") {
+            throw 'Unexpected package identifier or Android versionCode'
+          }
+          $targetDir = 'C:\POTV-ReleaseCandidates'
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          $target = Join-Path $targetDir 'POTV-0.8.0-13-signed-review.apk'
+          Copy-Item $apk $target -Force
+          Write-Output ('POTV_SIGNED_REVIEW_APK=' + $target)
+          Write-Output ('POTV_SIGNED_REVIEW_SHA256=' + (Get-FileHash $target -Algorithm SHA256).Hash)
+          Write-Output ('POTV_SIGNING_CERT_SHA256=' + ($digestLine[0].ToString().Split(':')[-1].Trim()))
+          Write-Output ('POTV_SIGNED_REVIEW_SIZE_MB=' + [math]::Round((Get-Item $target).Length / 1MB, 2))
+          Write-Output 'SIGNED_REVIEW_BUILD_SUCCESS; no GitHub-hosted minutes or public release created.'
+
+      - name: Remove release signing secrets from runner workspace
+        if: always()
+        shell: powershell
+        run: |
+          foreach ($path in @('android\key.properties','android\app\potv-release.keystore')) {
+            if (Test-Path $path) { Remove-Item $path -Force }
+          }
+          Write-Output 'Temporary signing files removed from working directory.'

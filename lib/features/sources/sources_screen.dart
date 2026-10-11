@@ -36,7 +36,10 @@ class SourcesScreen extends ConsumerWidget {
               const SizedBox(height: 14),
               TextField(
                 controller: controller,
-                autofocus: true,
+                autofocus: false,
+                obscureText: true,
+                enableSuggestions: false,
+                autocorrect: false,
                 keyboardType: TextInputType.url,
                 decoration: const InputDecoration(
                   labelText: 'URL',
@@ -83,7 +86,7 @@ class SourcesScreen extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No pudimos agregar la fuente: $error')),
+        SnackBar(content: const Text('No se pudo agregar la fuente. Revisa su configuración.')),
       );
     }
   }
@@ -137,6 +140,9 @@ class SourcesScreen extends ConsumerWidget {
         title: const Text('Agregar addon compatible'),
         content: TextField(
           controller: controller,
+                obscureText: true,
+                enableSuggestions: false,
+                autocorrect: false,
           autofocus: true,
           keyboardType: TextInputType.url,
           decoration: const InputDecoration(labelText: 'URL o manifest.json'),

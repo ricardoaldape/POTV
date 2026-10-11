@@ -13,6 +13,7 @@ void main() {
     });
 
     final exported = await LocalConfigBundle.exportJson();
+    expect(exported, isNot(contains('https://example.com/manifest.json')));
 
     SharedPreferences.setMockInitialValues({});
     await LocalConfigBundle.importJson(exported);
@@ -28,7 +29,7 @@ void main() {
     );
     expect(
       prefs.getString('potv_stremio_addons'),
-      contains('https://example.com/manifest.json'),
+      isNull,
     );
   });
 

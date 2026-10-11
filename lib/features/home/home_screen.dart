@@ -9,7 +9,6 @@ import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../data/catalog/partner_content_repository.dart';
 import '../../data/history/playback_history_repository.dart';
-import '../../data/resolution/resolver_status.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../browse/genre_browse_screen.dart';
@@ -53,7 +52,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
-  static bool _vodSetupPromptedThisSession = false;
   MediaType selectedType = MediaType.movie;
 
   @override
@@ -64,22 +62,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       const Duration(minutes: 2),
       (_) => _refreshCatalog(),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _maybeShowVodSetup();
-    });
-  }
-
-  Future<void> _maybeShowVodSetup() async {
-    if (_vodSetupPromptedThisSession || !mounted) return;
-    _vodSetupPromptedThisSession = true;
-    try {
-      final status = await ref.read(resolverStatusProvider.future);
-      if (!mounted || status.externalRoutes > 0 ||
-          ref.read(partnerContentRepositoryProvider).configured) return;
-      await context.push<bool>('/setup-vod');
-    } catch (_) {
-      // El catálogo debe seguir funcionando aunque falle la comprobación local.
-    }
   }
 
   static const movieGenres = <_GenreSpec>[
