@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:potv/data/catalog/partner_content_repository.dart';
 import 'package:potv/data/live_tv/built_in_live_sources.dart';
 import 'package:potv/data/live_tv/live_tv_repository.dart';
@@ -11,6 +12,7 @@ import 'package:potv/domain/models/live_channel.dart';
 import 'package:potv/domain/models/partner_content_snapshot.dart';
 import 'package:potv/domain/models/sports_event.dart';
 import 'package:potv/domain/models/stream_candidate.dart';
+import 'package:potv/domain/services/sports_channel_language.dart';
 import 'package:potv/features/sports/sports_hub_screen.dart';
 
 class _TestLiveChannelsController extends LiveChannelsController {
@@ -24,6 +26,7 @@ class _TestEpgController extends EpgProgramsController {
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   testWidgets('sports categories select NFL separately from soccer', (
     tester,
   ) async {
@@ -116,5 +119,16 @@ void main() {
     expect(find.text('TV DEPORTIVA'), findsOneWidget);
     expect(find.text('POTV Deportes'), findsOneWidget);
     expect(find.text('Chiefs vs Bills'), findsNothing);
+    expect(find.byKey(const ValueKey('sports-language-spanish')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('sports-language-english')));
+    await tester.tap(find.byKey(const ValueKey('sports-language-english')));
+    await tester.pump();
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(SportsChannelLanguage.preferenceKey), 'english');
+    // The unlabeled fallback sports station is not discarded.
+    expect(find.text('POTV Deportes'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sports-language-all')));
+    await tester.pump();
+    expect(prefs.getString(SportsChannelLanguage.preferenceKey), 'all');
   });
 }
