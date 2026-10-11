@@ -154,7 +154,9 @@ class SportsHubOrganizer {
       classifySport(text) != SportsHubCategory.other ||
       _has(text, const [
         'sports', 'sport', 'deportes', 'deporte',
-        'deportiva', 'deportivo', 'athletics'
+        'deportiva', 'deportivo', 'athletics',
+        'espn', 'dazn', 'tudn', 'teledeporte', 'goltv', 'gol tv',
+        'afizzionados', 'tdn', 'tyc', 'dsports'
       ]);
 
   List<SportsEvent> eventsFor(
