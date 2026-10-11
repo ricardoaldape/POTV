@@ -584,6 +584,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   Navigator.of(context).pop();
                 },
               ),
+            for (final subtitle in _externalSubtitleOptions)
+              ListTile(
+                leading: const Icon(Icons.closed_caption_rounded),
+                title: Text(subtitle.isSpanish
+                    ? 'Español · ${subtitle.label}'
+                    : subtitle.label),
+                onTap: () {
+                  _subtitleUserSelected = true;
+                  p.setSubtitleTrack(SubtitleTrack.uri(
+                    subtitle.url.toString(),
+                    title: subtitle.label,
+                    language: subtitle.language,
+                  ));
+                  Navigator.of(context).pop();
+                },
+              ),
           ],
         ),
       ),
