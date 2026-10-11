@@ -80,6 +80,20 @@ void main() {
     expect(organizer.counts(merged)[LiveTvCategory.news], 1);
   });
 
+  test('sports-only provider feed is identified even with a generic name', () {
+    final merged = organizer.merge(
+      partner: [makeChannel('Channel X', group: 'General', epg: 'sport-1')],
+      local: const [],
+      partnerSports: [makeChannel('Channel X', group: 'General', epg: 'sport-1',
+        link: 'https://sport.example/stream')],
+      publicSports: [makeChannel('Special Feed', group: 'General')],
+    );
+    expect(merged, hasLength(2));
+    expect(organizer.categoryFor(merged.first), LiveTvCategory.sports);
+    expect(merged.first.playbackCandidates, hasLength(2));
+    expect(organizer.categoryFor(merged.last), LiveTvCategory.sports);
+  });
+
   test('conflicting explicit guide IDs do not silently combine channels', () {
     final merged = organizer.merge(
       partner: [makeChannel('Canal 1', epg: 'mx-a')],
