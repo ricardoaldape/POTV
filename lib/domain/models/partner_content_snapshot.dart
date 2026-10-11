@@ -196,7 +196,8 @@ class PartnerContentSnapshot {
         id: 'partner:$category:$id',
         name: name,
         group: _text(item['group'] ?? item['category'] ??
-            item['genre'] ?? item['group_title']),
+            item['genre'] ?? item['group_title']) ??
+            (category == 'sport' ? 'Deportes' : null),
         epgId: _text(item['epg_id'] ?? item['epgId']),
         logo: _httpsUri(item['logo']),
         backupStreams: List.unmodifiable(backups),
