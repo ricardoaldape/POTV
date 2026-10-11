@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/history/stream_server_health_repository.dart';
 import '../../data/sources/stream_candidate_probe.dart';
-import '../../data/resolution/resolver_status.dart';
 import '../../data/sources/unified_source_resolver.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
@@ -110,16 +109,7 @@ class MediaPlaybackCoordinator {
 
       if (playable.isEmpty) {
         if (!context.mounted) return;
-        final installed = await _showNoSource(context, ref, item);
-        if (installed && context.mounted) {
-          return await _playResolved(
-            context,
-            ref,
-            item,
-            season: season,
-            episode: episode,
-          );
-        }
+        await _showNoSource(context, item);
         return;
       }
 
@@ -147,7 +137,7 @@ class MediaPlaybackCoordinator {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'No pudimos consultar tus fuentes. ${error.toString()}',
+            'No fue posible reproducir este título. Intenta otra vez.',
           ),
         ),
       );
@@ -228,39 +218,26 @@ class MediaPlaybackCoordinator {
     return result;
   }
 
-  static Future<bool> _showNoSource(
+  static Future<void> _showNoSource(
     BuildContext context,
-    WidgetRef ref,
     MediaItem item,
   ) async {
-    ResolverStatus? status;
-    try {
-      status = await ref.read(resolverStatusProvider.future);
-    } catch (_) {}
-    if (!context.mounted) return false;
-
-    final noExternalSources = status == null || status.externalRoutes == 0;
-    if (noExternalSources) {
-      final configured = await context.push<bool>('/setup-vod') ?? false;
-      return configured;
-    }
-
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Sin reproducción disponible'),
-        content: Text(
-          'Las fuentes configuradas no devolvieron una reproducción válida para ${item.title}.',
+        title: const Text('No pudimos reproducir este título'),
+        content: const Text(
+          'Las fuentes disponibles no respondieron en este momento. '
+          'Prueba de nuevo más tarde o elige otro título.',
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => dialogContext.pop(),
-            child: const Text('Cerrar'),
+            child: const Text('Entendido'),
           ),
         ],
       ),
     );
-    return false;
   }
 
 }
