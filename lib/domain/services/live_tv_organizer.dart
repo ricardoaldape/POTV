@@ -159,7 +159,10 @@ class LiveTvOrganizer {
   }
 
   LiveChannel _declaredSports(LiveChannel source) {
-    if (const SportsHubOrganizer().isSportsChannel(source)) return source;
+    // Provider source section is only a hint: explicit news, culture, film
+    // or other group metadata must not be overwritten as "Sports".
+    if (const SportsHubOrganizer().isSportsChannel(source) ||
+        categoryFor(source) != LiveTvCategory.other) return source;
     return LiveChannel(
       id: source.id,
       name: source.name,
