@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/addons/stremio_addon_repository.dart';
+import '../../data/addons/private_addon_link.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/plugins/nuvio_plugin_repository.dart';
 import '../../data/resolution/resolver_status.dart';
@@ -35,6 +36,94 @@ class _VodSourceSetupScreenState extends ConsumerState<VodSourceSetupScreen> {
     controller.text = text;
     controller.selection = TextSelection.collapsed(offset: controller.text.length);
     if (mounted) setState(() {});
+  }
+
+  Future<void> _connectPrivateAddon() async {
+    if (busy) return;
+    final privateToken = TextEditingController();
+    var visible = false;
+    final input = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Conectar PenguPlay'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 450),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Introduce tu token personal o pega tu enlace del addon. '
+                  'Sólo es necesario hacerlo una vez en este dispositivo.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('private-addon-token'),
+                  controller: privateToken,
+                  obscureText: !visible,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: 'Código privado',
+                    suffixIcon: IconButton(
+                      tooltip: visible ? 'Ocultar código' : 'Mostrar código',
+                      onPressed: () => update(() => visible = !visible),
+                      icon: Icon(visible
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, privateToken.text),
+              child: const Text('Conectar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    privateToken.clear();
+    privateToken.dispose();
+    if (input == null || !mounted) return;
+    try {
+      final manifest = PrivateAddonLink.penguPlay(input);
+      // The credential never appears in UI, errors or GitHub and only
+      // persists in the encrypted addon secret store on this device.
+      setState(() {
+        busy = true;
+        error = null;
+      });
+      final result = await ref.read(universalSourceInstallerProvider)
+          .install(manifest.toString());
+      ref.invalidate(stremioAddonsProvider);
+      ref.invalidate(resolverStatusProvider);
+      ref.read(sourceAggregatorProvider).clearCache();
+      if (!mounted) return;
+      if (!result.active) {
+        setState(() { busy = false; error = 'No se pudo conectar la fuente.'; });
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fuente privada conectada. Ya puedes reproducir.')),
+      );
+      context.pop(true);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          busy = false;
+          error = 'No se pudo validar el acceso privado. Revisa el token.';
+        });
+      }
+    }
   }
 
   Future<void> _connect() async {
@@ -77,7 +166,7 @@ class _VodSourceSetupScreenState extends ConsumerState<VodSourceSetupScreen> {
       if (!mounted) return;
       setState(() {
         busy = false;
-        error = 'No pudimos conectar esa fuente. $e';
+        error = 'No se pudo conectar la fuente. Verifica la dirección y vuelve a intentar.';
       });
     }
   }
@@ -116,9 +205,27 @@ class _VodSourceSetupScreenState extends ConsumerState<VodSourceSetupScreen> {
                         style: TextStyle(color: Colors.white70, height: 1.45),
                       ),
                       const SizedBox(height: 22),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          key: const ValueKey('connect-private-addon'),
+                          onPressed: busy ? null : _connectPrivateAddon,
+                          icon: const Icon(Icons.lock_rounded),
+                          label: const Text('Conectar PenguPlay con código privado'),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'También puedes usar otra fuente compatible:',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: controller,
-                        autofocus: true,
+                        autofocus: false,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
                         keyboardType: TextInputType.url,
                         enabled: !busy,
                         onSubmitted: (_) => _connect(),
