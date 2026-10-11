@@ -124,6 +124,7 @@ jobs:
       - name: Verify signing and package metadata
         env:
           POTV_TAG: ${{ github.ref_name }}
+          POTV_RELEASE_CERT_SHA256: ${{ vars.POTV_RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
           SDK_TOOLS="${ANDROID_HOME}/build-tools"
@@ -131,6 +132,19 @@ jobs:
           APKSIGNER="$(find "$SDK_TOOLS" -type f -name apksigner | sort -V | tail -1)"
           test -n "$AAPT" && test -n "$APKSIGNER"
           "$APKSIGNER" verify --verbose --print-certs "dist/POTV-$POTV_TAG.apk"
+          test -n "$POTV_RELEASE_CERT_SHA256" || {
+            echo "Configure POTV_RELEASE_CERT_SHA256 using the certificate from the existing installed release";
+            exit 1;
+          }
+          actual="$("$APKSIGNER" verify --print-certs "dist/POTV-$POTV_TAG.apk" |
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 |
+            tr '[:upper:]' '[:lower:]')"
+          expected="$(printf '%s' "$POTV_RELEASE_CERT_SHA256" |
+            tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test "${#expected}" -eq 64 && test "$actual" = "$expected" || {
+            echo "Signing certificate does not match the pinned production key; refusing OTA release";
+            exit 1;
+          }
           "$AAPT" dump badging "dist/POTV-$POTV_TAG.apk" | head -1 |
             grep -E "name='com\.potv\.potv'"
           test "$(grep -c 'POTV-Version-Code:' ota-release-notes.md)" -eq 1
