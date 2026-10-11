@@ -108,6 +108,7 @@ class BuiltInLiveSourceRegistry {
           id: 'potv-sport-fifa-hispanic',
           name: 'FIFA+ Hispanic America',
           group: 'Deportes · Fútbol',
+          language: 'es',
           url:
               'https://6c849fb3.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctbXhfRklGQVBsdXNTcGFuaXNoLTFfSExT/playlist.m3u8',
         ),
@@ -115,6 +116,7 @@ class BuiltInLiveSourceRegistry {
           id: 'potv-sport-redbull-es',
           name: 'Red Bull TV ES',
           group: 'Deportes',
+          language: 'es',
           url:
               'https://886bd3fbc782459f8de7555d32d7e9ce.mediatailor.us-west-2.amazonaws.com/v1/master/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-957-WORBLATAMESFAST-WHALETVPLUS/957/whaletvplus/hls/master/playlist.m3u8',
         ),
@@ -133,6 +135,7 @@ class BuiltInLiveSourceRegistry {
     required String name,
     required String group,
     String? epgId,
+    String? language,
     required String url,
   }) {
     final uri = Uri.parse(url);
@@ -146,6 +149,7 @@ class BuiltInLiveSourceRegistry {
         label: name,
         uri: uri,
         backend: PlaybackBackend.native,
+        language: language,
       ),
     );
   }
