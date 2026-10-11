@@ -89,6 +89,9 @@ void main() {
     await repo.removeSource(
         'url:https://iptv.example/playlist?token=sensitive');
     expect(await repo.configuredSources(), isEmpty);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('live_tv_m3u_url'), isNull,
+        reason: 'Removed signed M3U tokens must not remain in legacy storage');
   });
 
   test('rejects unsafe / malformed local source identifiers', () async {
