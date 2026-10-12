@@ -8,6 +8,7 @@ import '../../domain/resolution/provider_resolver.dart';
 import '../debug/debug_log_provider.dart';
 import '../extractors/resolver_manager.dart';
 import 'provider_registry.dart';
+import 'provider_circuit_breaker.dart';
 
 final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
   return SourceAggregator(
@@ -24,6 +25,7 @@ class SourceAggregator {
   final Duration cacheTtl;
   final Duration negativeCacheTtl;
   final ResolverManager? resolverManager;
+  final ProviderCircuitBreaker circuitBreaker;
 
   final Map<String, _CachedResolution> _cache = {};
   final Map<String, Future<ProviderResolutionResult>> _inFlight = {};
@@ -37,7 +39,8 @@ class SourceAggregator {
     this.cacheTtl = const Duration(minutes: 5),
     this.negativeCacheTtl = const Duration(seconds: 30),
     this.resolverManager,
-  });
+    ProviderCircuitBreaker? circuitBreaker,
+  }) : circuitBreaker = circuitBreaker ?? ProviderCircuitBreaker();
 
   Future<ProviderResolutionResult> resolve(
     ProviderResolveRequest request,
@@ -85,6 +88,7 @@ class SourceAggregator {
   ) {
     final eligible = providers
         .where((provider) => provider.supports(request))
+        .where((provider) => circuitBreaker.canAttempt(provider.id))
         .toList(growable: false);
 
     final activeAddonsLog =
@@ -215,6 +219,7 @@ class SourceAggregator {
       debugPrint(stackLog);
       addDebugLog(errorLog);
       addDebugLog(stackLog);
+      circuitBreaker.recordFailure(provider.id);
       return Future.value(
         const _ProviderBatch(candidates: [], failed: true),
       );
@@ -258,7 +263,14 @@ class SourceAggregator {
         addDebugLog(timeoutLog);
         return const _ProviderBatch(candidates: [], failed: true);
       },
-    );
+    ).then((batch) {
+      if (batch.failed) {
+        circuitBreaker.recordFailure(provider.id);
+      } else {
+        circuitBreaker.recordSuccess(provider.id);
+      }
+      return batch;
+    });
   }
 
   // Signed stream links may carry access tokens in query or fragment.
