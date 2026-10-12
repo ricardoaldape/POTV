@@ -47,3 +47,14 @@ Feature flags update *behavior already shipped in the installed binary*. They ca
 4. Deploy a build with only the public key + endpoint embedded.
 5. Start with an internal cohort; monitor startup, source resolution and event matching; gradually roll out.
 6. For any incident, publish a higher-version signed safe configuration. Binary/security patches still require an APK update.
+
+## GitHub-hosted control plane (provisioned as an optional workflow)
+- The manual workflow `.github/workflows/potv-publish-flags.yml` signs only allowlisted boolean switches.
+- Create the Actions repository secret `POTV_FLAGS_ED25519_PRIVATE_SEED` containing base64 of **32 random private seed bytes**; never store it in code, PR bodies, artifacts, or logs.
+- It commits the signed JSON envelope to a dedicated `potv-runtime-config` branch, **never main**.
+- The raw HTTPS manifest URL (once the first successful publication exists) is `https://raw.githubusercontent.com/ricardoaldape/POTV/potv-runtime-config/config/signed-flags.json`.
+- Embed that URL using `--dart-define=POTV_SIGNED_FLAGS_URL=...` and the matching 32-byte verification public key using `--dart-define=POTV_FLAGS_ED25519_PUBLIC_KEY=...` in the Android build.
+- Run workflow_dispatch with `version` strictly greater than the published version and `flags_json` containing only supported booleans. A rollback requires a **new higher version** with the previous safe values.
+- The workflow is only available after this PR merges and the repository permits Actions to write to the dedicated configuration branch.
+- For emergency recovery when GitHub raw content is unreachable, POTV continues using its last verified on-device flags. This does not guarantee uninterrupted streaming if third-party services fail.
+- Never use a runtime flag to grant subscriptions or authorize payments; those decisions must remain server-side.
