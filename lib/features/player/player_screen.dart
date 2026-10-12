@@ -61,6 +61,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? media3ResumeAt;
   PlayerPreferences playerPreferences = const PlayerPreferences();
   bool preferencesLoaded = false;
+  bool media3Ready = false;
   Timer? media3StateTimer;
   Timer? hideTimer;
   Timer? historyTimer;
@@ -156,6 +157,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     media3Controller = null;
     media3State = null;
     media3ResumeAt = null;
+    media3Ready = false;
     playbackError = null;
 
     var effectiveResumeAt = resumeAt;
@@ -177,6 +179,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (currentStream.backend == PlaybackBackend.native) {
           if (Platform.isAndroid) {
             media3ResumeAt = effectiveResumeAt;
+            media3Ready = true;
             _armHistorySave();
             break;
           }
@@ -853,7 +856,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.enter) {
-      player?.playOrPause();
+      final native = media3Controller;
+      if (native != null) {
+        unawaited(native.playPause());
+      } else {
+        player?.playOrPause();
+      }
+      return KeyEventResult.handled;
+    }
+
+    final native = media3Controller;
+    final nativeState = media3State;
+    if (native != null && nativeState != null &&
+        key == LogicalKeyboardKey.arrowLeft) {
+      final target =
+          Duration(milliseconds: nativeState.positionMs) -
+          const Duration(seconds: 10);
+      unawaited(native.seekTo(target.isNegative ? Duration.zero : target));
+      return KeyEventResult.handled;
+    }
+    if (native != null && nativeState != null &&
+        key == LogicalKeyboardKey.arrowRight) {
+      unawaited(
+        native.seekTo(
+          Duration(milliseconds: nativeState.positionMs + 10000),
+        ),
+      );
       return KeyEventResult.handled;
     }
 
@@ -864,8 +892,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return KeyEventResult.handled;
     }
     if (p != null && key == LogicalKeyboardKey.arrowRight) {
-      final target = p.state.position + const Duration(seconds: 10);
-      p.seek(target);
+      p.seek(p.state.position + const Duration(seconds: 10));
       return KeyEventResult.handled;
     }
 
@@ -889,13 +916,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     } else {
       content = switch (currentStream.backend) {
-        PlaybackBackend.native => videoController == null
-            ? const Center(child: CircularProgressIndicator())
-            : Video(
-                controller: videoController!,
-                controls: NoVideoControls,
-                fit: BoxFit.contain,
-              ),
+        PlaybackBackend.native => Platform.isAndroid
+            ? (!preferencesLoaded || !media3Ready
+                ? const Center(child: CircularProgressIndicator())
+                : Media3PlayerSurface(
+                    key: ValueKey('media3-' + currentStream.id),
+                    stream: currentStream,
+                    title: widget.session.title,
+                    resumeAt: media3ResumeAt,
+                    audioPreference: playerPreferences.media3AudioPreference,
+                    subtitlePreference:
+                        playerPreferences.media3SubtitlePreference,
+                    subtitles: widget.session.subtitles,
+                    onController: _attachMedia3Controller,
+                  ))
+            : (videoController == null
+                ? const Center(child: CircularProgressIndicator())
+                : Video(
+                    controller: videoController!,
+                    controls: NoVideoControls,
+                    fit: BoxFit.contain,
+                  )),
         PlaybackBackend.webView => SecureWebViewPlayer(
             key: ValueKey(currentStream.id),
             stream: currentStream,
@@ -931,11 +972,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     title: widget.session.title,
                     stream: currentStream,
                     player: p,
+                    media3State: media3State,
                     isLive: widget.session.isLive,
                     onBack: _exitPlayer,
-                    onAudio: p == null ? null : _showAudioTracks,
-                    onSubtitles: p == null ? null : _showSubtitleTracks,
+                    onAudio: (p == null && media3Controller == null)
+                        ? null
+                        : _showAudioTracks,
+                    onSubtitles: (p == null && media3Controller == null)
+                        ? null
+                        : _showSubtitleTracks,
                     onQuality: p == null ? null : _showVideoTracks,
+                    onMedia3PlayPause: media3Controller == null
+                        ? null
+                        : () => unawaited(media3Controller!.playPause()),
+                    onMedia3Seek: media3Controller == null
+                        ? null
+                        : (position) =>
+                            unawaited(media3Controller!.seekTo(position)),
+                    onCast: media3Controller == null
+                        ? null
+                        : () => unawaited(media3Controller!.toggleCast()),
                     onServers: _showServers,
                   ),
                 ),
