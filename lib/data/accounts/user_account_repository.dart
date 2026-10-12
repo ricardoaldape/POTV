@@ -72,6 +72,7 @@ class UserAccountRepository {
     }
     await _prefs.remove(ProfileScopedStorage.historyKey);
     await _prefs.remove(ProfileScopedStorage.liveTvFavoritesKey);
+    await _prefs.remove('potv_license_token');
     await _prefs.remove(_kAccountKey);
     await _prefs.remove(_kProfilesKey);
     await _prefs.remove(_kActiveProfileKey);
