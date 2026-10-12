@@ -38,15 +38,21 @@ class PotvSignedFlagUpdater {
     }
 
     try {
+      final request = http.Request('GET', endpoint)
+        ..followRedirects = false
+        ..headers['Accept'] = 'application/json';
       final response = await client
-          .get(endpoint, headers: const {'Accept': 'application/json'})
+          .send(request)
           .timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200 ||
-          response.bodyBytes.length > maxEnvelopeBytes) {
-        return false;
+      // Never follow a redirect to an untrusted host or downgrade to HTTP.
+      if (response.statusCode != 200) return false;
+      final bytes = <int>[];
+      await for (final chunk in response.stream) {
+        if (bytes.length + chunk.length > maxEnvelopeBytes) return false;
+        bytes.addAll(chunk);
       }
 
-      final envelope = jsonDecode(utf8.decode(response.bodyBytes));
+      final envelope = jsonDecode(utf8.decode(bytes));
       if (envelope is! Map<String, dynamic> ||
           envelope.keys.length != 2 ||
           envelope['payload'] is! String ||
