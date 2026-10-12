@@ -4,19 +4,33 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/playback_history_entry.dart';
+import '../../providers/user_providers.dart';
+import '../accounts/profile_scoped_storage.dart';
 
 final playbackHistoryProvider = FutureProvider.autoDispose<List<PlaybackHistoryEntry>>(
-  (ref) => const PlaybackHistoryRepository().all(),
+  (ref) {
+    // Reload the rail immediately when the viewer switches profile.
+    ref.watch(currentProfileIdProvider);
+    return const PlaybackHistoryRepository().all();
+  },
 );
 
 class PlaybackHistoryRepository {
-  static const _key = 'potv_playback_history_v1';
+  static const _key = ProfileScopedStorage.historyKey;
 
   const PlaybackHistoryRepository();
 
   Future<List<PlaybackHistoryEntry>> all() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
+    final key = await ProfileScopedStorage.activeKey(prefs, _key);
+    return _readEntries(prefs, key);
+  }
+
+  List<PlaybackHistoryEntry> _readEntries(
+    SharedPreferences prefs,
+    String key,
+  ) {
+    final raw = prefs.getString(key);
     if (raw == null || raw.trim().isEmpty) return const [];
 
     try {
@@ -58,7 +72,8 @@ class PlaybackHistoryRepository {
 
   Future<void> save(PlaybackHistoryEntry entry) async {
     final prefs = await SharedPreferences.getInstance();
-    final entries = [...await all()]
+    final key = await ProfileScopedStorage.activeKey(prefs, _key);
+    final entries = [..._readEntries(prefs, key)]
       ..removeWhere((item) => item.key == entry.key)
       ..insert(0, entry);
 
@@ -67,7 +82,7 @@ class PlaybackHistoryRepository {
     }
 
     await prefs.setString(
-      _key,
+      key,
       jsonEncode([for (final item in entries) item.toJson()]),
     );
   }
