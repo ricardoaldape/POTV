@@ -159,7 +159,7 @@ class SourceAggregator {
             final candidate = batch.candidates[index];
             final urlLog =
                 'SourceAggregator ${provider.id} URL ${index + 1}/${batch.candidates.length} '
-                '-> ${candidate.uri}';
+                '-> ${_safeLogUri(candidate.uri)}';
             debugPrint(urlLog);
             addDebugLog(urlLog);
           }
@@ -255,6 +255,15 @@ class SourceAggregator {
       },
     );
   }
+
+  // Signed stream links may carry access tokens in query or fragment.
+  // Keep enough information to diagnose which host/path failed without
+  // exposing credentials in log output.
+  String _safeLogUri(Uri uri) => uri.replace(
+        userInfo: '',
+        query: null,
+        fragment: null,
+      ).toString();
 
   String _cacheKey(ProviderResolveRequest request) {
     return [
