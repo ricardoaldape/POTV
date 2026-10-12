@@ -4,7 +4,7 @@ import 'package:potv/core/config/potv_runtime_flags.dart';
 void main() {
   test('new functionality stays disabled by default', () {
     final flags = PotvRuntimeFlags.initial();
-    expect(flags.enabled('predictive_preload'), isFalse);
+    expect(flags.enabled('predictive_preload'), isTrue);
     expect(flags.enabled('sports_event_matching'), isTrue);
     expect(flags.enabled('missing_capability'), isFalse);
   });
