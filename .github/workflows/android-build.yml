@@ -53,7 +53,20 @@ jobs:
         run: flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release
+        env:
+          POTV_SIGNED_FLAGS_URL: ${{ vars.POTV_SIGNED_FLAGS_URL }}
+          POTV_FLAGS_ED25519_PUBLIC_KEY: ${{ vars.POTV_FLAGS_ED25519_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          args=()
+          if [ -n "$POTV_SIGNED_FLAGS_URL" ] && [ -n "$POTV_FLAGS_ED25519_PUBLIC_KEY" ]; then
+            args+=("--dart-define=POTV_SIGNED_FLAGS_URL=$POTV_SIGNED_FLAGS_URL")
+            args+=("--dart-define=POTV_FLAGS_ED25519_PUBLIC_KEY=$POTV_FLAGS_ED25519_PUBLIC_KEY")
+          elif [ -n "$POTV_SIGNED_FLAGS_URL" ] || [ -n "$POTV_FLAGS_ED25519_PUBLIC_KEY" ]; then
+            echo "Both signed flag build variables are required." >&2
+            exit 1
+          fi
+          flutter build apk --release "${args[@]}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
