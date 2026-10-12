@@ -1,0 +1,53 @@
+# POTV bot + account backend
+
+This directory is the reproducible source for the POTV Telegram bot and the
+account/subscription API consumed by the Flutter app.
+
+## Included
+
+- `app.py`: Telegram polling + HTTP API.
+- `account_store.py`: local SQLite accounts, password hashing, sessions,
+  password recovery, Telegram linkage and subscription synchronization.
+- `potv_ops.py`: sales/support/community bot workflows.
+- `group_config.py`: deployment routing loaded from environment variables.
+- `account_store_smoke.py`: isolated account lifecycle test.
+- `qa_smoke.py`: isolated sales/support/admin authorization regression test.
+
+No production token, database, recovery code, license token or private
+credential belongs in GitHub.
+
+## API contract used by the app
+
+- `POST /api/v1/account/register`
+- `POST /api/v1/account/login`
+- `GET /api/v1/account/session`
+- `POST /api/v1/account/logout`
+- `POST /api/v1/account/recover`
+- `POST /api/v1/account/recover/confirm`
+- `POST /api/v1/link/claim`
+- `GET /api/v1/license/status`
+
+Recovery is intentionally non-enumerating: the request endpoint responds as
+accepted even when no linked account exists. When a linked Telegram account is
+available, the short-lived recovery code is sent privately through the bot.
+Password changes invalidate existing account sessions.
+
+## Local verification
+
+```bash
+cd backend/potv-bot
+python3 -m py_compile app.py account_store.py potv_ops.py group_config.py
+python3 account_store_smoke.py
+python3 qa_smoke.py
+POTV_DB=/tmp/potv-self-test.sqlite3 python3 app.py --self-test
+```
+
+## Deployment
+
+Copy `.env.example` to the server's protected environment configuration,
+provide the real values there, keep the SQLite database outside version
+control, and run `app.py` behind the existing HTTPS reverse proxy.
+
+The Flutter client contract is defined in
+`lib/config/subscription_endpoint.dart`. The production base remains
+`https://potv.fxqubit.com/api/v1`.
