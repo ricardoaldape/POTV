@@ -3,19 +3,24 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
+import '../../data/catalog/series_episode_repository.dart';
+import '../../data/sources/unified_source_resolver.dart';
 import '../../domain/models/playback_history_entry.dart';
+import '../../domain/models/media_item.dart';
+import '../../domain/services/stream_candidate_ranker.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import 'secure_webview_player.dart';
 import 'spanish_track_selector.dart';
 
-class PlayerScreen extends StatefulWidget {
+class PlayerScreen extends ConsumerStatefulWidget {
   final PlaybackSession session;
 
   const PlayerScreen({
@@ -42,10 +47,10 @@ class PlayerScreen extends StatefulWidget {
   }
 
   @override
-  State<PlayerScreen> createState() => _PlayerScreenState();
+  ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Player? player;
   VideoController? videoController;
   Timer? hideTimer;
@@ -56,6 +61,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   DateTime? _startupStartedAt;
   StreamSubscription<String>? playerErrorSubscription;
   StreamSubscription<Tracks>? tracksSubscription;
+  StreamSubscription<bool>? completedSubscription;
+  bool _autoNextAttempted = false;
+  bool _advancingEpisode = false;
+  late PlaybackSession _session;
   bool _autoAudioSelected = false;
   bool _autoSubtitleSelected = false;
   bool _manualAudioSelected = false;
@@ -67,11 +76,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final historyRepository = const PlaybackHistoryRepository();
 
   StreamCandidate get currentStream =>
-      widget.session.candidates[currentIndex];
+      _session.candidates[currentIndex];
 
   @override
   void initState() {
     super.initState();
+    _session = widget.session;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     currentIndex = widget.session.initialIndex
         .clamp(0, widget.session.candidates.length - 1)
@@ -89,6 +99,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     unawaited(playingSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(tracksSubscription?.cancel());
+    unawaited(completedSubscription?.cancel());
     unawaited(_saveProgress());
     player?.dispose();
     super.dispose();
@@ -108,6 +119,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     playerErrorSubscription = null;
     await tracksSubscription?.cancel();
     tracksSubscription = null;
+    await completedSubscription?.cancel();
+    completedSubscription = null;
+    _autoNextAttempted = false;
     _autoAudioSelected = false;
     _autoSubtitleSelected = false;
     _manualAudioSelected = false;
@@ -188,6 +202,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
           );
           tracksSubscription = nextPlayer.stream.tracks.listen(
             (tracks) => _autoSelectSpanishTracks(nextPlayer, tracks),
+          );
+          completedSubscription = nextPlayer.stream.completed.listen(
+            (completed) {
+              if (completed && !_autoNextAttempted) {
+                _autoNextAttempted = true;
+                unawaited(_advanceEpisode());
+              }
+            },
           );
           _autoSelectSpanishTracks(nextPlayer, nextPlayer.state.tracks);
           if (effectiveResumeAt != null &&
@@ -376,7 +398,78 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  void _autoSelectSpanishTracks(Player current, Tracks tracks) {
+  Future<void> _advanceEpisode() async {
+    if (!mounted || _advancingEpisode || _session.isLive) return;
+    final current = _session.playbackContext;
+    if (current == null ||
+        current.mediaType != 'tv' ||
+        current.season == null ||
+        current.episode == null) return;
+
+    _advancingEpisode = true;
+    try {
+      final item = MediaItem(
+        id: current.mediaId,
+        type: MediaType.tv,
+        title: current.title,
+        externalId: current.externalId,
+      );
+      final episodes = await ref.read(seriesEpisodeRepositoryProvider)
+          .load(item).timeout(const Duration(seconds: 9));
+      if (!mounted || episodes.isEmpty) return;
+      final index = episodes.indexWhere((entry) =>
+          entry.season == current.season &&
+          entry.episode == current.episode);
+      if (index < 0 || index + 1 >= episodes.length) return;
+      final nextEpisode = episodes[index + 1];
+
+      final candidates = await ref.read(unifiedSourceResolverProvider).resolve(
+        mediaType: 'tv',
+        mediaId: current.mediaId.toString(),
+        externalId: current.externalId,
+        title: current.title,
+        season: nextEpisode.season,
+        episode: nextEpisode.episode,
+      ).timeout(const Duration(seconds: 19));
+      final playable = const StreamCandidateRanker().rank(
+        candidates.where((candidate) =>
+          candidate.backend == PlaybackBackend.native,
+        ).toList(growable: false),
+      );
+      if (playable.isEmpty || !mounted) return;
+
+      // Store progress against the old episode before switching context.
+      await _saveProgress();
+      historyTimer?.cancel();
+      await completedSubscription?.cancel();
+      completedSubscription = null;
+      final previousPlayer = player;
+      player = null;
+      await previousPlayer?.dispose();
+
+      _session = PlaybackSession(
+        title: '${current.title} · T${nextEpisode.season} E${nextEpisode.episode}',
+        candidates: playable,
+        playbackContext: PlaybackContext(
+          mediaId: current.mediaId,
+          mediaType: current.mediaType,
+          title: current.title,
+          externalId: current.externalId,
+          season: nextEpisode.season,
+          episode: nextEpisode.episode,
+          poster: current.poster,
+        ),
+      );
+      currentIndex = 0;
+      await _openCurrent(resumeAt: Duration.zero);
+    } catch (_) {
+      addDebugLog('Player: el siguiente episodio no está disponible');
+    } finally {
+      _advancingEpisode = false;
+    }
+  }
+
+    void _autoSelectSpanishTracks(Player current, Tracks tracks) {
     if (!mounted || player != current) return;
 
     final spanishAudio = SpanishTrackSelector.preferredAudio(tracks.audio);
