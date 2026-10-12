@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:potv/data/resolution/source_aggregator.dart';
 import 'package:potv/domain/models/stream_candidate.dart';
@@ -334,6 +335,46 @@ void main() {
 
     expect(result.candidates.single.id, 'fast-playable-stream');
     expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 250)));
+  });
+
+  test('clearing cache during an in-flight request does not restore stale results', () async {
+    final first = Completer<List<StreamCandidate>>();
+    var calls = 0;
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'delayed',
+        displayName: 'Delayed',
+        priority: 1,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) {
+          calls++;
+          if (calls == 1) return first.future;
+          return Future.value([
+            StreamCandidate(
+              id: 'fresh',
+              label: 'Fresh',
+              uri: Uri.parse('https://example.org/fresh.mp4'),
+            ),
+          ]);
+        },
+      ),
+    ], firstCandidateGrace: Duration.zero);
+
+    const request = ProviderResolveRequest(mediaType: 'movie', mediaId: '99');
+    final stale = aggregator.resolve(request);
+    aggregator.clearCache();
+    first.complete([
+      StreamCandidate(
+        id: 'stale',
+        label: 'Stale',
+        uri: Uri.parse('https://example.org/stale.mp4'),
+      ),
+    ]);
+    await stale;
+
+    final refreshed = await aggregator.resolve(request);
+    expect(calls, 2);
+    expect(refreshed.candidates.single.id, 'fresh');
   });
 
 }
