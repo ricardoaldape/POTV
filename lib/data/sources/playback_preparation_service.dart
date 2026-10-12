@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/addons/stremio_subtitle_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
@@ -16,6 +17,7 @@ final playbackPreparationServiceProvider = Provider<PlaybackPreparationService>(
   return PlaybackPreparationService(
     resolver: ref.read(unifiedSourceResolverProvider),
     probe: ref.read(streamCandidateProbeProvider),
+    subtitleService: ref.read(stremioSubtitleServiceProvider),
   );
 });
 
@@ -78,11 +80,13 @@ class PlaybackPreparationRequest {
 class PreparedPlayback {
   final PlaybackPreparationRequest request;
   final List<StreamCandidate> candidates;
+  final List<PlaybackSubtitle> subtitles;
   final DateTime preparedAt;
 
   const PreparedPlayback({
     required this.request,
     required this.candidates,
+    this.subtitles = const [],
     required this.preparedAt,
   });
 }
@@ -99,6 +103,7 @@ class PlaybackPreparationService {
 
   final UnifiedSourceResolver resolver;
   final StreamCandidateProbe probe;
+  final StremioSubtitleService subtitleService;
   final StreamServerHealthRepository healthRepository;
   final Map<String, PreparedPlayback> _cache = {};
   final Map<String, Future<PreparedPlayback>> _inflight = {};
@@ -106,6 +111,7 @@ class PlaybackPreparationService {
   PlaybackPreparationService({
     required this.resolver,
     required this.probe,
+    required this.subtitleService,
     this.healthRepository = const StreamServerHealthRepository(),
   });
 
@@ -157,21 +163,47 @@ class PlaybackPreparationService {
       probed,
     );
 
+    var subtitles = const <PlaybackSubtitle>[];
+    if (healthy.isNotEmpty) {
+      try {
+        final found = await subtitleService.forPlayback(request.playbackContext);
+        subtitles = [
+          for (final subtitle in found.where((value) => value.isSpanish).take(6))
+            PlaybackSubtitle(
+              uri: subtitle.url,
+              language: subtitle.language,
+              label: subtitle.label,
+            ),
+        ];
+      } catch (_) {
+        // External subtitles are optional; video preparation must still finish.
+      }
+    }
+
     final prepared = PreparedPlayback(
       request: request,
       candidates: List.unmodifiable(healthy),
+      subtitles: List.unmodifiable(subtitles),
       preparedAt: DateTime.now(),
     );
     _cache[request.cacheKey] = prepared;
     _trim();
 
     if (healthy.isNotEmpty) {
-      unawaited(_preloadBest(healthy.first, request.title));
+      unawaited(_preloadBest(
+        healthy.first,
+        request.title,
+        subtitles,
+      ));
     }
     return prepared;
   }
 
-  Future<void> _preloadBest(StreamCandidate candidate, String title) async {
+  Future<void> _preloadBest(
+    StreamCandidate candidate,
+    String title,
+    List<PlaybackSubtitle> subtitles,
+  ) async {
     if (!Platform.isAndroid ||
         candidate.backend != PlaybackBackend.native ||
         candidate.headers.isNotEmpty ||
@@ -184,6 +216,14 @@ class PlaybackPreparationService {
         'uri': candidate.uri.toString(),
         'title': title,
         'durationMs': 3000,
+        'subtitles': [
+          for (final subtitle in subtitles)
+            {
+              'uri': subtitle.uri.toString(),
+              'language': subtitle.language,
+              'label': subtitle.label,
+            },
+        ],
       });
     } on PlatformException {
       // Preload is opportunistic; normal playback remains authoritative.
