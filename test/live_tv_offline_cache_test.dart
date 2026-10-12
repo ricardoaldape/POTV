@@ -2,8 +2,29 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:potv/data/live_tv/built_in_live_sources.dart';
+import 'package:potv/domain/models/live_channel.dart';
+import 'package:potv/domain/models/stream_candidate.dart';
 import 'package:potv/data/live_tv/live_tv_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _BuiltInFixture extends BuiltInLiveSourceRegistry {
+  _BuiltInFixture() : super(Dio());
+
+  @override
+  Future<List<LiveChannel>> mexico() async => [
+        LiveChannel(
+          id: 'safe-public',
+          name: 'Public TV',
+          stream: StreamCandidate(
+            id: 'public-stream',
+            label: 'Public TV',
+            uri: Uri.parse('https://example.org/public.m3u8'),
+          ),
+        ),
+      ];
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -71,4 +92,20 @@ void main() {
     await repository.saveSource('https://different.example/tv');
     await expectLater(repository.loadChannels(), throwsA(isA<DioException>()));
   });
+  test('provider outage still shows built-in channels', () async {
+    final repository = LiveTvRepository(dio, supportDirectory: directory);
+    await repository.saveSource('https://offline.example/list.m3u');
+    serviceAvailable = false;
+
+    final container = ProviderContainer(overrides: [
+      liveTvRepositoryProvider.overrideWithValue(repository),
+      builtInLiveSourceRegistryProvider.overrideWithValue(_BuiltInFixture()),
+    ]);
+    addTearDown(container.dispose);
+
+    final channels = await container.read(liveChannelsProvider.future);
+    expect(channels, hasLength(1));
+    expect(channels.single.name, 'Public TV');
+  });
+
 }
