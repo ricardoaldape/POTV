@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
@@ -15,6 +16,7 @@ import '../../data/addons/stremio_subtitle_service.dart';
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
 import '../../data/history/stream_server_health_repository.dart';
+import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
@@ -23,7 +25,7 @@ import 'media3_player_surface.dart';
 import 'player_preferences.dart';
 import 'secure_webview_player.dart';
 
-class PlayerScreen extends StatefulWidget {
+class PlayerScreen extends ConsumerStatefulWidget {
   final PlaybackSession session;
 
   const PlayerScreen({
@@ -50,10 +52,10 @@ class PlayerScreen extends StatefulWidget {
   }
 
   @override
-  State<PlayerScreen> createState() => _PlayerScreenState();
+  ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Player? player;
   VideoController? videoController;
   Media3PlayerController? media3Controller;
@@ -63,10 +65,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool preferencesLoaded = false;
   bool media3Ready = false;
   Timer? media3StateTimer;
+  Timer? nextPreloadTimer;
   Timer? hideTimer;
   Timer? historyTimer;
   Timer? startupTimer;
   StreamSubscription<bool>? playingSubscription;
+  StreamSubscription<bool>? completedSubscription;
   StreamSubscription<Tracks>? _tracksSubscription;
   final _languageSelector = const PlaybackLanguageSelector();
   List<StremioSubtitle> _externalSubtitleOptions = const [];
@@ -78,6 +82,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _openGeneration = 0;
   int _consecutiveInterruptions = 0;
   bool _handlingPlaybackError = false;
+  bool _advancingEpisode = false;
   StreamSubscription<String>? playerErrorSubscription;
   bool controlsVisible = true;
   bool failoverInProgress = false;
@@ -120,8 +125,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     historyTimer?.cancel();
     startupTimer?.cancel();
     media3StateTimer?.cancel();
+    nextPreloadTimer?.cancel();
     media3Controller?.dispose();
     unawaited(playingSubscription?.cancel());
+    unawaited(completedSubscription?.cancel());
     unawaited(_tracksSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
@@ -139,6 +146,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _startupPlaying = false;
     await playingSubscription?.cancel();
     playingSubscription = null;
+    await completedSubscription?.cancel();
+    completedSubscription = null;
+    nextPreloadTimer?.cancel();
+    nextPreloadTimer = null;
     await _tracksSubscription?.cancel();
     _tracksSubscription = null;
     _audioAutoSelected = false;
@@ -187,6 +198,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final nextPlayer = Player();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
+          completedSubscription = nextPlayer.stream.completed.listen((ended) {
+            if (ended && mounted && generation == _openGeneration) {
+              unawaited(_autoplayNextEpisode());
+            }
+          });
 
           _tracksSubscription = nextPlayer.stream.tracks.listen((tracks) {
             if (!mounted || generation != _openGeneration) return;
@@ -209,6 +225,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               unawaited(serverHealthRepository.reportPlaying(
                 _serverMediaKey, currentStream,
               ));
+              _scheduleNextPreload();
             }
           });
           playerErrorSubscription = nextPlayer.stream.error.listen((message) {
@@ -303,6 +320,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  void _scheduleNextPreload() {
+    nextPreloadTimer?.cancel();
+    if (!playerPreferences.autoplayNext || widget.session.autoplayQueue.isEmpty) {
+      return;
+    }
+    nextPreloadTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      final next = widget.session.autoplayQueue.first;
+      unawaited(
+        ref
+            .read(playbackPreparationServiceProvider)
+            .prepare(PlaybackPreparationRequest.fromContext(next)),
+      );
+    });
+  }
+
+  Future<void> _autoplayNextEpisode() async {
+    if (_advancingEpisode ||
+        !mounted ||
+        !playerPreferences.autoplayNext ||
+        widget.session.autoplayQueue.isEmpty) {
+      return;
+    }
+    _advancingEpisode = true;
+    try {
+      final next = widget.session.autoplayQueue.first;
+      final prepared = await ref
+          .read(playbackPreparationServiceProvider)
+          .prepare(PlaybackPreparationRequest.fromContext(next));
+      if (!mounted || prepared.candidates.isEmpty) return;
+
+      final title = next.mediaType == 'tv'
+          ? next.title +
+              ' · T' +
+              (next.season ?? 1).toString() +
+              ' E' +
+              (next.episode ?? 1).toString()
+          : next.title + ' · E' + (next.episode ?? 1).toString();
+
+      context.pushReplacement(
+        '/player',
+        extra: PlaybackSession(
+          title: title,
+          candidates: prepared.candidates,
+          playbackContext: next,
+          subtitles: prepared.subtitles,
+          autoplayQueue:
+              widget.session.autoplayQueue.skip(1).toList(growable: false),
+        ),
+      );
+    } catch (_) {
+      addDebugLog('Player: no se pudo preparar el siguiente episodio');
+    } finally {
+      _advancingEpisode = false;
+    }
+  }
+
   Duration? get _currentPosition {
     final p = player;
     if (p != null) return p.state.position;
@@ -337,9 +411,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
             currentStream,
           ),
         );
+        _scheduleNextPreload();
       },
       onEnded: () {
         addDebugLog('Player: contenido finalizado');
+        unawaited(_autoplayNextEpisode());
       },
     );
 
