@@ -27,8 +27,12 @@ class SportsChannelResolver {
     required List<LiveChannel> channels,
     required List<EpgProgram> programs,
   }) {
-    final home = _tokens(event.home);
-    final away = _tokens(event.away);
+    final homeTokens = _tokens(event.home);
+    final awayTokens = _tokens(event.away);
+    // Exclude shared geographic/city tokens. E.g. Giants and Jets both
+    // contain "New York", which must not count as matching BOTH teams.
+    final home = homeTokens.difference(awayTokens);
+    final away = awayTokens.difference(homeTokens);
     if (home.isEmpty || away.isEmpty) return const [];
 
     final results = <SportsChannelMatch>[];
@@ -38,7 +42,7 @@ class SportsChannelResolver {
         if (!_sameChannel(channel, program)) continue;
         // Allow a short lead-in while rejecting a totally unrelated programme.
         final leadIn = event.startsAt.subtract(const Duration(minutes: 45));
-        final latestStart = event.startsAt.add(const Duration(minutes: 60));
+        final latestStart = event.startsAt.add(const Duration(minutes: 25));
         if (program.endsAt.isBefore(event.startsAt) ||
             program.startsAt.isAfter(latestStart) ||
             program.endsAt.isBefore(leadIn)) {
