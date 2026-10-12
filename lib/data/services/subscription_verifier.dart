@@ -1,43 +1,53 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../config/subscription_endpoint.dart';
 
 class SubscriptionResult {
-  final bool valid;
+  final bool linked;
+  final String status;
   final DateTime? expiresAt;
   final String? reason;
   final String? plan;
-  final String? licenseToken;
+  final String? telegramChatId;
 
-  SubscriptionResult({
-    required this.valid,
+  const SubscriptionResult({
+    required this.linked,
+    required this.status,
     this.expiresAt,
     this.reason,
     this.plan,
-    this.licenseToken,
+    this.telegramChatId,
   });
 
-  factory SubscriptionResult.fromJson(Map<String, dynamic> json) {
-    return SubscriptionResult(
-      valid: json['status'] == 'active' || (json['valid'] as bool? ?? false),
-      expiresAt: json['expires_at'] != null ? DateTime.parse(json['expires_at'] as String).toUtc() : null,
-      reason: json['error'] as String?,
-      plan: json['plan'] as String?,
-      licenseToken: json['license_token'] as String?,
-    );
-  }
+  bool get active => status == 'active';
+
+  factory SubscriptionResult.fromJson(Map<String, dynamic> json) =>
+      SubscriptionResult(
+        linked: json['ok'] == true,
+        status: json['status']?.toString() ?? 'free',
+        expiresAt: DateTime.tryParse(json['expires_at']?.toString() ?? '')?.toUtc(),
+        reason: json['error']?.toString(),
+        plan: json['plan']?.toString(),
+        telegramChatId: json['telegram_chat_id']?.toString(),
+      );
 }
 
 class SubscriptionVerifier {
-  final Dio _dio;
   static const _deviceKey = 'potv_device_id';
-  static const _licenseKey = 'potv_license_token';
+  static const _licenseKey = 'potv_license_token_v2';
+  final Dio _dio;
+  final FlutterSecureStorage _secure;
 
-  SubscriptionVerifier([Dio? dio]) : _dio = dio ?? Dio();
+  SubscriptionVerifier({
+    Dio? dio,
+    FlutterSecureStorage? secureStorage,
+  })  : _dio = dio ?? Dio(),
+        _secure = secureStorage ?? const FlutterSecureStorage();
 
   Future<String> _deviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -49,34 +59,51 @@ class SubscriptionVerifier {
     return id;
   }
 
-  Future<SubscriptionResult> verifyCode(String code) async {
+  Future<SubscriptionResult> verifyCode(
+    String code, {
+    String? accountSessionToken,
+  }) async {
     try {
-      final url = SubscriptionEndpoint.verifyUrl;
-      final deviceId = await _deviceId();
-      final body = json.encode({'code': code, 'device_id': deviceId});
-      final resp = await _dio.post(url,
-          data: body,
-          options: Options(headers: {'Content-Type': 'application/json'})).timeout(const Duration(seconds: 15));
-
-      if (resp.statusCode == 200 || resp.statusCode == 201) {
-        final data = resp.data is String ? json.decode(resp.data as String) as Map<String, dynamic> : resp.data as Map<String, dynamic>;
-        final result = SubscriptionResult.fromJson(data);
-        if (result.licenseToken != null && result.licenseToken!.isNotEmpty) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(_licenseKey, result.licenseToken!);
-        }
-        return result;
+      final response = await _dio
+          .post(
+            SubscriptionEndpoint.verifyUrl,
+            data: json.encode({
+              'code': code.trim().toUpperCase(),
+              'device_id': await _deviceId(),
+            }),
+            options: Options(
+              headers: {
+                'Content-Type': 'application/json',
+                if (accountSessionToken != null && accountSessionToken.isNotEmpty)
+                  'Authorization': 'Bearer $accountSessionToken',
+              },
+            ),
+          )
+          .timeout(const Duration(seconds: 15));
+      final data = response.data is String
+          ? json.decode(response.data as String) as Map<String, dynamic>
+          : Map<String, dynamic>.from(response.data as Map);
+      final token = data['license_token']?.toString();
+      if (token != null && token.isNotEmpty) {
+        await _secure.write(key: _licenseKey, value: token);
       }
-
-      // Try parse error body
-      if (resp.data != null) {
-        final data = resp.data is String ? json.decode(resp.data as String) as Map<String, dynamic> : resp.data as Map<String, dynamic>;
-        return SubscriptionResult.fromJson(data);
+      return SubscriptionResult.fromJson(data);
+    } on DioException catch (error) {
+      final data = error.response?.data;
+      if (data is Map) {
+        return SubscriptionResult.fromJson(Map<String, dynamic>.from(data));
       }
-
-      return SubscriptionResult(valid: false, reason: 'network');
-    } catch (e) {
-      return SubscriptionResult(valid: false, reason: 'exception');
+      return const SubscriptionResult(
+        linked: false,
+        status: 'free',
+        reason: 'network',
+      );
+    } catch (_) {
+      return const SubscriptionResult(
+        linked: false,
+        status: 'free',
+        reason: 'exception',
+      );
     }
   }
 }

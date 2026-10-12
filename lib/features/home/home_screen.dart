@@ -19,7 +19,14 @@ import 'widgets/media_rail.dart';
 import 'widgets/top_ten_rail.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  final MediaType? initialType;
+  final bool lockType;
+
+  const HomeScreen({
+    super.key,
+    this.initialType,
+    this.lockType = false,
+  });
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -52,11 +59,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
-  MediaType selectedType = MediaType.movie;
+  late MediaType selectedType;
 
   @override
   void initState() {
     super.initState();
+    selectedType = widget.initialType ?? MediaType.movie;
     WidgetsBinding.instance.addObserver(this);
     _catalogTimer = Timer.periodic(
       const Duration(minutes: 2),
@@ -208,12 +216,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           letterSpacing: -0.8,
                         ),
                       ),
-                      const SizedBox(width: 18),
-                      _MediaTypeSwitch(
-                        selected: selectedType,
-                        onChanged: (type) =>
-                            setState(() => selectedType = type),
-                      ),
+                      if (!widget.lockType) ...[
+                        const SizedBox(width: 18),
+                        _MediaTypeSwitch(
+                          selected: selectedType,
+                          onChanged: (type) =>
+                              setState(() => selectedType = type),
+                        ),
+                      ],
                     ],
                   )
                 : const Text(
@@ -230,9 +240,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 icon: const Icon(Icons.search_rounded),
               ),
               IconButton(
-                tooltip: 'Ajustes',
-                onPressed: () => context.go('/settings'),
-                icon: const Icon(Icons.settings_rounded),
+                tooltip: 'Perfil',
+                onPressed: () => context.go('/profile'),
+                icon: const Icon(Icons.account_circle_outlined),
               ),
               if (wideHeader)
                 IconButton(
@@ -249,7 +259,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               const SizedBox(width: 8),
             ],
           ),
-          if (!wideHeader)
+          if (!wideHeader && !widget.lockType)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -295,11 +305,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 },
                 subtitle: switch (selectedType) {
                   MediaType.movie =>
-                    'Elige una película y POTV buscará automáticamente el mejor servidor disponible.',
+                    'Descubre películas y continúa donde te quedaste.',
                   MediaType.tv =>
-                    'Explora series sin salir de la misma pantalla.',
+                    'Tus series, episodios y progreso en un solo lugar.',
                   MediaType.anime =>
-                    'AniList organiza el catálogo; los episodios se resuelven localmente.',
+                    'Explora anime y continúa tus episodios fácilmente.',
                 },
               ),
             ),
@@ -619,7 +629,7 @@ class _HeroFallback extends StatelessWidget {
                     ? 'Preparando tu catálogo…'
                     : error == null
                         ? 'Tu catálogo aparecerá aquí.'
-                        : 'Falta configurar TMDB para cargar metadatos.',
+                        : 'No pudimos cargar el catálogo en este momento.',
                 style: const TextStyle(
                   fontSize: 17,
                   color: Colors.white70,
