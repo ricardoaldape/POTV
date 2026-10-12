@@ -124,9 +124,14 @@ class UserProfilesNotifier extends StateNotifier<List<UserProfile>> {
   }
 
   Future<void> deleteProfile(String id) async {
+    // Every local account must retain at least one profile.
+    if (state.length <= 1 || !state.any((profile) => profile.id == id)) {
+      return;
+    }
     state = state.where((p) => p.id != id).toList();
     final repo = await ref.read(userAccountRepositoryProvider.future);
     await repo.saveProfiles(state);
+    await repo.deleteProfileData(id);
     final currentId = ref.read(currentProfileIdProvider);
     if (currentId == id) {
       if (state.isNotEmpty) {
@@ -155,8 +160,8 @@ class CurrentProfileIdNotifier extends StateNotifier<String?> {
   }
 
   Future<void> set(String? id) async {
-    state = id;
     final repo = await ref.read(userAccountRepositoryProvider.future);
     await repo.saveActiveProfileId(id);
+    state = id;
   }
 }
