@@ -300,6 +300,75 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Duration? get _currentPosition {
+    final p = player;
+    if (p != null) return p.state.position;
+    final state = media3State;
+    if (state != null) return Duration(milliseconds: state.positionMs);
+    return media3ResumeAt;
+  }
+
+  void _attachMedia3Controller(Media3PlayerController controller) {
+    media3Controller?.dispose();
+    media3Controller = controller;
+    controller.setHandlers(
+      onLog: (message) {
+        if (message.isNotEmpty) addDebugLog(message);
+      },
+      onError: (message) {
+        if (mounted) unawaited(_recoverFromPlayerError(message));
+      },
+      onStarted: (startupMs) {
+        if (!mounted) return;
+        _startupPlaying = true;
+        _playbackStartedAt = DateTime.now();
+        startupTimer?.cancel();
+        addDebugLog(
+          'Player: reproducción nativa iniciada en ' +
+              startupMs.toString() +
+              'ms',
+        );
+        unawaited(
+          serverHealthRepository.reportPlaying(
+            _serverMediaKey,
+            currentStream,
+          ),
+        );
+      },
+      onEnded: () {
+        addDebugLog('Player: contenido finalizado');
+      },
+    );
+
+    startupTimer?.cancel();
+    startupTimer = Timer(const Duration(seconds: 12), () {
+      if (!mounted ||
+          failoverInProgress ||
+          _startupPlaying ||
+          media3Controller != controller) {
+        return;
+      }
+      unawaited(_autoFailover('La señal no inició a tiempo'));
+    });
+
+    media3StateTimer?.cancel();
+    media3StateTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(_refreshMedia3State(controller)),
+    );
+    unawaited(_refreshMedia3State(controller));
+  }
+
+  Future<void> _refreshMedia3State(Media3PlayerController controller) async {
+    try {
+      final state = await controller.state();
+      if (!mounted || state == null || media3Controller != controller) return;
+      setState(() => media3State = state);
+    } catch (_) {
+      // State polling is only for controls/history; playback continues.
+    }
+  }
+
   /// Recover a stream interruption twice on the same source; after the
   /// third consecutive interruption, move on to the next server. A playback
   /// that remained healthy for over one minute clears the prior interruption
@@ -326,7 +395,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_startupPlaying && _consecutiveInterruptions < 2) {
       _consecutiveInterruptions++;
       failoverInProgress = true;
-      final resumeAt = widget.session.isLive ? null : player?.state.position;
+      final resumeAt = widget.session.isLive ? null : _currentPosition;
       addDebugLog('Player: recuperando fuente ${_consecutiveInterruptions}/2');
       try {
         await _openCurrent(resumeAt: resumeAt);
@@ -358,7 +427,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     failoverInProgress = true;
     _consecutiveInterruptions = 0;
-    final resumeAt = player?.state.position;
+    final resumeAt = _currentPosition;
     final failed = currentStream.label;
     currentIndex += 1;
     addDebugLog('Player: ${safePlaybackErrorForLog(failed)} falló; probando ${safePlaybackErrorForLog(currentStream.label)}');
@@ -453,7 +522,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    final resumeAt = player?.state.position;
+    final resumeAt = _currentPosition;
     if (mounted) Navigator.of(context).pop();
     currentIndex = index;
     _consecutiveInterruptions = 0;
