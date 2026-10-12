@@ -26,6 +26,9 @@ final potvRouter = GoRouter(
       builder: (context, state, child) => PotvShell(child: child),
       routes: [
         GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
+        GoRoute(path: '/movies', builder: (context, state) => const HomeScreen(initialType: MediaType.movie)),
+        GoRoute(path: '/series', builder: (context, state) => const HomeScreen(initialType: MediaType.tv)),
+        GoRoute(path: '/anime', builder: (context, state) => const HomeScreen(initialType: MediaType.anime)),
         GoRoute(path: '/live', builder: (context, state) => const LiveTvScreen()),
         GoRoute(path: '/sports', builder: (context, state) => const SportsHubScreen()),
         GoRoute(path: '/youtube', builder: (context, state) => const YoutubeScreen()),
