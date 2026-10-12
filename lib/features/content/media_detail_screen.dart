@@ -229,13 +229,6 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   children: [
                     Chip(label: Text(item.typeLabel)),
                     if (item.year != null) Chip(label: Text(item.year!)),
-                    Chip(
-                      label: Text(
-                        item.type == MediaType.anime
-                            ? 'AniList ${item.id}'
-                            : 'TMDB ${item.id}',
-                      ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 18),
