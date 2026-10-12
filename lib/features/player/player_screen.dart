@@ -461,11 +461,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _saveProgress() async {
     final playbackContext = widget.session.playbackContext;
-    final p = player;
-    if (playbackContext == null || p == null) return;
+    if (playbackContext == null) return;
 
-    final position = p.state.position;
-    final duration = p.state.duration;
+    final p = player;
+    final nativeState = media3State;
+    final position = p?.state.position ??
+        (nativeState == null
+            ? Duration.zero
+            : Duration(milliseconds: nativeState.positionMs));
+    final duration = p?.state.duration ??
+        (nativeState == null
+            ? Duration.zero
+            : Duration(milliseconds: nativeState.durationMs));
     if (position < const Duration(seconds: 2)) return;
 
     await historyRepository.save(
@@ -569,6 +576,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _showAudioTracks() async {
+    final native = media3Controller;
+    if (native != null) {
+      final tracks = await native.audioTracks();
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: const Color(0xFF0D1418),
+        builder: (context) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(title: Text('Audio')),
+              for (final track in tracks.where((value) => value.supported))
+                ListTile(
+                  leading: Icon(
+                    track.selected
+                        ? Icons.check_circle
+                        : Icons.circle_outlined,
+                  ),
+                  title: Text(track.displayName),
+                  onTap: () {
+                    unawaited(native.selectAudio(track));
+                    Navigator.of(context).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
+
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.audio;
@@ -670,6 +709,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _showSubtitleTracks() async {
+    final native = media3Controller;
+    if (native != null) {
+      final tracks = await native.subtitleTracks();
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: const Color(0xFF0D1418),
+        builder: (context) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.subtitles_off_rounded),
+                title: const Text('Desactivados'),
+                onTap: () {
+                  unawaited(native.disableSubtitles());
+                  Navigator.of(context).pop();
+                },
+              ),
+              for (final track in tracks.where((value) => value.supported))
+                ListTile(
+                  leading: Icon(
+                    track.selected
+                        ? Icons.check_circle
+                        : Icons.closed_caption_rounded,
+                  ),
+                  title: Text(track.displayName),
+                  onTap: () {
+                    unawaited(native.selectSubtitle(track));
+                    Navigator.of(context).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
+
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.subtitle;
