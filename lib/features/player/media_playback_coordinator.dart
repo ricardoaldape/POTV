@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/catalog/series_episode_repository.dart';
 import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
@@ -89,6 +90,13 @@ class MediaPlaybackCoordinator {
         return;
       }
 
+      final autoplayQueue = await _autoplayQueue(
+        ref,
+        item,
+        season: season,
+        episode: episode,
+      );
+
       final title = switch (item.type) {
         MediaType.movie => item.title,
         MediaType.tv => '${item.title} · T$season E$episode',
@@ -103,6 +111,7 @@ class MediaPlaybackCoordinator {
           candidates: playable,
           playbackContext: playbackContext,
           subtitles: prepared.subtitles,
+          autoplayQueue: autoplayQueue,
         ),
       );
     } catch (error) {
@@ -118,6 +127,55 @@ class MediaPlaybackCoordinator {
           ),
         ),
       );
+    }
+  }
+
+  static Future<List<PlaybackContext>> _autoplayQueue(
+    WidgetRef ref,
+    MediaItem item, {
+    int? season,
+    int? episode,
+  }) async {
+    if (episode == null || item.type == MediaType.movie) return const [];
+
+    if (item.type == MediaType.anime) {
+      final count = item.episodeCount;
+      if (count == null || episode >= count) return const [];
+      final end = (episode + 20).clamp(episode + 1, count);
+      return [
+        for (var next = episode + 1; next <= end; next++)
+          PlaybackContext(
+            mediaId: item.id,
+            mediaType: item.mediaTypeName,
+            title: item.title,
+            externalId: item.externalId,
+            episode: next,
+            poster: item.poster?.toString(),
+          ),
+      ];
+    }
+
+    try {
+      final episodes =
+          await ref.read(seriesEpisodeRepositoryProvider).load(item);
+      final index = episodes.indexWhere(
+        (value) => value.season == season && value.episode == episode,
+      );
+      if (index < 0 || index + 1 >= episodes.length) return const [];
+      return [
+        for (final next in episodes.skip(index + 1).take(20))
+          PlaybackContext(
+            mediaId: item.id,
+            mediaType: item.mediaTypeName,
+            title: item.title,
+            externalId: item.externalId,
+            season: next.season,
+            episode: next.episode,
+            poster: item.poster?.toString(),
+          ),
+      ];
+    } catch (_) {
+      return const [];
     }
   }
 
