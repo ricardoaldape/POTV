@@ -38,7 +38,16 @@ class LiveTvRepository {
 
   Future<void> saveSource(String value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_sourceKey, value.trim());
+    final next = value.trim();
+    final previous = prefs.getString(_sourceKey);
+    if (previous != next || prefs.getString(_sourceKindKey) != 'url') {
+      final dir = await getApplicationSupportDirectory();
+      final oldCache = File(
+        '${dir.path}${Platform.pathSeparator}$_lastGoodPath',
+      );
+      if (await oldCache.exists()) await oldCache.delete();
+    }
+    await prefs.setString(_sourceKey, next);
     await prefs.setString(_sourceKindKey, 'url');
   }
 
