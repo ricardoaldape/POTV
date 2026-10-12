@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import 'core/config/potv_runtime_flags.dart';
 import 'core/config/potv_signed_flag_updater.dart';
@@ -17,6 +18,11 @@ Future<void> main() async {
   MediaKit.ensureInitialized();
 
   final preferences = await SharedPreferences.getInstance();
+  // Stable, non-identifying random installation ID for gradual flag rollout
+  // and existing Telegram device linking. It is never used as authentication.
+  if (preferences.getString('potv_device_id')?.isEmpty ?? true) {
+    await preferences.setString('potv_device_id', const Uuid().v4());
+  }
   final runtimeFlags = PotvRuntimeFlagStore(preferences)..load();
   final container = ProviderContainer(overrides: [
     potvRuntimeFlagStoreProvider.overrideWith((ref) => runtimeFlags),
