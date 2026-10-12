@@ -19,5 +19,3 @@ try:
 finally:
     try: os.remove(path)
     except OSError: pass
-
-[executed on device: fxqubit-businessos (4752ac85-5d45-47c0-ba24-804019314917)]
