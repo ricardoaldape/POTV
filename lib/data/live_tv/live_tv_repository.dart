@@ -137,20 +137,26 @@ class LiveTvRepository {
 }
 
 class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
-  @override
-  Future<List<LiveChannel>> build() async {
+  Future<List<LiveChannel>> _loadResiliently() async {
+    // A failing user-configured provider cannot suppress the public/default TV
+    // catalogue. The repository itself first tries its last valid M3U cache.
     final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-    final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-    return _mergeChannels(builtIn, custom);
+    try {
+      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+      return _mergeChannels(builtIn, custom);
+    } catch (_) {
+      return builtIn;
+    }
   }
+
+  @override
+  Future<List<LiveChannel>> build() => _loadResiliently();
 
   Future<void> setSource(String url) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       await ref.read(liveTvRepositoryProvider).saveSource(url);
-      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-      return _mergeChannels(builtIn, custom);
+      return _loadResiliently();
     });
     ref.invalidate(epgProgramsProvider);
   }
@@ -159,9 +165,7 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       await ref.read(liveTvRepositoryProvider).saveLocalPlaylist(raw);
-      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-      return _mergeChannels(builtIn, custom);
+      return _loadResiliently();
     });
     ref.invalidate(epgProgramsProvider);
   }
@@ -169,9 +173,7 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-      return _mergeChannels(builtIn, custom);
+      return _loadResiliently();
     });
   }
 
