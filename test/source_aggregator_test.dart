@@ -433,4 +433,35 @@ void main() {
         ProviderCircuitState.closed);
   });
 
+
+  test('does not cache expiring signed stream URLs', () async {
+    var requests = 0;
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'signed-source',
+        displayName: 'Signed Fixture',
+        priority: 1,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) async {
+          requests++;
+          return [
+            StreamCandidate(
+              id: 'signed-$requests',
+              label: 'Authorized fixture',
+              uri: Uri.parse(
+                'https://example.org/clip.m3u8?token=secret-$requests&expires=200',
+              ),
+            ),
+          ];
+        },
+      ),
+    ]);
+    const request = ProviderResolveRequest(mediaType: 'movie', mediaId: 'signed');
+    final first = await aggregator.resolve(request);
+    final second = await aggregator.resolve(request);
+    expect(requests, 2);
+    expect(first.candidates.single.id, 'signed-1');
+    expect(second.candidates.single.id, 'signed-2');
+  });
+
 }
