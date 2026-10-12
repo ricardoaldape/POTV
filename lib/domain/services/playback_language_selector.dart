@@ -14,12 +14,23 @@ class PlaybackLanguageSelector {
     return 0;
   }
 
-  AudioTrack? preferredAudio(List<AudioTrack> tracks) {
+  AudioTrack? preferredAudio(
+    List<AudioTrack> tracks, {
+    String preferredLanguage = 'es-419',
+  }) {
+    final preference = preferredLanguage.toLowerCase();
+    if (preference == 'original') return null;
+
     AudioTrack? best;
     var bestScore = 0;
     for (final track in tracks) {
       if (track.id == 'auto' || track.id == 'no') continue;
-      final score = _spanishScore(track.language, track.title);
+      final text = '${track.language ?? ''} ${track.title ?? ''}'.toLowerCase();
+      final score = preference.startsWith('en')
+          ? (RegExp(r'(^|[^a-z])(en|eng|english)([^a-z]|$)').hasMatch(text)
+              ? 3
+              : 0)
+          : _spanishScore(track.language, track.title);
       if (score > bestScore) {
         best = track;
         bestScore = score;
