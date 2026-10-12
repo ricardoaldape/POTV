@@ -468,7 +468,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   String _redactError(String message) => message.replaceAll(
-        RegExp(r'https?://\\S+'),
+        RegExp(r'https?://\S+'),
         '[media-url]',
       );
 
