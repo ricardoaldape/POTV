@@ -166,7 +166,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             await nextPlayer.setAudioTrack(
               AudioTrack.uri(
                 externalAudioUri.toString(),
-                title: 'YouTube audio',
+                title: 'Audio alternativo',
               ),
             );
           }
@@ -198,7 +198,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
         break;
       } catch (error, stack) {
-        final errorLog = 'Resolver error: $error';
+        final errorLog = 'Resolver error: ${_redactError(error.toString())}';
         final stackLog = 'Resolver stack: $stack';
         debugPrint(errorLog);
         debugPrint(stackLog);
@@ -467,6 +467,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  String _redactError(String message) => message.replaceAll(
+        RegExp(r'https?://\\S+'),
+        '[media-url]',
+      );
+
   String _safeLogUri(Uri uri) => uri.replace(
         userInfo: '',
         query: null,
@@ -695,7 +700,7 @@ class _PlaybackFailureView extends StatelessWidget {
                     FilledButton.tonalIcon(
                       onPressed: onServers,
                       icon: const Icon(Icons.dns_outlined),
-                      label: const Text('Servidores'),
+                      label: const Text('Opciones'),
                     ),
                 ],
               ),
