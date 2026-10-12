@@ -42,7 +42,7 @@ void main() {
     expect(resolver.resolve(
       event: event, channels: [channel],
       programs: [program('Barcelona vs Real Madrid')],
-    ), hasLength(1);
+    ), hasLength(1));
   });
 
   test('rejects programmes that are not airing at match time', () {
