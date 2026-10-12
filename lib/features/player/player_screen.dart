@@ -15,6 +15,7 @@ import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/addons/stremio_subtitle_service.dart';
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
+import '../../data/history/playback_metrics_repository.dart';
 import '../../data/history/stream_server_health_repository.dart';
 import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/playback_history_entry.dart';
@@ -89,6 +90,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   String? playbackError;
   late int currentIndex;
   final historyRepository = const PlaybackHistoryRepository();
+  final metricsRepository = const PlaybackMetricsRepository();
   final serverHealthRepository = const StreamServerHealthRepository();
 
   String get _serverMediaKey =>
@@ -132,6 +134,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     unawaited(_tracksSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
     unawaited(_saveProgress());
+    final started = _playbackStartedAt;
+    if (started != null) {
+      unawaited(
+        metricsRepository.recordWatchTime(
+          _serverMediaKey,
+          DateTime.now().difference(started),
+        ),
+      );
+    }
     player?.dispose();
     super.dispose();
   }
@@ -220,6 +231,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               final seconds = DateTime.now().difference(openedAt).inSeconds;
               addDebugLog(
                 "Player: '${currentStream.label}' arrancó en ${seconds}s",
+              );
+              unawaited(
+                metricsRepository.recordStartup(
+                  _serverMediaKey,
+                  DateTime.now().difference(openedAt).inMilliseconds,
+                ),
               );
               startupTimer?.cancel();
               unawaited(serverHealthRepository.reportPlaying(
@@ -405,6 +422,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               startupMs.toString() +
               'ms',
         );
+        unawaited(metricsRepository.recordStartup(_serverMediaKey, startupMs));
         unawaited(
           serverHealthRepository.reportPlaying(
             _serverMediaKey,
@@ -499,6 +517,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _serverMediaKey, currentStream,
       ));
     }
+    unawaited(metricsRepository.recordFailure(_serverMediaKey));
     if (currentIndex + 1 >= widget.session.candidates.length) {
       setState(() => playbackError = safePlaybackErrorForLog(message));
       return;
