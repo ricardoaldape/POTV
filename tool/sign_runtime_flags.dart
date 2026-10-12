@@ -6,7 +6,7 @@ import 'package:cryptography/cryptography.dart';
 /// Produces a POTV signed feature-flags envelope for static HTTPS hosting.
 ///
 /// Usage:
-/// POTV_FLAGS_ED25519_PRIVATE_SEED=<base64 32-byte seed>
+/// POTV_FLAGS_ED25519_PRIVATE_SEED=BASE64_PRIVATE_SEED
 /// dart run tool/sign_runtime_flags.dart input_flags.json signed_flags.json
 ///
 /// Never commit or echo the private seed. Only use this from an operator
