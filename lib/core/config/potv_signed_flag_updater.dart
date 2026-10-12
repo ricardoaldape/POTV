@@ -47,7 +47,9 @@ class PotvSignedFlagUpdater {
       // Never follow a redirect to an untrusted host or downgrade to HTTP.
       if (response.statusCode != 200) return false;
       final bytes = <int>[];
-      await for (final chunk in response.stream) {
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 8),
+      )) {
         if (bytes.length + chunk.length > maxEnvelopeBytes) return false;
         bytes.addAll(chunk);
       }
