@@ -40,6 +40,24 @@ void main() {
     expect((await store.rankFor('tv:2:s1:e3', [a, b])).first.id, a.id);
   });
 
+  test('prefers ad-free native playback over previously used embedded page',
+      () async {
+    final direct = _server('native', 'https://cdn.example/live.m3u8');
+    final embed = StreamCandidate(
+      id: 'embed',
+      label: 'Embedded player',
+      backend: PlaybackBackend.webView,
+      uri: Uri.parse('https://embed.example/player'),
+    );
+    await store.reportPlaying('movie:embedded', embed);
+    expect((await store.rankFor('movie:embedded', [embed, direct]))
+        .first.id, 'native');
+    await store.reportError('movie:embedded', direct);
+    await store.reportError('movie:embedded', direct);
+    expect((await store.rankFor('movie:embedded', [direct, embed]))
+        .first.id, 'embed');
+  });
+
   test('corrupt previous health is ignored', () async {
     SharedPreferences.setMockInitialValues({
       'potv_playback_server_health_v1': 'oops',
