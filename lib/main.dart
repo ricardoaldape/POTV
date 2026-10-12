@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'core/config/potv_runtime_flags.dart';
 
 import 'app/potv_app.dart';
 import 'data/bootstrap/default_manifest_bootstrap.dart';
@@ -9,7 +12,11 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
 
-  final container = ProviderContainer();
+  final preferences = await SharedPreferences.getInstance();
+  final runtimeFlags = PotvRuntimeFlagStore(preferences)..load();
+  final container = ProviderContainer(overrides: [
+    potvRuntimeFlagStoreProvider.overrideWithValue(runtimeFlags),
+  ]);
   await container.read(defaultManifestBootstrapProvider).load();
 
   runApp(
