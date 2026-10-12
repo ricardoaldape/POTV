@@ -87,13 +87,7 @@ class GenreBrowseScreen extends ConsumerWidget {
               return Card(
                 child: InkWell(
                   onTap: () async {
-                    if (item.type == MediaType.movie) {
-                      await MediaPlaybackCoordinator.play(
-                        context,
-                        ref,
-                        item,
-                      );
-                    } else if (context.mounted) {
+                    if (context.mounted) {
                       await context.push('/detail', extra: item);
                     }
                   },
