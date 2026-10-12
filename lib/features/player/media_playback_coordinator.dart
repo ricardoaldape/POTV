@@ -6,7 +6,6 @@ import '../../data/catalog/series_episode_repository.dart';
 import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
-import '../../domain/models/stream_candidate.dart';
 
 class MediaPlaybackCoordinator {
   const MediaPlaybackCoordinator._();
