@@ -102,6 +102,7 @@ class MediaPlaybackCoordinator {
           title: title,
           candidates: playable,
           playbackContext: playbackContext,
+          subtitles: prepared.subtitles,
         ),
       );
     } catch (error) {
