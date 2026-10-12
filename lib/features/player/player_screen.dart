@@ -19,6 +19,7 @@ import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import 'secure_webview_player.dart';
 import 'spanish_track_selector.dart';
+import 'next_episode_selector.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final PlaybackSession session;
@@ -417,11 +418,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final episodes = await ref.read(seriesEpisodeRepositoryProvider)
           .load(item).timeout(const Duration(seconds: 9));
       if (!mounted || episodes.isEmpty) return;
-      final index = episodes.indexWhere((entry) =>
-          entry.season == current.season &&
-          entry.episode == current.episode);
-      if (index < 0 || index + 1 >= episodes.length) return;
-      final nextEpisode = episodes[index + 1];
+      final nextEpisode = NextEpisodeSelector.next(
+        episodes,
+        season: current.season!,
+        episode: current.episode!,
+      );
+      if (nextEpisode == null) return;
 
       final candidates = await ref.read(unifiedSourceResolverProvider).resolve(
         mediaType: 'tv',
