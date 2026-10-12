@@ -239,7 +239,7 @@ class SourceAggregator {
       (candidates) => _ProviderBatch(candidates: candidates),
       onError: (Object error, StackTrace stackTrace) {
         final errorLog =
-            'Resolver ${provider.displayName} ERROR ${error.runtimeType}: $error';
+            'Resolver ${provider.displayName} ERROR ${error.runtimeType}: ${_redactError(error)}';
         final stackLog = 'Resolver ${provider.displayName} STACK: $stackTrace';
         debugPrint(errorLog);
         debugPrint(stackLog);
@@ -304,7 +304,7 @@ class SourceAggregator {
       '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}/[redacted]';
 
   String _redactError(Object error) => error.toString().replaceAll(
-        RegExp(r'https?://\\S+'),
+        RegExp(r'https?://\S+'),
         '[redacted-media-url]',
       );
 
