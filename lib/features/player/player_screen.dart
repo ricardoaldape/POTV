@@ -328,7 +328,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final resumeAt = player?.state.position;
     final failed = currentStream.label;
     currentIndex += 1;
-    addDebugLog('Player: falló una opción de reproducción; se intentará la siguiente');
+    addDebugLog('Player: ${safePlaybackErrorForLog(failed)} falló; probando ${safePlaybackErrorForLog(currentStream.label)}');
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
