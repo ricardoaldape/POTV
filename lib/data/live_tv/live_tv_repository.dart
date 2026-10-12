@@ -147,19 +147,26 @@ class LiveTvRepository {
 
 class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
   Future<List<LiveChannel>> _loadResiliently() async {
-    // A failing user-configured provider cannot suppress the public/default TV
-    // catalogue. The repository itself first tries its last valid M3U cache.
+    // Independent failure domains: if either source goes offline, the other
+    // remains available. Personal M3U data takes priority over provider errors.
     final builtInEnabled = ref.read(potvRuntimeFlagStoreProvider).current
         .enabled('live_tv_catalog');
-    final builtIn = builtInEnabled
-        ? await ref.read(builtInLiveSourceRegistryProvider).mexico()
-        : const <LiveChannel>[];
-    try {
-      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-      return _mergeChannels(builtIn, custom);
-    } catch (_) {
-      return builtIn;
+    var builtIn = const <LiveChannel>[];
+    if (builtInEnabled) {
+      try {
+        builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      } catch (_) {
+        // Built-in remote catalogue is optional while user playlists work.
+      }
     }
+
+    var custom = const <LiveChannel>[];
+    try {
+      custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+    } catch (_) {
+      // The repository tries its last valid playlist before throwing.
+    }
+    return _mergeChannels(builtIn, custom);
   }
 
   @override
