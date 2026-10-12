@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../providers/user_providers.dart';
+import 'potv_avatars.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -23,7 +24,7 @@ class ProfileScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
-                  const CircleAvatar(radius: 30, child: Icon(Icons.person_rounded, size: 32)),
+                  PotvAvatar(avatarId: profiles.where((p) => p.id == activeId).isEmpty ? 'default' : profiles.firstWhere((p) => p.id == activeId).avatarId, radius: 30),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
@@ -52,7 +53,7 @@ class ProfileScreen extends ConsumerWidget {
                   children: [
                     GestureDetector(
                       onTap: () => ref.read(currentProfileIdProvider.notifier).set(p.id),
-                      child: CircleAvatar(radius: selected ? 30 : 26, child: Text(p.name.substring(0, 1).toUpperCase())),
+                      child: PotvAvatar(avatarId: p.avatarId, radius: selected ? 30 : 26),
                     ),
                     const SizedBox(height: 6),
                     Text(p.name, style: TextStyle(color: selected ? Colors.white : Colors.white60)),
@@ -85,9 +86,12 @@ class ProfileScreen extends ConsumerWidget {
                     : () async {
                         final p = profiles.firstWhere((e) => e.id == activeId, orElse: () => profiles.first);
                         final name = await _askForName(context, initial: p.name);
-                        if (name != null && name.isNotEmpty) {
-                          await ref.read(userProfilesProvider.notifier).updateProfile(p.copyWith(name: name));
-                        }
+                        if (!context.mounted || name == null || name.isEmpty) return;
+                        final avatar = await _chooseAvatar(context, current: p.avatarId);
+                        if (avatar == null) return;
+                        await ref.read(userProfilesProvider.notifier).updateProfile(
+                          p.copyWith(name: name, avatarId: avatar),
+                        );
                       },
                 child: const Text('Editar'),
               ),
@@ -123,6 +127,38 @@ class ProfileScreen extends ConsumerWidget {
             leading: const Icon(Icons.settings_rounded),
             title: const Text('Ajustes'),
             onTap: () => context.push('/settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _chooseAvatar(BuildContext context, {required String current}) {
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Elige tu avatar'),
+        content: SizedBox(
+          width: 340,
+          child: GridView.count(
+            shrinkWrap: true,
+            crossAxisCount: 4,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            children: [
+              for (final id in PotvAvatars.icons.keys)
+                IconButton(
+                  tooltip: id,
+                  onPressed: () => Navigator.of(dialogContext).pop(id),
+                  icon: PotvAvatar(avatarId: id, radius: 24),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancelar'),
           ),
         ],
       ),
