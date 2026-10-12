@@ -39,6 +39,28 @@ Future<void> main() async {
   if (updater == null) {
     flagsClient.close();
   } else {
-    unawaited(updater.refresh().whenComplete(flagsClient.close));
+    // Check when POTV starts and after returning to the foreground.
+    // Do not wake the device in the background or poll on a timer.
+    var lastAttempt = DateTime.fromMillisecondsSinceEpoch(0);
+    var refreshing = false;
+
+    Future<void> refreshIfDue() async {
+      if (refreshing ||
+          DateTime.now().difference(lastAttempt) < const Duration(hours: 6)) {
+        return;
+      }
+      refreshing = true;
+      lastAttempt = DateTime.now();
+      try {
+        await updater.refresh();
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    AppLifecycleListener(
+      onResume: () => unawaited(refreshIfDue()),
+    );
+    unawaited(refreshIfDue());
   }
 }
