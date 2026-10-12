@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
+
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/sports/addon_sports_repository.dart';
 import '../../data/live_tv/live_tv_repository.dart';
@@ -80,8 +82,11 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final flags = ref.read(potvRuntimeFlagStoreProvider).current;
     final query = (day: selectedDay, sport: selectedSport);
-    final eventsState = ref.watch(sportsEventsProvider(query));
+    final eventsState = flags.enabled('sports_calendar')
+        ? ref.watch(sportsEventsProvider(query))
+        : const AsyncData<List<SportsEvent>>([]);
     final events = eventsState.asData?.value ?? const <SportsEvent>[];
     final liveChannels = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
@@ -257,6 +262,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               event: event,
               channels: channels,
               programs: programs,
+              matchingEnabled: flags.enabled('sports_event_matching'),
             ),
           if (!eventsState.isLoading &&
               !eventsState.hasError &&
@@ -280,21 +286,25 @@ class _SportsEventCard extends StatelessWidget {
   final SportsEvent event;
   final List<LiveChannel> channels;
   final List<EpgProgram> programs;
+  final bool matchingEnabled;
 
   const _SportsEventCard({
     required this.event,
     required this.channels,
     required this.programs,
+    required this.matchingEnabled,
   });
 
   @override
   Widget build(BuildContext context) {
     const resolver = SportsChannelResolver();
-    final matches = resolver.resolve(
-      event: event,
-      channels: channels,
-      programs: programs,
-    );
+    final matches = matchingEnabled
+        ? resolver.resolve(
+            event: event,
+            channels: channels,
+            programs: programs,
+          )
+        : <SportsChannelMatch>[];
     final best = matches.isEmpty ? null : matches.first;
 
     return Card(
