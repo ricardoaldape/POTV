@@ -9,7 +9,7 @@ class PotvShell extends StatelessWidget {
 
   static const destinations = <({IconData icon, String label, String path})>[
     (icon: Icons.home_rounded, label: 'Inicio', path: '/'),
-    (icon: Icons.movie_rounded, label: 'Pelis', path: '/movies'),
+    (icon: Icons.movie_rounded, label: 'Películas', path: '/movies'),
     (icon: Icons.tv_rounded, label: 'Series', path: '/series'),
     (icon: Icons.auto_awesome_rounded, label: 'Anime', path: '/anime'),
     (icon: Icons.live_tv_rounded, label: 'TV', path: '/live'),
