@@ -13,6 +13,7 @@ import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import 'secure_webview_player.dart';
+import 'spanish_track_selector.dart';
 
 class PlayerScreen extends StatefulWidget {
   final PlaybackSession session;
@@ -54,6 +55,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _startupPlaying = false;
   DateTime? _startupStartedAt;
   StreamSubscription<String>? playerErrorSubscription;
+  StreamSubscription<Tracks>? tracksSubscription;
+  bool _autoAudioSelected = false;
+  bool _autoSubtitleSelected = false;
+  bool _manualAudioSelected = false;
+  bool _manualSubtitleSelected = false;
   bool controlsVisible = true;
   bool failoverInProgress = false;
   String? playbackError;
@@ -82,6 +88,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     startupTimer?.cancel();
     unawaited(playingSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
+    unawaited(tracksSubscription?.cancel());
     unawaited(_saveProgress());
     player?.dispose();
     super.dispose();
@@ -99,6 +106,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     playingSubscription = null;
     await playerErrorSubscription?.cancel();
     playerErrorSubscription = null;
+    await tracksSubscription?.cancel();
+    tracksSubscription = null;
+    _autoAudioSelected = false;
+    _autoSubtitleSelected = false;
+    _manualAudioSelected = false;
+    _manualSubtitleSelected = false;
     await _saveProgress();
     await player?.dispose();
     player = null;
@@ -173,6 +186,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           playerErrorSubscription = nextPlayer.stream.error.listen(
             (message) => unawaited(_autoFailover(message)),
           );
+          tracksSubscription = nextPlayer.stream.tracks.listen(
+            (tracks) => _autoSelectSpanishTracks(nextPlayer, tracks),
+          );
+          _autoSelectSpanishTracks(nextPlayer, nextPlayer.state.tracks);
           if (effectiveResumeAt != null &&
               effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
@@ -207,6 +224,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
         await playerErrorSubscription?.cancel();
         playerErrorSubscription = null;
+        await tracksSubscription?.cancel();
+        tracksSubscription = null;
         await player?.dispose();
         player = null;
         videoController = null;
@@ -357,7 +376,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  Future<void> _showAudioTracks() async {
+  void _autoSelectSpanishTracks(Player current, Tracks tracks) {
+    if (!mounted || player != current) return;
+
+    final spanishAudio = SpanishTrackSelector.preferredAudio(tracks.audio);
+    final spanishSubtitle =
+        SpanishTrackSelector.preferredSubtitle(tracks.subtitle);
+
+    if (!_manualAudioSelected &&
+        !_autoAudioSelected &&
+        spanishAudio != null &&
+        currentStream.externalAudioUri == null) {
+      _autoAudioSelected = true;
+      unawaited(current.setAudioTrack(spanishAudio).catchError((Object _) {
+        addDebugLog('Player: no se pudo seleccionar audio español');
+      }));
+    }
+
+    if (_manualSubtitleSelected) return;
+    if (_autoAudioSelected && _autoSubtitleSelected) {
+      _autoSubtitleSelected = false;
+      unawaited(current.setSubtitleTrack(SubtitleTrack.no()).catchError(
+        (Object _) => addDebugLog('Player: fallo desactivando subtítulos'),
+      ));
+    } else if (!_autoAudioSelected &&
+        !_autoSubtitleSelected &&
+        spanishSubtitle != null) {
+      _autoSubtitleSelected = true;
+      unawaited(current.setSubtitleTrack(spanishSubtitle).catchError(
+        (Object _) => addDebugLog('Player: no se pudo seleccionar subtítulo español'),
+      ));
+    }
+  }
+
+    Future<void> _showAudioTracks() async {
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.audio;
@@ -382,6 +434,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
+                  _manualAudioSelected = true;
                   p.setAudioTrack(track);
                   Navigator.of(context).pop();
                 },
@@ -419,6 +472,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       : track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
+                  _manualSubtitleSelected = true;
                   p.setSubtitleTrack(track);
                   Navigator.of(context).pop();
                 },
