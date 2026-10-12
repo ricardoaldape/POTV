@@ -24,10 +24,13 @@ class UnifiedSourceResolver implements SourceResolver {
   static const _maxEntries = 12;
   final Map<String, _ResolvedCacheEntry> _cache = {};
   final Map<String, Future<List<StreamCandidate>>> _pending = {};
+  int _generation = 0;
 
   void invalidate() {
+    _generation++;
     _cache.clear();
     _pending.clear();
+    aggregator.clearCache();
   }
 
   @override
@@ -50,8 +53,10 @@ class UnifiedSourceResolver implements SourceResolver {
     final inFlight = _pending[key];
     if (inFlight != null) return inFlight;
 
+    final generation = _generation;
     final pending = _resolveAndCache(
       key,
+      generation,
       ProviderResolveRequest(
         mediaType: mediaType,
         mediaId: mediaId,
@@ -68,13 +73,14 @@ class UnifiedSourceResolver implements SourceResolver {
 
   Future<List<StreamCandidate>> _resolveAndCache(
     String key,
+    int generation,
     ProviderResolveRequest request,
   ) async {
     try {
       final response = await aggregator.resolve(request);
       final candidates = List<StreamCandidate>.unmodifiable(response.candidates);
       // Never retain unsuccessful lookup results, allowing quick retry.
-      if (candidates.isNotEmpty && _pending.containsKey(key)) {
+      if (candidates.isNotEmpty && generation == _generation) {
         if (_cache.length >= _maxEntries) _cache.remove(_cache.keys.first);
         _cache[key] = _ResolvedCacheEntry(
           candidates,
@@ -83,7 +89,7 @@ class UnifiedSourceResolver implements SourceResolver {
       }
       return candidates;
     } finally {
-      _pending.remove(key);
+      if (generation == _generation) _pending.remove(key);
     }
   }
 }
