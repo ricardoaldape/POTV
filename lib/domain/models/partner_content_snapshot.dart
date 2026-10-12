@@ -263,6 +263,40 @@ class PartnerContentSnapshot {
     return List.unmodifiable(programs);
   }
 
+  /// Partner-supplied streams MUST be associated with a particular event ID.
+  /// No wildcard channel, sports-category, or team-name URL is accepted here.
+  /// Provider credentials stay on the gateway; client receives HTTPS links.
+  static List<StreamCandidate> _eventStreams(Map<String, dynamic> item, String id) {
+    final values = <Object?>[];
+    final rawStreams = item['streams'] ?? item['playback_streams'];
+    if (rawStreams is List) values.addAll(rawStreams);
+    if (item['stream_url'] != null || item['primary_url'] != null) {
+      values.add(item['stream_url'] ?? item['primary_url']);
+    }
+    final backups = item['backup_urls'] ?? item['backupUrls'];
+    if (backups is List) values.addAll(backups);
+    final streams = <StreamCandidate>[];
+    final seen = <String>{};
+    for (final value in values) {
+      final source = value is Map ? _map(value) : <String, dynamic>{'url': value};
+      final uri = _httpsUri(
+        source['stream_url'] ?? source['primary_url'] ?? source['url'],
+      );
+      if (uri == null || !seen.add(uri.toString())) continue;
+      streams.add(StreamCandidate(
+        id: 'partner:event:$id:${streams.length}',
+        label: 'Transmisión del evento',
+        uri: uri,
+        backend: source['is_iframe'] == true || source['backend'] == 'webview'
+            ? PlaybackBackend.webView
+            : PlaybackBackend.native,
+        language: _text(source['language']),
+        quality: _text(source['quality']),
+      ));
+    }
+    return List.unmodifiable(streams);
+  }
+
   static List<SportsEvent> _sportsList(Object? raw) {
     if (raw is! List) return const [];
     final events = <SportsEvent>[];
@@ -288,6 +322,7 @@ class PartnerContentSnapshot {
         away: away,
         startsAt: start.toLocal(),
         isLive: item['is_live'] == true || item['isLive'] == true,
+        streams: _eventStreams(item, id),
       ));
     }
     return List.unmodifiable(events);
