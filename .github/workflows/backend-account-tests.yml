@@ -1,0 +1,36 @@
+name: POTV backend account tests
+
+on:
+  pull_request:
+    paths:
+      - "backend/potv-bot/**"
+      - ".github/workflows/backend-account-tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/potv-bot/**"
+      - ".github/workflows/backend-account-tests.yml"
+
+jobs:
+  account-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/potv-bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile backend
+        run: python -m py_compile app.py account_store.py potv_ops.py group_config.py
+      - name: Account lifecycle smoke test
+        run: python account_store_smoke.py
+      - name: Bot operations smoke test
+        run: python qa_smoke.py
+      - name: API/database self test
+        run: |
+          rm -f /tmp/potv-self-test.sqlite3
+          POTV_DB=/tmp/potv-self-test.sqlite3 python app.py --self-test
+          rm -f /tmp/potv-self-test.sqlite3
