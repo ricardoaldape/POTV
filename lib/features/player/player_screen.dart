@@ -207,7 +207,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             await nextPlayer.setAudioTrack(
               AudioTrack.uri(
                 externalAudioUri.toString(),
-                title: 'YouTube audio',
+                title: 'Audio alterno',
               ),
             );
           }

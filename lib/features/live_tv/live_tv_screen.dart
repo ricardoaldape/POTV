@@ -1,7 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -76,230 +73,6 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
   Timer? _guideClock;
   DateTime _guideNow = DateTime.now();
   String? _openingChannelId;
-
-  Future<void> _addSource() async {
-    final controller = TextEditingController();
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Añadir TV'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.url,
-          decoration: const InputDecoration(
-            labelText: 'URL M3U',
-            hintText: 'https://proveedor.example/lista.m3u',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => context.pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => context.pop(controller.text.trim()),
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-
-    if (value != null && value.isNotEmpty) {
-      try {
-        await ref.read(liveChannelsProvider.notifier).setSource(value);
-        if (mounted) {
-          setState(() => selectedCategory = LiveTvCategory.all);
-          if (ref.read(liveChannelsProvider).hasError) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('No se pudo cargar la lista. Revisa su dirección.'),
-            ));
-          }
-        }
-      } on FormatException {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Introduce una URL M3U HTTP(S) válida.'),
-          ));
-        }
-      }
-    }
-  }
-
-  Future<void> _importPlaylistFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['m3u', 'm3u8', 'txt'],
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) return;
-
-    final bytes = result.files.single.bytes;
-    if (bytes == null || bytes.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No pudimos leer el archivo.')),
-      );
-      return;
-    }
-
-    final raw = utf8.decode(bytes, allowMalformed: true);
-    if (!raw.contains('#EXTM3U')) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El archivo no parece una lista M3U.')),
-      );
-      return;
-    }
-
-    try {
-      await ref.read(liveChannelsProvider.notifier).setLocalPlaylist(raw);
-      if (mounted) setState(() => selectedCategory = LiveTvCategory.all);
-    } on FormatException {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('La lista no es válida o supera el tamaño permitido.'),
-        ));
-      }
-    }
-  }
-
-  Future<void> _manageSources() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          child: FutureBuilder(
-            future: ref.read(liveTvRepositoryProvider).configuredSources(),
-            builder: (context, snapshot) {
-              final sources = snapshot.data ??
-                  const <({String key, String label})>[];
-              return SizedBox(
-                height: MediaQuery.sizeOf(sheetContext).height * 0.65,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Tus listas de TV',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Las fuentes se consultan desde tu dispositivo. '
-                      'Las direcciones con tokens no se muestran.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: sources.isEmpty ? 1 : sources.length,
-                        itemBuilder: (context, index) {
-                          if (sources.isEmpty) {
-                            return Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Text(
-                                snapshot.connectionState ==
-                                        ConnectionState.waiting
-                                    ? 'Cargando listas…'
-                                    : 'No hay listas M3U personalizadas.',
-                              ),
-                            );
-                          }
-                          final source = sources[index];
-                          return ListTile(
-                            leading: const Icon(Icons.playlist_play_rounded),
-                            title: Text(source.label),
-                            subtitle: Text(source.key.startsWith('file:')
-                                ? 'Archivo local'
-                                : 'Lista remota'),
-                            trailing: IconButton(
-                              tooltip: 'Eliminar esta lista',
-                              icon: const Icon(Icons.delete_outline_rounded),
-                              onPressed: () async {
-                                final confirmed = await showDialog<bool>(
-                                  context: sheetContext,
-                                  builder: (confirmContext) => AlertDialog(
-                                    title: const Text('Eliminar lista'),
-                                    content: Text(
-                                      '¿Quitar ${source.label} de POTV? '
-                                      'Los demás canales no se modificarán.',
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(
-                                            confirmContext, false),
-                                        child: const Text('Cancelar'),
-                                      ),
-                                      FilledButton(
-                                        onPressed: () => Navigator.pop(
-                                            confirmContext, true),
-                                        child: const Text('Quitar'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (confirmed != true) return;
-                                await ref.read(liveChannelsProvider.notifier)
-                                    .removeSource(source.key);
-                                if (sheetContext.mounted) {
-                                  Navigator.pop(sheetContext);
-                                }
-                              },
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _addEpgSource() async {
-    final controller = TextEditingController();
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Añadir guía EPG'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.url,
-          decoration: const InputDecoration(
-            labelText: 'URL XMLTV',
-            hintText: 'https://proveedor.example/guide.xml',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => context.pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => context.pop(controller.text.trim()),
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-
-    if (value != null && value.isNotEmpty) {
-      await ref.read(epgProgramsProvider.notifier).setSource(value);
-    }
-  }
 
   static const _organizer = LiveTvOrganizer();
 
@@ -397,22 +170,6 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
             onPressed: _refreshAll,
             icon: const Icon(Icons.refresh_rounded),
           ),
-          PopupMenuButton<String>(
-            tooltip: 'Gestionar fuentes de TV',
-            icon: const Icon(Icons.more_vert_rounded),
-            onSelected: (choice) {
-              if (choice == 'url') _addSource();
-              if (choice == 'file') _importPlaylistFile();
-              if (choice == 'epg') _addEpgSource();
-              if (choice == 'manage') _manageSources();
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'url', child: Text('Añadir lista M3U')),
-              PopupMenuItem(value: 'file', child: Text('Importar archivo M3U')),
-              PopupMenuItem(value: 'epg', child: Text('Configurar guía EPG')),
-              PopupMenuItem(value: 'manage', child: Text('Gestionar mis listas')),
-            ],
-          ),
         ],
       ),
       body: Column(
@@ -505,7 +262,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
             child: channels.isEmpty && loading
                 ? const Center(child: CircularProgressIndicator())
                 : channels.isEmpty
-                    ? _EmptyTv(onAdd: _addSource)
+                    ? const _EmptyTv()
                     : onlyFavorites.isEmpty
                         ? const Center(
                             child: Text('No hay canales con ese filtro.'),
@@ -690,39 +447,33 @@ class _LiveChannelCard extends StatelessWidget {
 }
 
 class _EmptyTv extends StatelessWidget {
-  final VoidCallback onAdd;
-  const _EmptyTv({required this.onAdd});
+  const _EmptyTv();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return const Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
+        constraints: BoxConstraints(maxWidth: 480),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.live_tv_rounded, size: 72),
-              const SizedBox(height: 20),
-              const Text(
+              Icon(Icons.live_tv_rounded, size: 72),
+              SizedBox(height: 20),
+              Text(
                 'Sin canales disponibles',
                 style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: 10),
-              const Text(
-                'No pudimos cargar los canales públicos en este momento. También puedes añadir tu propia lista M3U; se guarda y consulta directamente desde este dispositivo.',
+              SizedBox(height: 10),
+              Text(
+                'POTV no pudo actualizar la señal de TV en este momento. '
+                'Vuelve a intentar más tarde.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: onAdd,
-                icon: const Icon(Icons.add),
-                label: const Text('Añadir lista M3U'),
               ),
             ],
           ),

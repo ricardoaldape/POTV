@@ -61,11 +61,17 @@ class PartnerContentSnapshot {
       movies: _mediaList(payload['movies'], MediaType.movie),
       series: _mediaList(payload['series'] ?? payload['tv'], MediaType.tv),
       anime: _mediaList(payload['anime'], MediaType.anime),
-      channels: _channelList(payload['channels'], category: 'tv'),
+      channels: _channelList(
+        payload['channels'] ?? payload['xtream_channels'] ?? payload['xtreamChannels'],
+        category: 'tv',
+      ),
       guidePrograms: _guideList(payload['now_next'] ??
           payload['nowNext'] ?? payload['epg'] ?? payload['guide']),
       sportsChannels: _channelList(
-        payload['sports_channels'] ?? payload['sportsChannels'],
+        payload['sports_channels'] ??
+            payload['sportsChannels'] ??
+            payload['xtream_sports_channels'] ??
+            payload['xtreamSportsChannels'],
         category: 'sport',
       ),
       sportsEvents: _sportsList(
@@ -140,6 +146,10 @@ class PartnerContentSnapshot {
             item['streamUrl'] ??
             item['primary_url'] ??
             item['primaryUrl'] ??
+            item['hls_url'] ??
+            item['hlsUrl'] ??
+            item['dash_url'] ??
+            item['dashUrl'] ??
             item['url'],
       );
       if (id == null || name == null || url == null || !seen.add(id)) {
@@ -174,7 +184,11 @@ class PartnerContentSnapshot {
                 ? rawBackup
                 : backup['url'] ??
                     backup['stream_url'] ??
-                    backup['streamUrl'],
+                    backup['streamUrl'] ??
+                    backup['hls_url'] ??
+                    backup['hlsUrl'] ??
+                    backup['dash_url'] ??
+                    backup['dashUrl'],
           );
           if (backupUri == null || !unique.add(backupUri.toString())) {
             continue;
@@ -280,7 +294,13 @@ class PartnerContentSnapshot {
     for (final value in values) {
       final source = value is Map ? _map(value) : <String, dynamic>{'url': value};
       final uri = _httpsUri(
-        source['stream_url'] ?? source['primary_url'] ?? source['url'],
+        source['stream_url'] ??
+            source['primary_url'] ??
+            source['hls_url'] ??
+            source['hlsUrl'] ??
+            source['dash_url'] ??
+            source['dashUrl'] ??
+            source['url'],
       );
       if (uri == null || !seen.add(uri.toString())) continue;
       streams.add(StreamCandidate(
