@@ -82,12 +82,16 @@ private class Media3CastPlayerView(
         Cast.getSingletonInstance(context.applicationContext).initialize()
 
         localPlayer =
-            ExoPlayer.Builder(context)
-                .setMediaSourceFactory(
-                    DefaultMediaSourceFactory(context)
-                        .setDataSourceFactory(dataSourceFactory),
-                )
-                .build()
+            if (headers.isEmpty()) {
+                PotvMedia3Preload.buildPlayer(context)
+            } else {
+                ExoPlayer.Builder(context)
+                    .setMediaSourceFactory(
+                        DefaultMediaSourceFactory(context)
+                            .setDataSourceFactory(dataSourceFactory),
+                    )
+                    .build()
+            }
 
         applyLanguageConstraints(localPlayer)
 
@@ -95,6 +99,9 @@ private class Media3CastPlayerView(
             CastPlayer.Builder(context)
                 .setLocalPlayer(localPlayer)
                 .build()
+
+        val openedAt = android.os.SystemClock.elapsedRealtime()
+        var startupReported = false
 
         castPlayer.addListener(
             object : Player.Listener {
@@ -104,6 +111,21 @@ private class Media3CastPlayerView(
                         applyAutomaticTracks(tracks)
                     }
                     logSelectedTracks(castPlayer.currentTracks)
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying && !startupReported) {
+                        startupReported = true
+                        val startupMs =
+                            android.os.SystemClock.elapsedRealtime() - openedAt
+                        channel.invokeMethod("playbackStarted", startupMs)
+                    }
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) {
+                        channel.invokeMethod("playbackEnded", null)
+                    }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -140,30 +162,29 @@ private class Media3CastPlayerView(
 
         if (uri.isNotBlank()) {
             val subtitleConfigurations = subtitleConfigurations(params["subtitles"])
-            val mediaItemBuilder =
-                MediaItem.Builder()
-                    .setUri(uri)
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setTitle(title)
-                            .build(),
-                    )
-
-            if (subtitleConfigurations.isNotEmpty()) {
-                mediaItemBuilder.setSubtitleConfigurations(subtitleConfigurations)
-                subtitleConfigurations.forEach { subtitle ->
-                    emitLog(
-                        "[Player] Subtítulos cargados: ${subtitle.language ?: "sin idioma"} " +
-                            "(URL externa)",
-                    )
-                }
+            subtitleConfigurations.forEach { subtitle ->
+                emitLog(
+                    "[Player] Subtítulos cargados: ${subtitle.language ?: "sin idioma"} " +
+                        "(URL externa)",
+                )
             }
-
-            castPlayer.setMediaItem(mediaItemBuilder.build())
+            val mediaItem = PotvMedia3Preload.mediaItem(
+                uri,
+                title,
+                params["subtitles"],
+            )
+            val preloaded =
+                if (headers.isEmpty()) PotvMedia3Preload.mediaSource(mediaItem) else null
+            if (preloaded != null) {
+                localPlayer.setMediaSource(preloaded)
+            } else {
+                castPlayer.setMediaItem(mediaItem)
+            }
             if (startPositionMs > 0L) {
                 castPlayer.seekTo(startPositionMs)
             }
             castPlayer.prepare()
+            PotvMedia3Preload.markPlaying()
             castPlayer.playWhenReady = autoplay
         }
 
