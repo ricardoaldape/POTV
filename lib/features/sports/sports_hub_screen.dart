@@ -133,10 +133,6 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'POTV combina el calendario deportivo con canales públicos disponibles y con tus propias fuentes locales. Nada de esto se proxifica por nuestros servidores.',
-            style: TextStyle(color: Colors.white60),
-          ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
@@ -205,7 +201,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               children: [
                 const Expanded(
                   child: Text(
-                    'En vivo desde tus addons',
+                    'Eventos disponibles',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
@@ -219,10 +215,6 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               ],
             ),
             const SizedBox(height: 6),
-            const Text(
-              'POTV lee el catálogo del addon instalado y pide sus servidores solo cuando eliges un evento.',
-              style: TextStyle(color: Colors.white60),
-            ),
             const SizedBox(height: 10),
             AddonSportsRail(items: addonSportsItems),
             const SizedBox(height: 22),
