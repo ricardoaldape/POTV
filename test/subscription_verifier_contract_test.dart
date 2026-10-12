@@ -131,4 +131,31 @@ void main() {
       isNull,
     );
   });
+  test('expired cached premium never remains active while offline', () async {
+    final expiredYesterday = DateTime.now().toUtc()
+        .subtract(const Duration(days: 1))
+        .toIso8601String();
+    SharedPreferences.setMockInitialValues({
+      'potv_user_account': '''{
+        "id":"account-1",
+        "username":"Demo",
+        "createdAt":"2026-01-01T00:00:00Z",
+        "subscriptionStatus":2,
+        "subscriptionExpiresAt":"$expiredYesterday"
+      }''',
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(userAccountProvider);
+    await container.read(userAccountRepositoryProvider.future);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(
+      container.read(userAccountProvider)?.subscriptionStatus,
+      SubscriptionStatus.expired,
+    );
+    final stored = (await SharedPreferences.getInstance())
+        .getString('potv_user_account');
+    expect(stored, contains('"subscriptionStatus":3'));
+  });
+
 }
