@@ -18,3 +18,32 @@ A remote manifest must be authenticated using a pinned HTTPS origin and a signat
 6. Validate cold start, airplane mode, corrupted settings, source outage and returning connection on Android/Android TV using CI and device QA.
 
 Feature flags update *behavior already shipped in the installed binary*. They cannot silently ship arbitrary new application code. Binary and security updates require a standard release mechanism.
+
+## Signed remote flags (implemented in this branch)
+- `POTV_SIGNED_FLAGS_URL`: HTTPS URL to an operator-controlled JSON envelope.
+- `POTV_FLAGS_ED25519_PUBLIC_KEY`: base64 of the 32-byte Ed25519 public key.
+- The corresponding **private signing key must remain outside the APK and Git repository**. Use protected deployment secrets or an offline release workstation.
+- Set the values using Flutter compile-time `--dart-define` options; without BOTH values, remote requests are disabled.
+- Format:
+  ```json
+  {
+    "payload": "BASE64_OF_EXACT_UTF8_JSON",
+    "signature": "BASE64_OF_ED25519_SIGNATURE_OF_DECODED_PAYLOAD"
+  }
+  ```
+- Signed payload example before base64 encoding: `{"version":7,"flags":{"sports_calendar":true,"sports_event_matching":false}}`.
+- Signature verification is performed over the **exact raw bytes** of the decoded payload; do not reformat the JSON after signing.
+- HTTPS only, no redirect following, capped at 64 KiB, 8-second request timeout, fail-closed on any invalid response. Version must increase monotonically.
+- Revert a bad release by publishing the **previously known safe flag values with a NEW higher version number**, signing that payload, and replacing the envelope on the same trusted endpoint.
+- Changes are checked on app launch and on return to foreground after a six-hour cooldown; no background polling.
+- Only built-in switches can change remotely. No remote code execution, credential distribution or third-party streaming endpoints.
+- The sports calendar and strict EPG event matching are wired to these flags. Other defined switches still need wiring to their respective modules.
+- Do **not** put a private key or production endpoint into a public issue or PR description.
+
+### Production activation checklist
+1. Generate an Ed25519 key pair using a vetted crypto tool; keep the private key secured and backed up separately.
+2. Sign a minimal safe flag payload and publish its envelope under an operator-controlled HTTPS endpoint.
+3. Verify signatures, wrong-key failure, invalid manifest, HTTP redirect, offline startup, corrupt cache and increasing-version rollback in staging.
+4. Deploy a build with only the public key + endpoint embedded.
+5. Start with an internal cohort; monitor startup, source resolution and event matching; gradually roll out.
+6. For any incident, publish a higher-version signed safe configuration. Binary/security patches still require an APK update.
