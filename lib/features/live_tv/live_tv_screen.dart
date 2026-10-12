@@ -451,7 +451,7 @@ class _EmptyTv extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: 480),
         child: Padding(
