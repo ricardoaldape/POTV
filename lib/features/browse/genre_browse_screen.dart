@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../domain/models/media_item.dart';
-import '../player/media_playback_coordinator.dart';
 
 class GenreBrowseRequest {
   final MediaType type;
