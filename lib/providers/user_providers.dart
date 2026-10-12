@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
@@ -24,6 +26,7 @@ final currentProfileIdProvider = StateNotifierProvider<CurrentProfileIdNotifier,
 
 class UserAccountNotifier extends StateNotifier<UserAccount?> {
   final Ref ref;
+  int _subscriptionGeneration = 0;
 
   UserAccountNotifier(this.ref) : super(null) {
     _load();
@@ -31,7 +34,9 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
 
   Future<void> _load() async {
     final repo = await ref.read(userAccountRepositoryProvider.future);
+    if (!mounted) return;
     state = repo.loadAccount();
+    unawaited(refreshSubscription());
   }
 
   Future<void> createAccount(String username) async {
@@ -53,6 +58,7 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
   }
 
   Future<void> logout() async {
+    _subscriptionGeneration++;
     final repo = await ref.read(userAccountRepositoryProvider.future);
     await repo.clearAll();
     state = null;
@@ -61,32 +67,74 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
     await ref.read(currentProfileIdProvider.notifier).set(null);
   }
 
-  /// Link subscription by code. Returns reason on error or null on success.
+  static SubscriptionStatus _statusOf(SubscriptionResult result) {
+    final status = result.subscriptionStatus;
+    if (status == 'active') {
+      final expiry = result.expiresAt;
+      if (expiry == null || !expiry.isAfter(DateTime.now().toUtc())) {
+        return SubscriptionStatus.expired;
+      }
+      return SubscriptionStatus.active;
+    }
+    if (status == 'pending') return SubscriptionStatus.pending;
+    if (status == 'expired') return SubscriptionStatus.expired;
+    return SubscriptionStatus.free;
+  }
+
+  Future<void> _persistSubscription(
+    UserAccount current,
+    SubscriptionResult result,
+  ) async {
+    if (!mounted || state?.id != current.id) return;
+    final updated = UserAccount(
+      id: current.id,
+      username: current.username,
+      createdAt: current.createdAt,
+      telegramChatId: current.telegramChatId,
+      subscriptionStatus: _statusOf(result),
+      subscriptionExpiresAt: result.expiresAt,
+    );
+    final repo = await ref.read(userAccountRepositoryProvider.future);
+    await repo.saveAccount(updated);
+    if (mounted && state?.id == current.id) state = updated;
+  }
+
+  /// Claims a one-time Telegram code. Claiming is NOT payment confirmation.
   Future<String?> linkSubscription(String code) async {
-    // indicate loading by setting pending (optimistic)
     final current = state;
     if (current == null) return 'no_account';
-    try {
-      final verifier = SubscriptionVerifier();
-      final res = await verifier.verifyCode(code);
-      if (!res.valid) {
-        return res.reason ?? 'invalid';
-      }
-      // update account
-      final updated = UserAccount(
-        id: current.id,
-        username: current.username,
-        createdAt: current.createdAt,
-        telegramChatId: current.telegramChatId,
-        subscriptionStatus: SubscriptionStatus.active,
-        subscriptionExpiresAt: res.expiresAt,
+    final generation = ++_subscriptionGeneration;
+    final result = await SubscriptionVerifier().verifyCode(code);
+    if (generation != _subscriptionGeneration || !mounted ||
+        state?.id != current.id) {
+      return 'stale_session';
+    }
+    if (!result.valid) return result.reason ?? 'invalid';
+    await _persistSubscription(current, result);
+    return null;
+  }
+
+  /// Recheck existing license without erasing known status on network failure.
+  Future<void> refreshSubscription() async {
+    final current = state;
+    if (current == null) return;
+    final generation = _subscriptionGeneration;
+    final result = await SubscriptionVerifier().checkLicense();
+    if (generation != _subscriptionGeneration || !mounted ||
+        state?.id != current.id) {
+      return;
+    }
+    if (result.valid) {
+      await _persistSubscription(current, result);
+    } else if (result.reason == 'invalid_token' &&
+        current.subscriptionStatus != SubscriptionStatus.free) {
+      await _persistSubscription(
+        current,
+        const SubscriptionResult(
+          valid: true,
+          subscriptionStatus: 'expired',
+        ),
       );
-      state = updated;
-      final repo = await ref.read(userAccountRepositoryProvider.future);
-      await repo.saveAccount(updated);
-      return null;
-    } catch (e) {
-      return 'exception';
     }
   }
 }
