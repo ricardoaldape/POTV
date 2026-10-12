@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -327,13 +328,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final resumeAt = player?.state.position;
     final failed = currentStream.label;
     currentIndex += 1;
+    addDebugLog('Player: señal "\$failed" no respondió, siguiente: "+"\${currentStream.label}"+"');
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 2),
           content: Text(
-            '$failed falló. Probando ${currentStream.label}…',
+            'Problema con la señal. Probando otra opción…',
           ),
         ),
       );
@@ -399,6 +401,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (controlsVisible) _armAutoHide();
   }
 
+  void _exitPlayer() {
+    if (!mounted) return;
+    // pop() rather than maybePop(): route-local navigator pop handlers
+    // sometimes report 'handled' without actually leaving the player.
+    // Always provide a deterministic return path for the in-player arrow.
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      context.go('/');
+    }
+  }
+
   Future<void> _switchServer(int index) async {
     if (index == currentIndex) {
       if (mounted) Navigator.of(context).pop();
@@ -425,7 +440,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           children: [
             const ListTile(
               title: Text(
-                'Servidores',
+                'Opciones de reproducción',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
@@ -436,7 +451,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ? Icons.check_circle
                       : Icons.circle_outlined,
                 ),
-                title: Text(widget.session.candidates[i].label),
+                title: Text('Opción ${i + 1}'),
                 subtitle: Text(
                   [
                     widget.session.candidates[i].language,
@@ -649,6 +664,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _showControls();
 
     final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      _exitPlayer();
+      return KeyEventResult.handled;
+    }
     if (key == LogicalKeyboardKey.mediaPlayPause ||
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.select ||
@@ -679,7 +699,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final Widget content;
     if (playbackError != null) {
       content = _PlaybackFailureView(
-        message: playbackError!,
+        message: 'Esta señal no respondió. Puedes reintentar o probar otra opción.',
         hasAlternatives: widget.session.candidates.length > 1,
         onRetry: () {
           currentIndex = 0;
@@ -732,7 +752,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     stream: currentStream,
                     player: p,
                     isLive: widget.session.isLive,
-                    onBack: () => Navigator.of(context).maybePop(),
+                    onBack: _exitPlayer,
                     onAudio: p == null ? null : _showAudioTracks,
                     onSubtitles: p == null ? null : _showSubtitleTracks,
                     onQuality: p == null ? null : _showVideoTracks,
@@ -770,7 +790,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               const Icon(Icons.open_in_new_rounded, size: 54),
               const SizedBox(height: 16),
               Text(
-                stream.label,
+                'Reproducción externa',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 20,
@@ -779,7 +799,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Este proveedor se abre en su aplicación o navegador.',
+                'Este contenido sólo puede abrirse fuera de POTV.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70),
               ),
@@ -787,7 +807,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               FilledButton.icon(
                 onPressed: () => onOpen(),
                 icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text('Abrir proveedor'),
+                label: const Text('Continuar'),
               ),
             ],
           ),
@@ -823,7 +843,7 @@ class _PlaybackFailureView extends StatelessWidget {
               const Icon(Icons.error_outline_rounded, size: 54),
               const SizedBox(height: 14),
               const Text(
-                'No se pudo iniciar este servidor',
+                'No se pudo reproducir el contenido',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 20,
@@ -852,7 +872,7 @@ class _PlaybackFailureView extends StatelessWidget {
                     FilledButton.tonalIcon(
                       onPressed: onServers,
                       icon: const Icon(Icons.dns_outlined),
-                      label: const Text('Servidores'),
+                      label: const Text('Otras opciones'),
                     ),
                 ],
               ),
@@ -953,17 +973,18 @@ class _PlayerOverlay extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
               child: Column(
                 children: [
-                  Text(
-                    [
-                      stream.label,
-                      stream.language,
-                      stream.quality,
-                    ].whereType<String>().join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 10),
+                  if (stream.language != null || stream.quality != null) ...[
+                    Text(
+                      [
+                        stream.language,
+                        stream.quality,
+                      ].whereType<String>().join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
@@ -988,7 +1009,7 @@ class _PlayerOverlay extends StatelessWidget {
                       ),
                       _ActionButton(
                         icon: Icons.dns_outlined,
-                        label: 'Servidores',
+                        label: 'Cambiar señal',
                         onPressed: onServers,
                       ),
                     ],
