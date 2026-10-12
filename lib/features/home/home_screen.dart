@@ -101,11 +101,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   ];
 
   Future<void> _openItem(MediaItem item) async {
-    if (item.type == MediaType.movie) {
-      await MediaPlaybackCoordinator.play(context, ref, item);
-      ref.invalidate(playbackHistoryProvider);
-      return;
-    }
     if (!mounted) return;
     await context.push('/detail', extra: item);
     ref.invalidate(playbackHistoryProvider);
@@ -532,12 +527,7 @@ class _GenreSection extends ConsumerWidget {
       child: MediaRail(
         title: genre.title,
         items: items,
-        onPlay: (item) {
-          if (item.type == MediaType.movie) {
-            return MediaPlaybackCoordinator.play(context, ref, item);
-          }
-          return context.push('/detail', extra: item);
-        },
+        onPlay: (item) => context.push('/detail', extra: item),
         onViewMore: () {
           context.push(
             '/browse',
