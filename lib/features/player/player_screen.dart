@@ -1124,22 +1124,30 @@ class _PlayerOverlay extends StatelessWidget {
   final String title;
   final StreamCandidate stream;
   final Player? player;
+  final Media3PlayerState? media3State;
   final bool isLive;
   final VoidCallback onBack;
   final VoidCallback? onAudio;
   final VoidCallback? onSubtitles;
   final VoidCallback? onQuality;
+  final VoidCallback? onMedia3PlayPause;
+  final ValueChanged<Duration>? onMedia3Seek;
+  final VoidCallback? onCast;
   final VoidCallback onServers;
 
   const _PlayerOverlay({
     required this.title,
     required this.stream,
     required this.player,
+    required this.media3State,
     required this.isLive,
     required this.onBack,
     required this.onAudio,
     required this.onSubtitles,
     required this.onQuality,
+    required this.onMedia3PlayPause,
+    required this.onMedia3Seek,
+    required this.onCast,
     required this.onServers,
   });
 
@@ -1198,12 +1206,31 @@ class _PlayerOverlay extends StatelessWidget {
                         : Icons.play_arrow_rounded,
                   ),
                 ),
+              )
+            else if (media3State != null && onMedia3PlayPause != null)
+              IconButton.filled(
+                iconSize: 42,
+                onPressed: onMedia3PlayPause,
+                icon: Icon(
+                  media3State!.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                ),
               ),
             const Spacer(),
             if (player != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: _Timeline(player: player!, isLive: isLive),
+              )
+            else if (media3State != null && onMedia3Seek != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: _Media3Timeline(
+                  state: media3State!,
+                  isLive: isLive,
+                  onSeek: onMedia3Seek!,
+                ),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
@@ -1243,6 +1270,14 @@ class _PlayerOverlay extends StatelessWidget {
                         label: 'Calidad',
                         onPressed: onQuality,
                       ),
+                      if (onCast != null)
+                        _ActionButton(
+                          icon: Icons.cast_rounded,
+                          label: media3State?.isCasting == true
+                              ? 'Transmitiendo'
+                              : 'Enviar a TV',
+                          onPressed: onCast,
+                        ),
                       _ActionButton(
                         icon: Icons.dns_outlined,
                         label: 'Cambiar señal',
@@ -1312,6 +1347,56 @@ class _Timeline extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _Media3Timeline extends StatelessWidget {
+  final Media3PlayerState state;
+  final bool isLive;
+  final ValueChanged<Duration> onSeek;
+
+  const _Media3Timeline({
+    required this.state,
+    required this.isLive,
+    required this.onSeek,
+  });
+
+  String _format(Duration value) {
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = Duration(milliseconds: state.durationMs);
+    final position = Duration(milliseconds: state.positionMs);
+    final max = state.durationMs <= 0 ? 1.0 : state.durationMs.toDouble();
+    final value = state.positionMs
+        .clamp(0, state.durationMs <= 0 ? 0 : state.durationMs)
+        .toDouble();
+    return Row(
+      children: [
+        Text(_format(position)),
+        Expanded(
+          child: Slider(
+            min: 0,
+            max: max,
+            value: value.clamp(0, max),
+            onChanged: state.durationMs <= 0
+                ? null
+                : (next) =>
+                    onSeek(Duration(milliseconds: next.round())),
+          ),
+        ),
+        Text(
+          state.durationMs <= 0
+              ? (isLive ? 'EN VIVO' : '--:--')
+              : _format(duration),
+        ),
+      ],
     );
   }
 }
