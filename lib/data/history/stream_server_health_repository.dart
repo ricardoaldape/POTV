@@ -65,7 +65,12 @@ class StreamServerHealthRepository {
       final preference = fresh && preferred == id ? 200 : 0;
       final failure = stored[id];
       final count = failure is num ? failure.toInt() : 0;
-      return preference - (count.clamp(0, 6) * 70);
+      // Prefer POTV's native player over an embedded third-party page, even
+      // when a WebView happened to play successfully in the last session.
+      // Repeated native failures still let a functional fallback move first.
+      final nativePriority =
+          source.backend == PlaybackBackend.native ? 240 : 0;
+      return nativePriority + preference - (count.clamp(0, 6) * 70);
     }
 
     final sorted = [...candidates];
