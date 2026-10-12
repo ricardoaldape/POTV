@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
 import '../../data/sources/stream_candidate_probe.dart';
 import '../../data/resolution/resolver_status.dart';
 import '../../data/sources/unified_source_resolver.dart';
@@ -66,6 +67,15 @@ class MediaPlaybackCoordinator {
     int? episode,
   }) async {
     if (!context.mounted) return;
+    if (!ref.read(potvRuntimeFlagStoreProvider).current
+        .enabled('external_source_resolution')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(
+          'La reproducción está temporalmente deshabilitada. Inténtalo más tarde.',
+        )),
+      );
+      return;
+    }
 
     final loading = showDialog<void>(
       context: context,
