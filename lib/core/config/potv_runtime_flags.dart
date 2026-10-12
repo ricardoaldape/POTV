@@ -34,7 +34,7 @@ class PotvRuntimeFlags {
     'sports_event_matching': true,
     'live_tv_catalog': true,
     'live_tv_epg': true,
-    'predictive_preload': false,
+    'predictive_preload': true,
     'youtube_integration': false,
     'external_source_resolution': true,
   };
