@@ -48,6 +48,7 @@ class PlaybackSession {
   final int initialIndex;
   final PlaybackContext? playbackContext;
   final List<PlaybackSubtitle> subtitles;
+  final List<PlaybackContext> autoplayQueue;
   final bool isLive;
 
   const PlaybackSession({
@@ -56,6 +57,7 @@ class PlaybackSession {
     this.initialIndex = 0,
     this.playbackContext,
     this.subtitles = const [],
+    this.autoplayQueue = const [],
     this.isLive = false,
   });
 
