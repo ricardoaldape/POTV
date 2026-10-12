@@ -8,6 +8,10 @@ import '../data/accounts/user_account_repository.dart';
 import '../data/accounts/user_profile.dart';
 import '../data/services/subscription_verifier.dart';
 
+final subscriptionVerifierProvider = Provider<SubscriptionVerifier>((ref) {
+  return SubscriptionVerifier();
+});
+
 final userAccountRepositoryProvider = FutureProvider<UserAccountRepository>((ref) async {
   return await UserAccountRepository.getInstance();
 });
@@ -104,7 +108,7 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
     final current = state;
     if (current == null) return 'no_account';
     final generation = ++_subscriptionGeneration;
-    final result = await SubscriptionVerifier().verifyCode(code);
+    final result = await ref.read(subscriptionVerifierProvider).verifyCode(code);
     if (generation != _subscriptionGeneration || !mounted ||
         state?.id != current.id) {
       return 'stale_session';
@@ -119,7 +123,7 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
     final current = state;
     if (current == null) return;
     final generation = _subscriptionGeneration;
-    final result = await SubscriptionVerifier().checkLicense();
+    final result = await ref.read(subscriptionVerifierProvider).checkLicense();
     if (generation != _subscriptionGeneration || !mounted ||
         state?.id != current.id) {
       return;
