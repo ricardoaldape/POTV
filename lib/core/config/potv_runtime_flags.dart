@@ -30,7 +30,7 @@ class PotvRuntimeFlags {
   // stays opt-in until integration tests and rollout have passed.
   static const defaults = <String, bool>{
     'sports_calendar': true,
-    'sports_event_matching': false,
+    'sports_event_matching': true,
     'live_tv_catalog': true,
     'live_tv_epg': true,
     'predictive_preload': false,
