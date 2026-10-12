@@ -19,7 +19,7 @@ Future<void> main() async {
   final preferences = await SharedPreferences.getInstance();
   final runtimeFlags = PotvRuntimeFlagStore(preferences)..load();
   final container = ProviderContainer(overrides: [
-    potvRuntimeFlagStoreProvider.overrideWithValue(runtimeFlags),
+    potvRuntimeFlagStoreProvider.overrideWith((ref) => runtimeFlags),
   ]);
   await container.read(defaultManifestBootstrapProvider).load();
 
