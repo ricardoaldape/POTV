@@ -141,7 +141,7 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
   Future<List<LiveChannel>> _loadResiliently() async {
     // A failing user-configured provider cannot suppress the public/default TV
     // catalogue. The repository itself first tries its last valid M3U cache.
-    final builtInEnabled = ref.watch(potvRuntimeFlagStoreProvider).current
+    final builtInEnabled = ref.read(potvRuntimeFlagStoreProvider).current
         .enabled('live_tv_catalog');
     final builtIn = builtInEnabled
         ? await ref.read(builtInLiveSourceRegistryProvider).mexico()
@@ -155,7 +155,10 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
   }
 
   @override
-  Future<List<LiveChannel>> build() => _loadResiliently();
+  Future<List<LiveChannel>> build() {
+    ref.watch(potvRuntimeFlagStoreProvider);
+    return _loadResiliently();
+  }
 
   Future<void> setSource(String url) async {
     state = const AsyncLoading();
