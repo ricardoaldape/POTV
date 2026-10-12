@@ -66,7 +66,9 @@ Future<void> main(List<String> args) async {
   try {
     final decoded = jsonDecode(utf8.decode(bytes));
     if (decoded is! Map<String, dynamic> ||
-        decoded.keys.length != 2 ||
+        (decoded.keys.length < 2 || decoded.keys.length > 3) ||
+        decoded.keys.any((key) =>
+            key != 'version' && key != 'flags' && key != 'rollout') ||
         !decoded.containsKey('version') ||
         !decoded.containsKey('flags') ||
         decoded['version'] is! int ||
@@ -75,6 +77,15 @@ Future<void> main(List<String> args) async {
       throw const FormatException('Invalid manifest structure');
     }
     final flags = decoded['flags'] as Map<String, dynamic>;
+    final rollout = decoded['rollout'] ?? <String, dynamic>{};
+    if (rollout is! Map<String, dynamic> ||
+        rollout.entries.any((entry) =>
+            !allowed.contains(entry.key) ||
+            entry.value is! int ||
+            (entry.value as int) < 0 ||
+            (entry.value as int) > 100)) {
+      throw const FormatException('Invalid rollout percentage');
+    }
     if (flags.keys.any((key) => !allowed.contains(key)) ||
         flags.values.any((value) => value is! bool)) {
       throw const FormatException('Invalid feature flag');
