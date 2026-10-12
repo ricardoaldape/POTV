@@ -82,7 +82,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final flags = ref.read(potvRuntimeFlagStoreProvider).current;
+    final flags = ref.watch(potvRuntimeFlagStoreProvider).current;
     final query = (day: selectedDay, sport: selectedSport);
     final eventsState = flags.enabled('sports_calendar')
         ? ref.watch(sportsEventsProvider(query))
