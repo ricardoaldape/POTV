@@ -10,6 +10,14 @@ import 'package:potv/domain/models/stream_candidate.dart';
 import 'package:potv/data/live_tv/live_tv_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class _BrokenBuiltInFixture extends BuiltInLiveSourceRegistry {
+  _BrokenBuiltInFixture() : super(Dio());
+
+  @override
+  Future<List<LiveChannel>> mexico() async =>
+      throw StateError('Built-in catalogue offline');
+}
+
 class _BuiltInFixture extends BuiltInLiveSourceRegistry {
   _BuiltInFixture() : super(Dio());
 
@@ -130,6 +138,24 @@ void main() {
 
     final channels = await container.read(liveChannelsProvider.future);
     expect(channels.map((item) => item.name), ['Demo TV']);
+  });
+
+  test('personal M3U survives a failed built-in TV catalogue', () async {
+    final repository = LiveTvRepository(dio, supportDirectory: directory);
+    await repository.saveSource('https://myprovider.example/tv');
+    final flags = PotvRuntimeFlagStore(await SharedPreferences.getInstance());
+    final container = ProviderContainer(overrides: [
+      potvRuntimeFlagStoreProvider.overrideWith((ref) => flags),
+      liveTvRepositoryProvider.overrideWithValue(repository),
+      builtInLiveSourceRegistryProvider.overrideWithValue(
+        _BrokenBuiltInFixture(),
+      ),
+    ]);
+    addTearDown(container.dispose);
+
+    final channels = await container.read(liveChannelsProvider.future);
+    expect(channels, hasLength(1));
+    expect(channels.single.name, 'Demo TV');
   });
 
 }
