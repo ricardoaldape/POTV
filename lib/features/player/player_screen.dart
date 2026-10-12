@@ -328,7 +328,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final resumeAt = player?.state.position;
     final failed = currentStream.label;
     currentIndex += 1;
-    addDebugLog('Player: señal "\$failed" no respondió, siguiente: "+"\${currentStream.label}"+"');
+    addDebugLog('Player: falló una opción de reproducción; se intentará la siguiente');
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
