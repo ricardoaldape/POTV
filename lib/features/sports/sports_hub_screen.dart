@@ -323,7 +323,7 @@ class _SportsEventCard extends StatelessWidget {
               ),
             if (best != null)
               Text(
-                best.program?.title ?? 'Disponible en ${best.channel.name}',
+                best.program.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white70),
