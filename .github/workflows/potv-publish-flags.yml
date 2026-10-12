@@ -12,6 +12,11 @@ on:
         required: true
         type: string
         default: '{"sports_calendar":true,"sports_event_matching":true,"live_tv_catalog":true,"live_tv_epg":true,"predictive_preload":true,"external_source_resolution":true}'
+      rollout_json:
+        description: Optional percent rollout per feature (0-100)
+        required: false
+        type: string
+        default: '{}'
 
 permissions:
   contents: write
@@ -33,6 +38,7 @@ jobs:
         env:
           POTV_VERSION: ${{ inputs.version }}
           POTV_FLAGS_JSON: ${{ inputs.flags_json }}
+          POTV_ROLLOUT_JSON: ${{ inputs.rollout_json }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -44,12 +50,18 @@ jobs:
           }
           version = int(os.environ["POTV_VERSION"])
           flags = json.loads(os.environ["POTV_FLAGS_JSON"])
+          rollout = json.loads(os.environ["POTV_ROLLOUT_JSON"])
           if version < 1 or not isinstance(flags, dict):
               raise SystemExit("Invalid version/flags")
           if any(k not in allowed or type(v) is not bool for k,v in flags.items()):
               raise SystemExit("Unknown or invalid feature switch")
+          if not isinstance(rollout, dict) or any(
+              k not in allowed or type(v) is not int or v < 0 or v > 100
+              for k, v in rollout.items()
+          ):
+              raise SystemExit("Invalid rollout percentages")
           with open("potv-flags-input.json", "w", encoding="utf-8") as out:
-              json.dump({"version": version, "flags": flags}, out, separators=(",", ":"))
+              json.dump({"version": version, "flags": flags, "rollout": rollout}, out, separators=(",", ":"))
           PY
       - name: Verify signing key exists
         env:
