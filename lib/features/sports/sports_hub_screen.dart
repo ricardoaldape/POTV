@@ -247,8 +247,8 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
           ),
           const SizedBox(height: 5),
           const Text(
-            'Se prioriza el idioma indicado por la fuente. '
-            'Los canales sin idioma identificado permanecen visibles.',
+            'POTV intenta mostrar primero señales en el idioma elegido cuando '
+            'esa información está disponible.',
             style: TextStyle(color: Colors.white60, fontSize: 12),
           ),
           const SizedBox(height: 18),
@@ -283,8 +283,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               const LinearProgressIndicator(minHeight: 2),
             if (allChannels.isEmpty && !builtInState.isLoading)
               const _EmptySection(
-                'No encontramos canales deportivos. Agrega una lista M3U '
-                'o activa una fuente deportiva para verlos aquí.',
+                'No encontramos señales deportivas disponibles en este momento.',
               ),
             for (final sport in SportsHubCategory.values)
               if (sport != SportsHubCategory.all &&
@@ -366,8 +365,8 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               const LinearProgressIndicator(minHeight: 2),
             if (addonItems.isNotEmpty) ...[
               _SectionHeading(
-                label: 'EVENTOS DE TUS ADDONS',
-                description: '${addonItems.length} eventos · fuentes configuradas.',
+                label: 'MÁS EVENTOS',
+                description: '${addonItems.length} eventos disponibles.',
               ),
               const SizedBox(height: 10),
               AddonSportsRail(items: addonItems),
@@ -407,8 +406,8 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               ),
             if (eventsState.hasError && events.isEmpty)
               const _EmptySection(
-                'No pudimos actualizar la agenda. Los canales y addons '
-                'siguen disponibles para reproducir.',
+                'No pudimos actualizar la agenda. Las señales disponibles '
+                'siguen funcionando.',
               ),
             if (events.isNotEmpty) ...[
               _SectionHeading(
