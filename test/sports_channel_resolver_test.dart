@@ -117,4 +117,72 @@ void main() {
     expect(matches, isNotEmpty);
     expect(matches.first.channel.id, 'mx-1');
   });
+  test('does not match an NFL event merely because both teams share New York', () {
+    final starts = DateTime.now().add(const Duration(minutes: 30));
+    final event = SportsEvent(
+      id: 'ny-nfl',
+      sport: 'American Football',
+      competition: 'NFL',
+      home: 'New York Giants',
+      away: 'New York Jets',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'unrelated',
+      name: 'Sports Unrelated',
+      epgId: 'unrelated.epg',
+      stream: StreamCandidate(
+        id: 'unrelated-stream',
+        label: 'Sports',
+        uri: Uri.parse('https://example.org/public-test.m3u8'),
+      ),
+    );
+    final program = EpgProgram(
+      channelId: 'unrelated.epg',
+      title: 'New York Knicks vs Boston Celtics',
+      startsAt: starts,
+      endsAt: starts.add(const Duration(hours: 2)),
+    );
+    final matches = const SportsChannelResolver().resolve(
+      event: event,
+      channels: [channel],
+      programs: [program],
+    );
+    expect(matches, isEmpty);
+  });
+
+  test('does match both distinctive NFL team names with correct channel EPG', () {
+    final starts = DateTime.now().add(const Duration(minutes: 30));
+    final event = SportsEvent(
+      id: 'ny-nfl',
+      sport: 'American Football',
+      competition: 'NFL',
+      home: 'New York Giants',
+      away: 'New York Jets',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'nfl',
+      name: 'Sports Fixture',
+      epgId: 'nfl.epg',
+      stream: StreamCandidate(
+        id: 'fixture',
+        label: 'Fixture',
+        uri: Uri.parse('https://example.org/public-test.m3u8'),
+      ),
+    );
+    final program = EpgProgram(
+      channelId: 'nfl.epg',
+      title: 'NY Giants vs NY Jets',
+      startsAt: starts,
+      endsAt: starts.add(const Duration(hours: 3)),
+    );
+    final matches = const SportsChannelResolver().resolve(
+      event: event,
+      channels: [channel],
+      programs: [program],
+    );
+    expect(matches, hasLength(1));
+  });
+
 }
