@@ -81,7 +81,7 @@ class ProfileScreen extends ConsumerWidget {
               ),
               const SizedBox(width: 8),
               ElevatedButton(
-                onPressed: profiles.isEmpty
+                onPressed: profiles.length <= 1
                     ? null
                     : () async {
                         final p = profiles.firstWhere((e) => e.id == activeId, orElse: () => profiles.first);
