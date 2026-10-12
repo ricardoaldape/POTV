@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:potv/data/resolution/provider_circuit_breaker.dart';
 
