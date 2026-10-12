@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -14,7 +16,13 @@ final potvRuntimeFlagStoreProvider = ChangeNotifierProvider<PotvRuntimeFlagStore
 /// Only named boolean capabilities are configurable. Remote JSON never becomes
 /// executable code, and cannot inject URLs, credentials or stream sources.
 class PotvRuntimeFlags {
-  PotvRuntimeFlags._(this.version, this.updatedAt, this.values);
+  PotvRuntimeFlags._(
+    this.version,
+    this.updatedAt,
+    this.values,
+    this.rolloutPercent,
+    this.installationId,
+  );
 
   static const storageKey = 'potv.runtime_flags.v1';
   static const supported = <String>{
@@ -42,12 +50,35 @@ class PotvRuntimeFlags {
   final int version;
   final DateTime updatedAt;
   final Map<String, bool> values;
+  final Map<String, int> rolloutPercent;
+  final String installationId;
 
-  bool enabled(String key) => values[key] ?? defaults[key] ?? false;
+  /// A false flag always disables the capability globally. Optional rollout
+  /// percentages can only restrict enabled features to a stable install cohort.
+  bool enabled(String key) {
+    if (!(values[key] ?? defaults[key] ?? false)) return false;
+    final percentage = rolloutPercent[key] ?? 100;
+    if (percentage >= 100) return true;
+    if (percentage <= 0 || installationId.isEmpty) return false;
+    final digest = sha256.convert(
+      utf8.encode('$installationId:$key'),
+    ).bytes;
+    final bucket = ((digest[0] << 24) |
+            (digest[1] << 16) |
+            (digest[2] << 8) |
+            digest[3]) %
+        100;
+    return bucket < percentage;
+  }
 
-  static PotvRuntimeFlags initial() =>
-      PotvRuntimeFlags._(0, DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-          Map.unmodifiable(defaults));
+  static PotvRuntimeFlags initial({String installationId = ''}) =>
+      PotvRuntimeFlags._(
+        0,
+        DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        Map.unmodifiable(defaults),
+        const <String, int>{},
+        installationId,
+      );
 
   /// Strict parser: malformed manifests do not replace the last known good.
   ///
@@ -57,6 +88,19 @@ class PotvRuntimeFlags {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return null;
+      if (decoded.keys.any((key) =>
+          key != 'version' && key != 'flags' && key != 'rollout')) {
+        return null;
+      }
+      final rollout = decoded['rollout'] ?? <String, dynamic>{};
+      if (rollout is! Map<String, dynamic>) return null;
+      if (rollout.entries.any((entry) =>
+          !supported.contains(entry.key) ||
+          entry.value is! int ||
+          (entry.value as int) < 0 ||
+          (entry.value as int) > 100)) {
+        return null;
+      }
       final version = decoded['version'];
       final rawFlags = decoded['flags'];
       if (version is! int || version <= current.version ||
@@ -71,13 +115,19 @@ class PotvRuntimeFlags {
         version,
         DateTime.now().toUtc(),
         Map.unmodifiable(merged),
+        Map.unmodifiable(rollout.cast<String, int>()),
+        current.installationId,
       );
     } catch (_) {
       return null;
     }
   }
 
-  String toJson() => jsonEncode({'version': version, 'flags': values});
+  String toJson() => jsonEncode({
+        'version': version,
+        'flags': values,
+        'rollout': rolloutPercent,
+      });
 }
 
 /// Resilience cache with atomic-like validation-before-replace behavior.
@@ -87,10 +137,13 @@ class PotvRuntimeFlags {
 /// from an untrusted endpoint. A production deployment must authenticate the
 /// control plane before enabling remote updates.
 class PotvRuntimeFlagStore extends ChangeNotifier {
-  PotvRuntimeFlagStore(this.preferences);
+  PotvRuntimeFlagStore(this.preferences)
+      : _current = PotvRuntimeFlags.initial(
+          installationId: preferences.getString('potv_device_id') ?? '',
+        );
 
   final SharedPreferences preferences;
-  PotvRuntimeFlags _current = PotvRuntimeFlags.initial();
+  PotvRuntimeFlags _current;
 
   PotvRuntimeFlags get current => _current;
 
