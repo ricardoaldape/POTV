@@ -82,6 +82,26 @@ void main() {
     expect(await failed.updater.refresh(), isFalse);
   });
 
+  test('rejects a redirect without following it', () async {
+    final fixture = await setup(
+      payload: '{"version":1,"flags":{"sports_calendar":false}}',
+      status: 302,
+    );
+    expect(await fixture.updater.refresh(), isFalse);
+    expect(fixture.store.current.version, 0);
+  });
+
+  test('rejects signed responses exceeding the fixed size limit', () async {
+    final oversized = jsonEncode({
+      'version': 1,
+      'flags': {'sports_calendar': false},
+      'unusedPadding': 'x' * PotvSignedFlagUpdater.maxEnvelopeBytes,
+    });
+    final fixture = await setup(payload: oversized);
+    expect(await fixture.updater.refresh(), isFalse);
+    expect(fixture.store.current.version, 0);
+  });
+
   test('rejects stale signed payloads after a valid update', () async {
     final fixture = await setup(
       payload: '{"version":1,"flags":{"sports_calendar":false}}',
