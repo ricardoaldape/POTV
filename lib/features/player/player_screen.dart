@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -51,6 +52,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? startupTimer;
   StreamSubscription<bool>? playingSubscription;
   bool _startupPlaying = false;
+  DateTime? _startupStartedAt;
   StreamSubscription<String>? playerErrorSubscription;
   bool controlsVisible = true;
   bool failoverInProgress = false;
@@ -92,6 +94,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     historyTimer?.cancel();
     startupTimer?.cancel();
     _startupPlaying = false;
+    _startupStartedAt = null;
     await playingSubscription?.cancel();
     playingSubscription = null;
     await playerErrorSubscription?.cancel();
@@ -114,12 +117,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     while (true) {
       try {
         final inputUrl = currentStream.uri.toString();
-        final inputLog = 'Resolver: URL de entrada -> $inputUrl';
+        final inputLog =
+            'Resolver: URL de entrada -> ${_safeLogUri(currentStream.uri)}';
         debugPrint(inputLog);
         addDebugLog(inputLog);
 
         if (currentStream.backend == PlaybackBackend.native) {
           final nextPlayer = Player();
+          _startupStartedAt = DateTime.now();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
 
@@ -128,11 +133,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           playingSubscription = nextPlayer.stream.playing.listen((isPlaying) {
             if (isPlaying) {
               _startupPlaying = true;
-              final startedAt = DateTime.now();
-              final seconds = startupTimer == null || startupTimer!.isActive == false
-                  ? 0
-                  : DateTime.now().difference(startedAt).inSeconds;
-              addDebugLog("Player: '${currentStream.label}' arrancó en ${seconds}s");
+              final elapsedMs = DateTime.now()
+                  .difference(_startupStartedAt ?? DateTime.now())
+                  .inMilliseconds;
+              addDebugLog("Player: arranque en ${elapsedMs}ms");
               startupTimer?.cancel();
               unawaited(playingSubscription?.cancel());
               playingSubscription = null;
@@ -173,7 +177,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
               effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
           }
-          final finalStreamLog = 'Resolver: URL final del stream -> $inputUrl';
+          final finalStreamLog =
+              'Resolver: URL final del stream -> ${_safeLogUri(currentStream.uri)}';
           debugPrint(finalStreamLog);
           addDebugLog(finalStreamLog);
           _armHistorySave();
@@ -185,7 +190,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (!opened) {
             throw StateError('No hay una aplicación disponible para abrirlo.');
           }
-          final finalStreamLog = 'Resolver: URL final del stream -> ${currentStream.uri}';
+          final finalStreamLog =
+              'Resolver: URL final del stream -> ${_safeLogUri(currentStream.uri)}';
           debugPrint(finalStreamLog);
           addDebugLog(finalStreamLog);
         }
@@ -227,7 +233,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     failoverInProgress = true;
     final resumeAt = player?.state.position;
-    final failed = currentStream.label;
     currentIndex += 1;
 
     if (mounted) {
@@ -235,7 +240,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         SnackBar(
           duration: const Duration(seconds: 2),
           content: Text(
-            '$failed falló. Probando ${currentStream.label}…',
+            'Ajustando la reproducción…',
           ),
         ),
       );
@@ -326,7 +331,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           children: [
             const ListTile(
               title: Text(
-                'Servidores',
+                'Opciones de reproducción',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
@@ -337,7 +342,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ? Icons.check_circle
                       : Icons.circle_outlined,
                 ),
-                title: Text(widget.session.candidates[i].label),
+                title: Text('Opción ${i + 1}'),
                 subtitle: Text(
                   [
                     widget.session.candidates[i].language,
@@ -462,8 +467,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  String _safeLogUri(Uri uri) => uri.replace(
+        userInfo: '',
+        query: null,
+        fragment: null,
+      ).toString();
+
+  void _exitPlayer() {
+    if (!mounted) return;
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/');
+    }
+  }
+
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.escape ||
+        event.logicalKey == LogicalKeyboardKey.backspace) {
+      _exitPlayer();
+      return KeyEventResult.handled;
+    }
     _showControls();
 
     final key = event.logicalKey;
@@ -497,7 +522,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final Widget content;
     if (playbackError != null) {
       content = _PlaybackFailureView(
-        message: playbackError!,
+        message: 'No pudimos reproducir este video. Prueba otra opción o inténtalo más tarde.',
         hasAlternatives: widget.session.candidates.length > 1,
         onRetry: () {
           currentIndex = 0;
@@ -550,7 +575,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     stream: currentStream,
                     player: p,
                     isLive: widget.session.isLive,
-                    onBack: () => Navigator.of(context).maybePop(),
+                    onBack: _exitPlayer,
                     onAudio: p == null ? null : _showAudioTracks,
                     onSubtitles: p == null ? null : _showSubtitleTracks,
                     onQuality: p == null ? null : _showVideoTracks,
@@ -588,7 +613,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               const Icon(Icons.open_in_new_rounded, size: 54),
               const SizedBox(height: 16),
               Text(
-                stream.label,
+                'Reproducción externa',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 20,
@@ -597,7 +622,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Este proveedor se abre en su aplicación o navegador.',
+                'El contenido se abrirá en una aplicación o navegador compatible.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70),
               ),
@@ -605,7 +630,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               FilledButton.icon(
                 onPressed: () => onOpen(),
                 icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text('Abrir proveedor'),
+                label: const Text('Abrir'),
               ),
             ],
           ),
@@ -641,7 +666,7 @@ class _PlaybackFailureView extends StatelessWidget {
               const Icon(Icons.error_outline_rounded, size: 54),
               const SizedBox(height: 14),
               const Text(
-                'No se pudo iniciar este servidor',
+                'No se pudo iniciar la reproducción',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 20,
@@ -773,7 +798,6 @@ class _PlayerOverlay extends StatelessWidget {
                 children: [
                   Text(
                     [
-                      stream.label,
                       stream.language,
                       stream.quality,
                     ].whereType<String>().join(' · '),
@@ -806,7 +830,7 @@ class _PlayerOverlay extends StatelessWidget {
                       ),
                       _ActionButton(
                         icon: Icons.dns_outlined,
-                        label: 'Servidores',
+                        label: 'Opciones',
                         onPressed: onServers,
                       ),
                     ],
