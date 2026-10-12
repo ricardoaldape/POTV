@@ -1,10 +1,12 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Injected at boot after reading the last known valid local configuration.
-final potvRuntimeFlagStoreProvider = Provider<PotvRuntimeFlagStore>((ref) {
+final potvRuntimeFlagStoreProvider = ChangeNotifierProvider<PotvRuntimeFlagStore>((ref) {
   throw StateError('Runtime flag store must be initialized before runApp');
 });
 
@@ -85,7 +87,7 @@ class PotvRuntimeFlags {
 /// and authenticity, and invokes refresh. Never consume an unsigned manifest
 /// from an untrusted endpoint. A production deployment must authenticate the
 /// control plane before enabling remote updates.
-class PotvRuntimeFlagStore {
+class PotvRuntimeFlagStore extends ChangeNotifier {
   PotvRuntimeFlagStore(this.preferences);
 
   final SharedPreferences preferences;
@@ -108,6 +110,7 @@ class PotvRuntimeFlagStore {
       PotvRuntimeFlags.storageKey, next.toJson());
     if (!persisted) return false;
     _current = next;
+    notifyListeners();
     return true;
   }
 }
