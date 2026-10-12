@@ -30,25 +30,35 @@ class SportsChannelResolver {
 
     final matches = <SportsChannelMatch>[];
 
+    // TheSportsDB supplies a fixture, not a watch URL. A channel is linked
+    // only when its EPG explicitly mentions BOTH opponents in the right
+    // broadcast window; shared sport/league labels are not enough.
+    final homeTokens = _tokens(event.home);
+    final awayTokens = _tokens(event.away);
+    if (homeTokens.isEmpty || awayTokens.isEmpty) return const [];
+
     for (final channel in channels) {
       EpgProgram? bestProgram;
-      var bestScore = _scoreText(channel.name, eventTokens);
+      var bestScore = 0;
 
       for (final program in programs) {
         if (!_sameChannel(channel, program)) continue;
         if (program.endsAt.isBefore(windowStart)) continue;
         if (program.startsAt.isAfter(windowEnd)) continue;
+        final summary = '${program.title} ${program.description ?? ''}';
+        if (!_containsTeam(summary, homeTokens) ||
+            !_containsTeam(summary, awayTokens)) {
+          continue;
+        }
 
-        final score = _scoreText(program.title, eventTokens) +
-            _scoreText(program.description ?? '', eventTokens);
-
+        final score = _scoreText(summary, eventTokens);
         if (score > bestScore) {
           bestScore = score;
           bestProgram = program;
         }
       }
 
-      if (bestScore >= 4) {
+      if (bestProgram != null) {
         matches.add(
           SportsChannelMatch(
             channel: channel,
@@ -61,6 +71,11 @@ class SportsChannelResolver {
 
     matches.sort((a, b) => b.score.compareTo(a.score));
     return matches;
+  }
+
+  bool _containsTeam(String source, Set<String> tokens) {
+    final words = _tokens(source);
+    return tokens.any(words.contains);
   }
 
   bool _sameChannel(LiveChannel channel, EpgProgram program) {

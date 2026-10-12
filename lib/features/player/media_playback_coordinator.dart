@@ -258,7 +258,7 @@ class _ResolvingDialog extends StatelessWidget {
             ),
             SizedBox(width: 16),
             Expanded(
-              child: Text('Buscando el mejor servidor…'),
+              child: Text('Preparando reproducción…'),
             ),
           ],
         ),
