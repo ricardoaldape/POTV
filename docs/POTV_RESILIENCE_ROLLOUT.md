@@ -58,3 +58,12 @@ Feature flags update *behavior already shipped in the installed binary*. They ca
 - The workflow is only available after this PR merges and the repository permits Actions to write to the dedicated configuration branch.
 - For emergency recovery when GitHub raw content is unreachable, POTV continues using its last verified on-device flags. This does not guarantee uninterrupted streaming if third-party services fail.
 - Never use a runtime flag to grant subscriptions or authorize payments; those decisions must remain server-side.
+
+## Provider health and staged rollouts
+
+- Source providers now use an isolated in-memory circuit breaker: **3 consecutive errors/timeouts** open a provider for **60 seconds**. Other providers keep resolving content. On cooldown completion, a single half-open probe checks whether the failed provider has recovered. Provider-level success/failure counts and retry time are available in `ProviderCircuitBreaker.snapshot(id)` for internal diagnostics. This is not a substitute for playback verification on Android.
+- Source results are cached for **20 seconds** at most by default; URLs containing recognized token/signature/expiry parameters are not cached. This reduces stale signed-link playback failures.
+- Signed configurations may optionally include a `rollout` map of allowlisted features to integer percentages **0–100**. Example: `{"version":8,"flags":{"predictive_preload":true},"rollout":{"predictive_preload":10}}`.
+- A stable random installation identifier, shared with existing device linkage, determines which cohort is enabled. It is **not** a login credential. The cohort is stable across manifest versions for the same device and feature.
+- A value of `false` always disables its feature for **all devices**, regardless of percentage. Unknown names, out-of-range percentages, and malformed types are rejected. If `rollout` is omitted, enabled flags apply to 100% of installations.
+- Use `rollout_json` in the manual GitHub publisher workflow to stage a release from small cohorts to 100%, inspecting operational logs between increases; abort instantly with a newer signed version where the affected flag is false.
