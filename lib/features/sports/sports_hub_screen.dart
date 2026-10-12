@@ -419,14 +419,10 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               for (final event in events)
                 _SportsEventCard(
                   event: event,
-                  channels: allChannels,
-                  fallbackChannels: [
-                    ...organizer.channelsFor(
-                      allChannels,
-                      organizer.categoryForEvent(event),
-                    ),
-                    ...generalChannels,
-                  ],
+                  channels: languageService.preferredChannels(
+                    allChannels,
+                    preferredLanguage,
+                  ),
                   programs: programs,
                 ),
             ] else if (!eventsState.isLoading && !eventsState.hasError &&
@@ -493,76 +489,13 @@ class _EmptySection extends StatelessWidget {
 class _SportsEventCard extends StatelessWidget {
   final SportsEvent event;
   final List<LiveChannel> channels;
-  final List<LiveChannel> fallbackChannels;
   final List<EpgProgram> programs;
 
   const _SportsEventCard({
     required this.event,
     required this.channels,
-    required this.fallbackChannels,
     required this.programs,
   });
-
-  Future<void> _openFallbackChannels(BuildContext context) async {
-    final visible = fallbackChannels.take(24).toList(growable: false);
-    if (visible.isEmpty) return;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          children: [
-            const Text(
-              'Canales deportivos disponibles',
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'No encontramos una coincidencia automática para este evento. Elige un canal disponible para comprobar su programación.',
-              style: TextStyle(color: Colors.white60),
-            ),
-            const SizedBox(height: 14),
-            for (final channel in visible)
-              Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: channel.logo == null
-                      ? const CircleAvatar(child: Icon(Icons.live_tv_rounded))
-                      : CircleAvatar(
-                          backgroundImage: NetworkImage(channel.logo.toString()),
-                        ),
-                  title: Text(channel.name),
-                  subtitle: channel.group == null
-                      ? null
-                      : Text(
-                          channel.group!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                  trailing: const Icon(Icons.play_arrow_rounded),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    context.push(
-                      '/player',
-                      extra: PlaybackSession(
-                        title: channel.name,
-                        candidates: channel.playbackCandidates,
-                        isLive: true,
-                      ),
-                    );
-                  },
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -573,6 +506,13 @@ class _SportsEventCard extends StatelessWidget {
       programs: programs,
     );
     final best = matches.isEmpty ? null : matches.first;
+    // Direct watch candidates are returned by the authorized partner for
+    // this exact event. EPG matches are a lower-priority verified fallback.
+    final eventStreams = event.streams;
+    final playable = eventStreams.isNotEmpty
+        ? eventStreams
+        : [for (final match in matches) ...match.channel.playbackCandidates];
+    final hasConfirmedBroadcast = playable.isNotEmpty;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -598,7 +538,12 @@ class _SportsEventCard extends StatelessWidget {
                   color: Colors.redAccent,
                 ),
               ),
-            if (best != null)
+            if (eventStreams.isNotEmpty)
+              const Text(
+                'Transmisión del evento disponible',
+                style: TextStyle(color: Colors.white70),
+              )
+            else if (best != null)
               Text(
                 best.program?.title ?? 'Disponible en ${best.channel.name}',
                 maxLines: 1,
@@ -608,30 +553,17 @@ class _SportsEventCard extends StatelessWidget {
           ],
         ),
         trailing: FilledButton(
-          onPressed: best == null
-              ? fallbackChannels.isEmpty
-                  ? null
-                  : () => _openFallbackChannels(context)
-              : () {
-                  final session = PlaybackSession(
+          onPressed: !hasConfirmedBroadcast
+              ? null
+              : () => context.push(
+                  '/player',
+                  extra: PlaybackSession(
                     title: event.title,
-                    candidates: [
-                      for (final match in matches)
-                        ...match.channel.playbackCandidates,
-                    ],
+                    candidates: playable,
                     isLive: true,
-                  );
-                  context.push('/player', extra: session);
-                },
-          child: Text(
-            best == null
-                ? fallbackChannels.isEmpty
-                    ? 'SIN CANALES'
-                    : 'CANALES'
-                : matches.length > 1
-                    ? 'VER · ${matches.length}'
-                    : 'VER',
-          ),
+                  ),
+                ),
+          child: Text(hasConfirmedBroadcast ? 'VER EVENTO' : 'SIN SEÑAL'),
         ),
       ),
     );
