@@ -53,7 +53,9 @@ class PotvRuntimeFlags {
       final version = decoded['version'];
       final rawFlags = decoded['flags'];
       if (version is! int || version <= current.version ||
-          rawFlags is! Map<String, dynamic>) return null;
+          rawFlags is! Map<String, dynamic>) {
+        return null;
+      }
       if (rawFlags.keys.any((key) => !supported.contains(key))) return null;
       if (rawFlags.values.any((value) => value is! bool)) return null;
       final merged = Map<String, bool>.from(current.values);
