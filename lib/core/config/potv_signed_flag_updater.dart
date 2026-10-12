@@ -9,7 +9,7 @@ import 'potv_runtime_flags.dart';
 /// executable code, credentials, provider endpoints or unsigned manifests.
 ///
 /// Wire format (JSON):
-/// {"payload":"<base64 UTF-8 JSON flags>","signature":"<base64 Ed25519>"}
+/// {"payload":"base64 JSON flags","signature":"base64 Ed25519"}
 /// The detached signature authenticates the exact decoded payload bytes.
 class PotvSignedFlagUpdater {
   PotvSignedFlagUpdater({
