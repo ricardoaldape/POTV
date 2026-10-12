@@ -28,8 +28,12 @@ class LiveTvRepository {
   static const _epgSourceKey = 'live_tv_xmltv_url';
 
   final Dio _dio;
+  final Directory? supportDirectory;
 
-  LiveTvRepository(this._dio);
+  LiveTvRepository(this._dio, {this.supportDirectory});
+
+  Future<Directory> _supportDir() async =>
+      supportDirectory ?? getApplicationSupportDirectory();
 
   Future<String?> sourceUrl() async {
     final prefs = await SharedPreferences.getInstance();
@@ -41,7 +45,7 @@ class LiveTvRepository {
     final next = value.trim();
     final previous = prefs.getString(_sourceKey);
     if (previous != next || prefs.getString(_sourceKindKey) != 'url') {
-      final dir = await getApplicationSupportDirectory();
+      final dir = await _supportDir();
       final oldCache = File(
         '${dir.path}${Platform.pathSeparator}$_lastGoodPath',
       );
@@ -52,7 +56,7 @@ class LiveTvRepository {
   }
 
   Future<void> saveLocalPlaylist(String raw) async {
-    final dir = await getApplicationSupportDirectory();
+    final dir = await _supportDir();
     final file = File(
       '${dir.path}${Platform.pathSeparator}live_tv_playlist.m3u',
     );
@@ -81,7 +85,7 @@ class LiveTvRepository {
     // Keep the previous validated playlist if the URL is temporarily offline.
     // The cache is stored in the app-private support directory, never in a
     // public/downloads folder. Stream URLs may carry access credentials.
-    final dir = await getApplicationSupportDirectory();
+    final dir = await _supportDir();
     final cachedFile = File(
       '${dir.path}${Platform.pathSeparator}$_lastGoodPath',
     );
