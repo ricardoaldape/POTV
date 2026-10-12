@@ -223,7 +223,7 @@ class SourceAggregator {
       providerFuture = provider.resolve(request);
     } catch (error, stackTrace) {
       final errorLog =
-          'Resolver ${provider.displayName} ERROR ${error.runtimeType}: $error';
+          'Resolver ${provider.displayName} ERROR ${error.runtimeType}: ${_redactError(error)}';
       final stackLog = 'Resolver ${provider.displayName} STACK: $stackTrace';
       debugPrint(errorLog);
       debugPrint(stackLog);
@@ -300,11 +300,13 @@ class SourceAggregator {
     );
   }
 
-  String _safeLogUri(Uri uri) => uri.replace(
-        userInfo: '',
-        query: null,
-        fragment: null,
-      ).toString();
+  String _safeLogUri(Uri uri) =>
+      '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}/[redacted]';
+
+  String _redactError(Object error) => error.toString().replaceAll(
+        RegExp(r'https?://\\S+'),
+        '[redacted-media-url]',
+      );
 
   String _cacheKey(ProviderResolveRequest request) {
     return [
