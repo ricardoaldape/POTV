@@ -44,7 +44,7 @@ void main() {
 
     expect(matches, isNotEmpty);
     expect(matches.first.channel.id, 'sports-1');
-    expect(matches.first.program?.title, 'Tigres vs Pumas');
+    expect(matches.first.program.title, 'Tigres vs Pumas');
   });
 
   test('ignores weak one-token channel matches', () {
