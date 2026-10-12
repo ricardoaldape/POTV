@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../debug/debug_log_provider.dart';
@@ -11,9 +12,13 @@ import 'provider_registry.dart';
 import 'provider_circuit_breaker.dart';
 
 final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
+  // Recreate the source pipeline when signed emergency switches change.
+  // Switching off source resolution must also invalidate cached sources.
+  final enabled = ref.watch(potvRuntimeFlagStoreProvider).current
+      .enabled('external_source_resolution');
   return SourceAggregator(
-    ref.read(providerRegistryProvider),
-    resolverManager: ref.read(resolverManagerProvider),
+    enabled ? ref.read(providerRegistryProvider) : const <ProviderResolver>[],
+    resolverManager: enabled ? ref.read(resolverManagerProvider) : null,
   );
 });
 
