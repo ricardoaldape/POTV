@@ -36,7 +36,7 @@ class SourceAggregator {
     this.providerTimeout = const Duration(seconds: 18),
     this.resolutionTimeout = const Duration(seconds: 17),
     this.firstCandidateGrace = const Duration(milliseconds: 900),
-    this.cacheTtl = const Duration(minutes: 5),
+    this.cacheTtl = const Duration(seconds: 20),
     this.negativeCacheTtl = const Duration(seconds: 30),
     this.resolverManager,
     ProviderCircuitBreaker? circuitBreaker,
@@ -67,6 +67,11 @@ class SourceAggregator {
     _inFlight[key] = future;
     return future.then((result) {
       if (generation != _cacheGeneration) return result;
+      // Signed or expiring links cannot safely be reused across playback
+      // sessions even when the catalogue identity is the same.
+      if (result.candidates.any((c) => _looksEphemeral(c.uri))) {
+        return result;
+      }
       _cache[key] = _CachedResolution(
         result: result,
         createdAt: DateTime.now(),
@@ -276,6 +281,20 @@ class SourceAggregator {
   // Signed stream links may carry access tokens in query or fragment.
   // Keep enough information to diagnose which host/path failed without
   // exposing credentials in log output.
+  bool _looksEphemeral(Uri uri) {
+    if (uri.userInfo.isNotEmpty) return true;
+    const volatileKeys = <String>{
+      'token', 'access_token', 'auth', 'authorization', 'jwt',
+      'signature', 'sig', 'expires', 'expiry', 'exp', 'policy',
+      'x-amz-signature', 'x-amz-credential', 'x-amz-expires',
+      'x-goog-signature', 'x-goog-credential', 'x-goog-expires',
+      'hdnea', 'hdnts',
+    };
+    return uri.queryParameters.keys.any(
+      (name) => volatileKeys.contains(name.toLowerCase()),
+    );
+  }
+
   String _safeLogUri(Uri uri) => uri.replace(
         userInfo: '',
         query: null,
