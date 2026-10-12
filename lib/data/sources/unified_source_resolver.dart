@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/stream_candidate.dart';
@@ -6,13 +8,45 @@ import '../../domain/services/source_resolver.dart';
 import '../resolution/source_aggregator.dart';
 
 final unifiedSourceResolverProvider = Provider<UnifiedSourceResolver>((ref) {
-  return UnifiedSourceResolver(ref.read(sourceAggregatorProvider));
+  return UnifiedSourceResolver(ref.watch(sourceAggregatorProvider));
 });
 
+/// Coalesces detail-screen warm-up and Play actions for the *same* item.
+///
+/// The cache is process-memory only: never persisted or shared across accounts.
+/// Signed URLs can expire, therefore hits have a deliberately short lifetime.
+/// Call invalidate() whenever provider configuration or credentials change.
 class UnifiedSourceResolver implements SourceResolver {
   final SourceAggregator aggregator;
+  UnifiedSourceResolver(this.aggregator);
 
-  const UnifiedSourceResolver(this.aggregator);
+  static const _ttl = Duration(seconds: 20);
+  static const _maxEntries = 12;
+  final Map<String, _ResolvedCacheEntry> _cache = {};
+  final Map<String, Future<List<StreamCandidate>>> _pending = {};
+  int _generation = 0;
+
+  static const _expiringKeys = <String>{
+    'token', 'access_token', 'auth', 'authorization', 'jwt',
+    'signature', 'sig', 'expires', 'expiry', 'exp', 'policy',
+    'x-amz-signature', 'x-amz-credential', 'x-amz-expires',
+    'x-goog-signature', 'x-goog-credential', 'x-goog-expires',
+    'hdnea', 'hdnts',
+  };
+
+  static bool _hasSignedUrl(StreamCandidate candidate) {
+    final uri = candidate.uri;
+    return uri.userInfo.isNotEmpty || uri.queryParameters.keys.any(
+      (key) => _expiringKeys.contains(key.toLowerCase()),
+    );
+  }
+
+  void invalidate() {
+    _generation++;
+    _cache.clear();
+    _pending.clear();
+    aggregator.clearCache();
+  }
 
   @override
   Future<List<StreamCandidate>> resolve({
@@ -23,8 +57,21 @@ class UnifiedSourceResolver implements SourceResolver {
     String? year,
     int? season,
     int? episode,
-  }) async {
-    final result = await aggregator.resolve(
+  }) {
+    final key = jsonEncode([
+      mediaType, mediaId, externalId, title, year, season, episode,
+    ]);
+    final now = DateTime.now();
+    _cache.removeWhere((_, value) => !value.expiresAt.isAfter(now));
+    final hit = _cache[key];
+    if (hit != null) return Future.value(hit.candidates);
+    final inFlight = _pending[key];
+    if (inFlight != null) return inFlight;
+
+    final generation = _generation;
+    final pending = _resolveAndCache(
+      key,
+      generation,
       ProviderResolveRequest(
         mediaType: mediaType,
         mediaId: mediaId,
@@ -35,7 +82,38 @@ class UnifiedSourceResolver implements SourceResolver {
         episode: episode,
       ),
     );
-
-    return result.candidates;
+    _pending[key] = pending;
+    return pending;
   }
+
+  Future<List<StreamCandidate>> _resolveAndCache(
+    String key,
+    int generation,
+    ProviderResolveRequest request,
+  ) async {
+    try {
+      final response = await aggregator.resolve(request);
+      final candidates = List<StreamCandidate>.unmodifiable(response.candidates);
+      // Never retain unsuccessful lookup results, allowing quick retry.
+      if (candidates.isNotEmpty &&
+          !candidates.any(_hasSignedUrl) &&
+          generation == _generation) {
+        if (_cache.length >= _maxEntries) _cache.remove(_cache.keys.first);
+        _cache[key] = _ResolvedCacheEntry(
+          candidates,
+          DateTime.now().add(_ttl),
+        );
+      }
+      return candidates;
+    } finally {
+      if (generation == _generation) _pending.remove(key);
+    }
+  }
+}
+
+class _ResolvedCacheEntry {
+  final List<StreamCandidate> candidates;
+  final DateTime expiresAt;
+
+  const _ResolvedCacheEntry(this.candidates, this.expiresAt);
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
 import '../../data/catalog/series_episode_repository.dart';
 import '../../data/history/playback_history_repository.dart';
 import '../../data/sources/unified_source_resolver.dart';
@@ -11,6 +12,7 @@ import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/series_episode.dart';
 import '../player/media_playback_coordinator.dart';
+import 'preload_network_policy.dart';
 
 class MediaDetailScreen extends ConsumerStatefulWidget {
   final MediaItem item;
@@ -64,7 +66,13 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     int? season,
     int? episode,
   }) async {
+    if (!mounted) return;
     try {
+      if (!ref.read(potvRuntimeFlagStoreProvider).current
+          .enabled('predictive_preload')) return;
+      if (!await PreloadNetworkPolicy.isLikelyUnmetered() || !mounted) {
+        return;
+      }
       await ref.read(unifiedSourceResolverProvider).resolve(
             mediaType: widget.item.mediaTypeName,
             mediaId: widget.item.id.toString(),
@@ -229,13 +237,6 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   children: [
                     Chip(label: Text(item.typeLabel)),
                     if (item.year != null) Chip(label: Text(item.year!)),
-                    Chip(
-                      label: Text(
-                        item.type == MediaType.anime
-                            ? 'AniList ${item.id}'
-                            : 'TMDB ${item.id}',
-                      ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 18),

@@ -2,18 +2,26 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/debug/debug_log_provider.dart';
 import '../../data/history/playback_history_repository.dart';
+import '../../data/catalog/series_episode_repository.dart';
+import '../../data/sources/unified_source_resolver.dart';
 import '../../domain/models/playback_history_entry.dart';
+import '../../domain/models/media_item.dart';
+import '../../domain/services/stream_candidate_ranker.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import 'secure_webview_player.dart';
+import 'spanish_track_selector.dart';
+import 'next_episode_selector.dart';
 
-class PlayerScreen extends StatefulWidget {
+class PlayerScreen extends ConsumerStatefulWidget {
   final PlaybackSession session;
 
   const PlayerScreen({
@@ -40,10 +48,10 @@ class PlayerScreen extends StatefulWidget {
   }
 
   @override
-  State<PlayerScreen> createState() => _PlayerScreenState();
+  ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Player? player;
   VideoController? videoController;
   Timer? hideTimer;
@@ -51,7 +59,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? startupTimer;
   StreamSubscription<bool>? playingSubscription;
   bool _startupPlaying = false;
+  DateTime? _startupStartedAt;
   StreamSubscription<String>? playerErrorSubscription;
+  StreamSubscription<Tracks>? tracksSubscription;
+  StreamSubscription<bool>? completedSubscription;
+  bool _autoNextAttempted = false;
+  bool _advancingEpisode = false;
+  late PlaybackSession _session;
+  bool _autoAudioSelected = false;
+  bool _autoSubtitleSelected = false;
+  bool _manualAudioSelected = false;
+  bool _manualSubtitleSelected = false;
   bool controlsVisible = true;
   bool failoverInProgress = false;
   String? playbackError;
@@ -59,11 +77,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final historyRepository = const PlaybackHistoryRepository();
 
   StreamCandidate get currentStream =>
-      widget.session.candidates[currentIndex];
+      _session.candidates[currentIndex];
 
   @override
   void initState() {
     super.initState();
+    _session = widget.session;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     currentIndex = widget.session.initialIndex
         .clamp(0, widget.session.candidates.length - 1)
@@ -80,6 +99,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     startupTimer?.cancel();
     unawaited(playingSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
+    unawaited(tracksSubscription?.cancel());
+    unawaited(completedSubscription?.cancel());
     unawaited(_saveProgress());
     player?.dispose();
     super.dispose();
@@ -92,10 +113,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     historyTimer?.cancel();
     startupTimer?.cancel();
     _startupPlaying = false;
+    _startupStartedAt = null;
     await playingSubscription?.cancel();
     playingSubscription = null;
     await playerErrorSubscription?.cancel();
     playerErrorSubscription = null;
+    await tracksSubscription?.cancel();
+    tracksSubscription = null;
+    await completedSubscription?.cancel();
+    completedSubscription = null;
+    _autoNextAttempted = false;
+    _autoAudioSelected = false;
+    _autoSubtitleSelected = false;
+    _manualAudioSelected = false;
+    _manualSubtitleSelected = false;
     await _saveProgress();
     await player?.dispose();
     player = null;
@@ -114,12 +145,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     while (true) {
       try {
         final inputUrl = currentStream.uri.toString();
-        final inputLog = 'Resolver: URL de entrada -> $inputUrl';
+        final inputLog =
+            'Resolver: URL de entrada -> ${_safeLogUri(currentStream.uri)}';
         debugPrint(inputLog);
         addDebugLog(inputLog);
 
         if (currentStream.backend == PlaybackBackend.native) {
           final nextPlayer = Player();
+          _startupStartedAt = DateTime.now();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
 
@@ -128,11 +161,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           playingSubscription = nextPlayer.stream.playing.listen((isPlaying) {
             if (isPlaying) {
               _startupPlaying = true;
-              final startedAt = DateTime.now();
-              final seconds = startupTimer == null || startupTimer!.isActive == false
-                  ? 0
-                  : DateTime.now().difference(startedAt).inSeconds;
-              addDebugLog("Player: '${currentStream.label}' arrancó en ${seconds}s");
+              final elapsedMs = DateTime.now()
+                  .difference(_startupStartedAt ?? DateTime.now())
+                  .inMilliseconds;
+              addDebugLog("Player: arranque en ${elapsedMs}ms");
               startupTimer?.cancel();
               unawaited(playingSubscription?.cancel());
               playingSubscription = null;
@@ -162,18 +194,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
             await nextPlayer.setAudioTrack(
               AudioTrack.uri(
                 externalAudioUri.toString(),
-                title: 'YouTube audio',
+                title: 'Audio alternativo',
               ),
             );
           }
           playerErrorSubscription = nextPlayer.stream.error.listen(
             (message) => unawaited(_autoFailover(message)),
           );
+          tracksSubscription = nextPlayer.stream.tracks.listen(
+            (tracks) => _autoSelectSpanishTracks(nextPlayer, tracks),
+          );
+          completedSubscription = nextPlayer.stream.completed.listen(
+            (completed) {
+              if (completed && !_autoNextAttempted) {
+                _autoNextAttempted = true;
+                unawaited(_advanceEpisode());
+              }
+            },
+          );
+          _autoSelectSpanishTracks(nextPlayer, nextPlayer.state.tracks);
           if (effectiveResumeAt != null &&
               effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
           }
-          final finalStreamLog = 'Resolver: URL final del stream -> $inputUrl';
+          final finalStreamLog =
+              'Resolver: URL final del stream -> ${_safeLogUri(currentStream.uri)}';
           debugPrint(finalStreamLog);
           addDebugLog(finalStreamLog);
           _armHistorySave();
@@ -185,14 +230,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (!opened) {
             throw StateError('No hay una aplicación disponible para abrirlo.');
           }
-          final finalStreamLog = 'Resolver: URL final del stream -> ${currentStream.uri}';
+          final finalStreamLog =
+              'Resolver: URL final del stream -> ${_safeLogUri(currentStream.uri)}';
           debugPrint(finalStreamLog);
           addDebugLog(finalStreamLog);
         }
 
         break;
       } catch (error, stack) {
-        final errorLog = 'Resolver error: $error';
+        final errorLog = 'Resolver error: ${_redactError(error.toString())}';
         final stackLog = 'Resolver stack: $stack';
         debugPrint(errorLog);
         debugPrint(stackLog);
@@ -201,6 +247,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
         await playerErrorSubscription?.cancel();
         playerErrorSubscription = null;
+        await tracksSubscription?.cancel();
+        tracksSubscription = null;
         await player?.dispose();
         player = null;
         videoController = null;
@@ -227,7 +275,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     failoverInProgress = true;
     final resumeAt = player?.state.position;
-    final failed = currentStream.label;
     currentIndex += 1;
 
     if (mounted) {
@@ -235,7 +282,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         SnackBar(
           duration: const Duration(seconds: 2),
           content: Text(
-            '$failed falló. Probando ${currentStream.label}…',
+            'Ajustando la reproducción…',
           ),
         ),
       );
@@ -326,7 +373,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           children: [
             const ListTile(
               title: Text(
-                'Servidores',
+                'Opciones de reproducción',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
@@ -337,7 +384,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ? Icons.check_circle
                       : Icons.circle_outlined,
                 ),
-                title: Text(widget.session.candidates[i].label),
+                title: Text('Opción ${i + 1}'),
                 subtitle: Text(
                   [
                     widget.session.candidates[i].language,
@@ -352,7 +399,112 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  Future<void> _showAudioTracks() async {
+  Future<void> _advanceEpisode() async {
+    if (!mounted || _advancingEpisode || _session.isLive) return;
+    final current = _session.playbackContext;
+    if (current == null ||
+        current.mediaType != 'tv' ||
+        current.season == null ||
+        current.episode == null) return;
+
+    _advancingEpisode = true;
+    try {
+      final item = MediaItem(
+        id: current.mediaId,
+        type: MediaType.tv,
+        title: current.title,
+        externalId: current.externalId,
+      );
+      final episodes = await ref.read(seriesEpisodeRepositoryProvider)
+          .load(item).timeout(const Duration(seconds: 9));
+      if (!mounted || episodes.isEmpty) return;
+      final nextEpisode = NextEpisodeSelector.next(
+        episodes,
+        season: current.season!,
+        episode: current.episode!,
+      );
+      if (nextEpisode == null) return;
+
+      final candidates = await ref.read(unifiedSourceResolverProvider).resolve(
+        mediaType: 'tv',
+        mediaId: current.mediaId.toString(),
+        externalId: current.externalId,
+        title: current.title,
+        season: nextEpisode.season,
+        episode: nextEpisode.episode,
+      ).timeout(const Duration(seconds: 19));
+      final playable = const StreamCandidateRanker().rank(
+        candidates.where((candidate) =>
+          candidate.backend == PlaybackBackend.native,
+        ).toList(growable: false),
+      );
+      if (playable.isEmpty || !mounted) return;
+
+      // Store progress against the old episode before switching context.
+      await _saveProgress();
+      historyTimer?.cancel();
+      await completedSubscription?.cancel();
+      completedSubscription = null;
+      final previousPlayer = player;
+      player = null;
+      await previousPlayer?.dispose();
+
+      _session = PlaybackSession(
+        title: '${current.title} · T${nextEpisode.season} E${nextEpisode.episode}',
+        candidates: playable,
+        playbackContext: PlaybackContext(
+          mediaId: current.mediaId,
+          mediaType: current.mediaType,
+          title: current.title,
+          externalId: current.externalId,
+          season: nextEpisode.season,
+          episode: nextEpisode.episode,
+          poster: current.poster,
+        ),
+      );
+      currentIndex = 0;
+      await _openCurrent(resumeAt: Duration.zero);
+    } catch (_) {
+      addDebugLog('Player: el siguiente episodio no está disponible');
+    } finally {
+      _advancingEpisode = false;
+    }
+  }
+
+    void _autoSelectSpanishTracks(Player current, Tracks tracks) {
+    if (!mounted || player != current) return;
+
+    final spanishAudio = SpanishTrackSelector.preferredAudio(tracks.audio);
+    final spanishSubtitle =
+        SpanishTrackSelector.preferredSubtitle(tracks.subtitle);
+
+    if (!_manualAudioSelected &&
+        !_autoAudioSelected &&
+        spanishAudio != null &&
+        currentStream.externalAudioUri == null) {
+      _autoAudioSelected = true;
+      unawaited(current.setAudioTrack(spanishAudio).catchError((Object _) {
+        addDebugLog('Player: no se pudo seleccionar audio español');
+      }));
+    }
+
+    if (_manualSubtitleSelected) return;
+    if (_autoAudioSelected && _autoSubtitleSelected) {
+      _autoSubtitleSelected = false;
+      unawaited(current.setSubtitleTrack(SubtitleTrack.no()).catchError(
+        (Object _) => addDebugLog('Player: fallo desactivando subtítulos'),
+      ));
+    } else if (!_autoAudioSelected &&
+        !_autoSubtitleSelected &&
+        spanishSubtitle != null) {
+      _autoSubtitleSelected = true;
+      unawaited(current.setSubtitleTrack(spanishSubtitle).catchError(
+        (Object _) => addDebugLog('Player: no se pudo seleccionar subtítulo español'),
+      ));
+    }
+  }
+
+    Future<void> _showAudioTracks() async {
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.audio;
@@ -377,6 +529,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
+                  _manualAudioSelected = true;
                   p.setAudioTrack(track);
                   Navigator.of(context).pop();
                 },
@@ -414,6 +567,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       : track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
+                  _manualSubtitleSelected = true;
                   p.setSubtitleTrack(track);
                   Navigator.of(context).pop();
                 },
@@ -462,8 +616,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  String _redactError(String message) => message.replaceAll(
+        RegExp(r'https?://\S+'),
+        '[media-url]',
+      );
+
+  String _safeLogUri(Uri uri) => uri.replace(
+        userInfo: '',
+        query: null,
+        fragment: null,
+      ).toString();
+
+  void _exitPlayer() {
+    if (!mounted) return;
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/');
+    }
+  }
+
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.escape ||
+        event.logicalKey == LogicalKeyboardKey.backspace) {
+      _exitPlayer();
+      return KeyEventResult.handled;
+    }
     _showControls();
 
     final key = event.logicalKey;
@@ -497,7 +676,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final Widget content;
     if (playbackError != null) {
       content = _PlaybackFailureView(
-        message: playbackError!,
+        message: 'No pudimos reproducir este video. Prueba otra opción o inténtalo más tarde.',
         hasAlternatives: widget.session.candidates.length > 1,
         onRetry: () {
           currentIndex = 0;
@@ -550,7 +729,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     stream: currentStream,
                     player: p,
                     isLive: widget.session.isLive,
-                    onBack: () => Navigator.of(context).maybePop(),
+                    onBack: _exitPlayer,
                     onAudio: p == null ? null : _showAudioTracks,
                     onSubtitles: p == null ? null : _showSubtitleTracks,
                     onQuality: p == null ? null : _showVideoTracks,
@@ -588,7 +767,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               const Icon(Icons.open_in_new_rounded, size: 54),
               const SizedBox(height: 16),
               Text(
-                stream.label,
+                'Reproducción externa',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 20,
@@ -597,7 +776,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Este proveedor se abre en su aplicación o navegador.',
+                'El contenido se abrirá en una aplicación o navegador compatible.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70),
               ),
@@ -605,7 +784,7 @@ class _ExternalPlaybackView extends StatelessWidget {
               FilledButton.icon(
                 onPressed: () => onOpen(),
                 icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text('Abrir proveedor'),
+                label: const Text('Abrir'),
               ),
             ],
           ),
@@ -641,7 +820,7 @@ class _PlaybackFailureView extends StatelessWidget {
               const Icon(Icons.error_outline_rounded, size: 54),
               const SizedBox(height: 14),
               const Text(
-                'No se pudo iniciar este servidor',
+                'No se pudo iniciar la reproducción',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 20,
@@ -670,7 +849,7 @@ class _PlaybackFailureView extends StatelessWidget {
                     FilledButton.tonalIcon(
                       onPressed: onServers,
                       icon: const Icon(Icons.dns_outlined),
-                      label: const Text('Servidores'),
+                      label: const Text('Opciones'),
                     ),
                 ],
               ),
@@ -773,7 +952,6 @@ class _PlayerOverlay extends StatelessWidget {
                 children: [
                   Text(
                     [
-                      stream.label,
                       stream.language,
                       stream.quality,
                     ].whereType<String>().join(' · '),
@@ -806,7 +984,7 @@ class _PlayerOverlay extends StatelessWidget {
                       ),
                       _ActionButton(
                         icon: Icons.dns_outlined,
-                        label: 'Servidores',
+                        label: 'Opciones',
                         onPressed: onServers,
                       ),
                     ],

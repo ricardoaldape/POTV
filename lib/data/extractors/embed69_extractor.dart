@@ -214,7 +214,7 @@ class Embed69Service {
         'apikey': _kOmdbApiKey,
         't': title,
         'type': omdbType,
-        if (year != null) 'y': year,
+        'y': ?year,
       };
 
       final omdbUrl = Uri.parse(_kOmdbBase).replace(queryParameters: queryParams);

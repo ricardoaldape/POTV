@@ -1,0 +1,112 @@
+name: POTV - Publish signed runtime flags
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Monotonically increasing configuration version
+        required: true
+        type: string
+      flags_json:
+        description: JSON object containing only known boolean feature flags
+        required: true
+        type: string
+        default: '{"sports_calendar":true,"sports_event_matching":true,"live_tv_catalog":true,"live_tv_epg":true,"predictive_preload":true,"external_source_resolution":true}'
+      rollout_json:
+        description: Optional percent rollout per feature (0-100)
+        required: false
+        type: string
+        default: '{}'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: potv-runtime-flags-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Prepare validated unsigned manifest
+        env:
+          POTV_VERSION: ${{ inputs.version }}
+          POTV_FLAGS_JSON: ${{ inputs.flags_json }}
+          POTV_ROLLOUT_JSON: ${{ inputs.rollout_json }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          allowed = {
+              "sports_calendar", "sports_event_matching", "live_tv_catalog",
+              "live_tv_epg", "predictive_preload", "youtube_integration",
+              "external_source_resolution",
+          }
+          version = int(os.environ["POTV_VERSION"])
+          flags = json.loads(os.environ["POTV_FLAGS_JSON"])
+          rollout = json.loads(os.environ["POTV_ROLLOUT_JSON"])
+          if version < 1 or not isinstance(flags, dict):
+              raise SystemExit("Invalid version/flags")
+          if any(k not in allowed or type(v) is not bool for k,v in flags.items()):
+              raise SystemExit("Unknown or invalid feature switch")
+          if not isinstance(rollout, dict) or any(
+              k not in allowed or type(v) is not int or v < 0 or v > 100
+              for k, v in rollout.items()
+          ):
+              raise SystemExit("Invalid rollout percentages")
+          with open("potv-flags-input.json", "w", encoding="utf-8") as out:
+              json.dump({"version": version, "flags": flags, "rollout": rollout}, out, separators=(",", ":"))
+          PY
+      - name: Verify signing key exists
+        env:
+          POTV_FLAGS_ED25519_PRIVATE_SEED: ${{ secrets.POTV_FLAGS_ED25519_PRIVATE_SEED }}
+        shell: bash
+        run: |
+          if [ -z "$POTV_FLAGS_ED25519_PRIVATE_SEED" ]; then
+            echo "Missing repository Actions secret for signing."
+            exit 1
+          fi
+      - name: Sign configuration
+        env:
+          POTV_FLAGS_ED25519_PRIVATE_SEED: ${{ secrets.POTV_FLAGS_ED25519_PRIVATE_SEED }}
+        shell: bash
+        run: |
+          flutter pub get
+          dart run tool/sign_runtime_flags.dart potv-flags-input.json "$RUNNER_TEMP/potv-signed-flags.json"
+      - name: Check version and publish without touching main
+        env:
+          POTV_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          git fetch origin potv-runtime-config || true
+          python3 - <<'PY'
+          import base64, json, os, subprocess
+          version = int(os.environ["POTV_VERSION"])
+          old = subprocess.run(
+              ["git", "show", "origin/potv-runtime-config:config/signed-flags.json"],
+              text=True, capture_output=True,
+          )
+          if old.returncode == 0:
+              envelope = json.loads(old.stdout)
+              previous = json.loads(base64.b64decode(envelope["payload"]))["version"]
+              if version <= previous:
+                  raise SystemExit("Version must increase; rollback needs a new higher version.")
+          PY
+          if git show-ref --verify --quiet refs/remotes/origin/potv-runtime-config; then
+            git switch -c potv-runtime-config origin/potv-runtime-config
+          else
+            git switch --orphan potv-runtime-config
+            git rm -r --cached . >/dev/null || true
+          fi
+          mkdir -p config
+          cp "$RUNNER_TEMP/potv-signed-flags.json" config/signed-flags.json
+          git add config/signed-flags.json
+          git -c user.name="POTV Config Bot" -c user.email="actions@users.noreply.github.com" \
+            commit -m "chore(config): signed runtime configuration v$POTV_VERSION"
+          git push origin HEAD:refs/heads/potv-runtime-config

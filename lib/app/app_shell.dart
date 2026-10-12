@@ -9,10 +9,11 @@ class PotvShell extends StatelessWidget {
 
   static const destinations = <({IconData icon, String label, String path})>[
     (icon: Icons.home_rounded, label: 'Inicio', path: '/'),
+    (icon: Icons.movie_rounded, label: 'Películas', path: '/movies'),
+    (icon: Icons.tv_rounded, label: 'Series', path: '/series'),
+    (icon: Icons.auto_awesome_rounded, label: 'Anime', path: '/anime'),
     (icon: Icons.live_tv_rounded, label: 'TV', path: '/live'),
     (icon: Icons.sports_soccer_rounded, label: 'Deportes', path: '/sports'),
-    (icon: Icons.play_circle_outline_rounded, label: 'YT', path: '/youtube'),
-    (icon: Icons.person_rounded, label: 'Mi perfil', path: '/profile'),
   ];
 
 
@@ -20,8 +21,8 @@ class PotvShell extends StatelessWidget {
     final path = GoRouterState.of(context).uri.path;
     final i = destinations.indexWhere((item) => item.path == path);
     if (i >= 0) return i;
-    if (path == '/library' || path == '/search' || path == '/settings') {
-      return 4;
+    if (path == '/library' || path == '/search' || path == '/settings' || path == '/profile') {
+      return 0;
     }
     return 0;
   }

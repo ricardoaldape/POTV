@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/live_channel.dart';
+import '../../providers/user_providers.dart';
+import '../accounts/profile_scoped_storage.dart';
 
 final liveTvFavoritesProvider =
     AsyncNotifierProvider<LiveTvFavoritesController, Set<String>>(
@@ -15,12 +17,14 @@ String liveChannelFavoriteKey(LiveChannel channel) {
 }
 
 class LiveTvFavoritesController extends AsyncNotifier<Set<String>> {
-  static const _key = 'live_tv_favorite_channels';
+  static const _key = ProfileScopedStorage.liveTvFavoritesKey;
 
   @override
   Future<Set<String>> build() async {
+    ref.watch(currentProfileIdProvider);
     final prefs = await SharedPreferences.getInstance();
-    return (prefs.getStringList(_key) ?? const <String>[]).toSet();
+    final key = await ProfileScopedStorage.activeKey(prefs, _key);
+    return (prefs.getStringList(key) ?? const <String>[]).toSet();
   }
 
   Future<void> toggle(LiveChannel channel) async {
@@ -32,7 +36,8 @@ class LiveTvFavoritesController extends AsyncNotifier<Set<String>> {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_key, current.toList()..sort());
+    final storageKey = await ProfileScopedStorage.activeKey(prefs, _key);
+    await prefs.setStringList(storageKey, current.toList()..sort());
     state = AsyncData(current);
   }
 }

@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../domain/models/media_item.dart';
-import '../player/media_playback_coordinator.dart';
 
 class GenreBrowseRequest {
   final MediaType type;
@@ -87,13 +86,7 @@ class GenreBrowseScreen extends ConsumerWidget {
               return Card(
                 child: InkWell(
                   onTap: () async {
-                    if (item.type == MediaType.movie) {
-                      await MediaPlaybackCoordinator.play(
-                        context,
-                        ref,
-                        item,
-                      );
-                    } else if (context.mounted) {
+                    if (context.mounted) {
                       await context.push('/detail', extra: item);
                     }
                   },

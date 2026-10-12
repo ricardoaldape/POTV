@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import 'built_in_live_sources.dart';
@@ -24,11 +25,16 @@ class LiveTvRepository {
   static const _sourceKey = 'live_tv_m3u_url';
   static const _sourceKindKey = 'live_tv_source_kind';
   static const _localPathKey = 'live_tv_local_path';
+  static const _lastGoodPath = 'potv_live_tv_last_good.m3u';
   static const _epgSourceKey = 'live_tv_xmltv_url';
 
   final Dio _dio;
+  final Directory? supportDirectory;
 
-  LiveTvRepository(this._dio);
+  LiveTvRepository(this._dio, {this.supportDirectory});
+
+  Future<Directory> _supportDir() async =>
+      supportDirectory ?? getApplicationSupportDirectory();
 
   Future<String?> sourceUrl() async {
     final prefs = await SharedPreferences.getInstance();
@@ -37,12 +43,21 @@ class LiveTvRepository {
 
   Future<void> saveSource(String value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_sourceKey, value.trim());
+    final next = value.trim();
+    final previous = prefs.getString(_sourceKey);
+    if (previous != next || prefs.getString(_sourceKindKey) != 'url') {
+      final dir = await _supportDir();
+      final oldCache = File(
+        '${dir.path}${Platform.pathSeparator}$_lastGoodPath',
+      );
+      if (await oldCache.exists()) await oldCache.delete();
+    }
+    await prefs.setString(_sourceKey, next);
     await prefs.setString(_sourceKindKey, 'url');
   }
 
   Future<void> saveLocalPlaylist(String raw) async {
-    final dir = await getApplicationSupportDirectory();
+    final dir = await _supportDir();
     final file = File(
       '${dir.path}${Platform.pathSeparator}live_tv_playlist.m3u',
     );
@@ -68,11 +83,49 @@ class LiveTvRepository {
     final url = prefs.getString(_sourceKey);
     if (url == null || url.isEmpty) return null;
 
-    final response = await _dio.get<String>(
-      url,
-      options: Options(responseType: ResponseType.plain),
+    // Keep the previous validated playlist if the URL is temporarily offline.
+    // The cache is stored in the app-private support directory, never in a
+    // public/downloads folder. Stream URLs may carry access credentials.
+    final dir = await _supportDir();
+    final cachedFile = File(
+      '${dir.path}${Platform.pathSeparator}$_lastGoodPath',
     );
-    return response.data ?? '';
+    Future<bool> stillSelected() async {
+      final current = await SharedPreferences.getInstance();
+      return current.getString(_sourceKindKey) != 'file' &&
+          current.getString(_sourceKey) == url;
+    }
+    try {
+      final response = await _dio.get<String>(
+        url,
+        options: Options(responseType: ResponseType.plain)
+            .copyWith(receiveTimeout: const Duration(seconds: 15),
+                      sendTimeout: const Duration(seconds: 15)),
+      );
+      final raw = response.data ?? '';
+      if (!raw.trimLeft().startsWith('#EXTM3U') ||
+          M3uParser.parse(raw).isEmpty) {
+        throw const FormatException('Invalid or empty M3U playlist');
+      }
+      // A previous fetch must not repopulate the cache after source switch.
+      if (!await stillSelected()) return null;
+      final staging = File('${cachedFile.path}.tmp');
+      await staging.writeAsString(raw, flush: true);
+      try {
+        if (await cachedFile.exists()) await cachedFile.delete();
+        await staging.rename(cachedFile.path);
+      } finally {
+        if (await staging.exists()) await staging.delete();
+      }
+      return raw;
+    } catch (_) {
+      if (!await stillSelected()) return null;
+      if (await cachedFile.exists()) {
+        final old = await cachedFile.readAsString();
+        if (old.trimLeft().startsWith('#EXTM3U')) return old;
+      }
+      rethrow;
+    }
   }
 
   Future<List<LiveChannel>> loadChannels() async {
@@ -93,20 +146,40 @@ class LiveTvRepository {
 }
 
 class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
-  @override
-  Future<List<LiveChannel>> build() async {
-    final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-    final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+  Future<List<LiveChannel>> _loadResiliently() async {
+    // Independent failure domains: if either source goes offline, the other
+    // remains available. Personal M3U data takes priority over provider errors.
+    final builtInEnabled = ref.read(potvRuntimeFlagStoreProvider).current
+        .enabled('live_tv_catalog');
+    var builtIn = const <LiveChannel>[];
+    if (builtInEnabled) {
+      try {
+        builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+      } catch (_) {
+        // Built-in remote catalogue is optional while user playlists work.
+      }
+    }
+
+    var custom = const <LiveChannel>[];
+    try {
+      custom = await ref.read(liveTvRepositoryProvider).loadChannels();
+    } catch (_) {
+      // The repository tries its last valid playlist before throwing.
+    }
     return _mergeChannels(builtIn, custom);
+  }
+
+  @override
+  Future<List<LiveChannel>> build() {
+    ref.watch(potvRuntimeFlagStoreProvider);
+    return _loadResiliently();
   }
 
   Future<void> setSource(String url) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       await ref.read(liveTvRepositoryProvider).saveSource(url);
-      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-      return _mergeChannels(builtIn, custom);
+      return _loadResiliently();
     });
     ref.invalidate(epgProgramsProvider);
   }
@@ -115,9 +188,7 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       await ref.read(liveTvRepositoryProvider).saveLocalPlaylist(raw);
-      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-      return _mergeChannels(builtIn, custom);
+      return _loadResiliently();
     });
     ref.invalidate(epgProgramsProvider);
   }
@@ -125,9 +196,7 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
-      final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
-      return _mergeChannels(builtIn, custom);
+      return _loadResiliently();
     });
   }
 
@@ -162,6 +231,9 @@ class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
 
   @override
   Future<List<EpgProgram>> build() async {
+    final enabled = ref.watch(potvRuntimeFlagStoreProvider).current
+        .enabled('live_tv_epg');
+    if (!enabled) return const [];
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString(_sourceKey);
     if (url == null || url.trim().isEmpty) return const [];
@@ -187,6 +259,9 @@ class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
   }
 
   Future<List<EpgProgram>> _load(String url) async {
+    if (!ref.read(potvRuntimeFlagStoreProvider).current.enabled('live_tv_epg')) {
+      return const [];
+    }
     final response = await _dio.get<String>(
       url,
       options: Options(responseType: ResponseType.plain),

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:potv/data/resolution/source_aggregator.dart';
+import 'package:potv/data/resolution/provider_circuit_breaker.dart';
 import 'package:potv/domain/models/stream_candidate.dart';
 import 'package:potv/domain/resolution/provider_resolver.dart';
 
@@ -334,6 +336,132 @@ void main() {
 
     expect(result.candidates.single.id, 'fast-playable-stream');
     expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 250)));
+  });
+
+  test('clearing cache during an in-flight request does not restore stale results', () async {
+    final first = Completer<List<StreamCandidate>>();
+    var calls = 0;
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'delayed',
+        displayName: 'Delayed',
+        priority: 1,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) {
+          calls++;
+          if (calls == 1) return first.future;
+          return Future.value([
+            StreamCandidate(
+              id: 'fresh',
+              label: 'Fresh',
+              uri: Uri.parse('https://example.org/fresh.mp4'),
+            ),
+          ]);
+        },
+      ),
+    ], firstCandidateGrace: Duration.zero);
+
+    const request = ProviderResolveRequest(mediaType: 'movie', mediaId: '99');
+    final stale = aggregator.resolve(request);
+    aggregator.clearCache();
+    first.complete([
+      StreamCandidate(
+        id: 'stale',
+        label: 'Stale',
+        uri: Uri.parse('https://example.org/stale.mp4'),
+      ),
+    ]);
+    await stale;
+
+    final refreshed = await aggregator.resolve(request);
+    expect(calls, 2);
+    expect(refreshed.candidates.single.id, 'fresh');
+  });
+
+
+  test('aggregation stops querying a repeatedly broken provider until cooldown', () async {
+    var calls = 0;
+    var recovered = false;
+    var now = DateTime.utc(2026, 10, 12, 10);
+    final breaker = ProviderCircuitBreaker(
+      failureThreshold: 3,
+      cooldown: const Duration(seconds: 30),
+      clock: () => now,
+    );
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'unstable-provider',
+        displayName: 'Unstable Provider',
+        priority: 10,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) async {
+          calls++;
+          if (!recovered) throw StateError('provider unavailable');
+          return [
+            StreamCandidate(
+              id: 'recovered',
+              label: 'Authorized test',
+              uri: Uri.parse('https://example.org/test.m3u8'),
+            ),
+          ];
+        },
+      ),
+    ], circuitBreaker: breaker);
+
+    for (var i = 0; i < 3; i++) {
+      await aggregator.resolve(
+        ProviderResolveRequest(mediaType: 'movie', mediaId: 'fail-$i'),
+      );
+    }
+    expect(calls, 3);
+    expect(breaker.snapshot('unstable-provider').state,
+        ProviderCircuitState.open);
+
+    await aggregator.resolve(
+      const ProviderResolveRequest(mediaType: 'movie', mediaId: 'skipped'),
+    );
+    expect(calls, 3);
+
+    now = now.add(const Duration(seconds: 31));
+    recovered = true;
+    final result = await aggregator.resolve(
+      const ProviderResolveRequest(mediaType: 'movie', mediaId: 'recovery'),
+    );
+    expect(calls, 4);
+    expect(result.candidates.single.id, 'recovered');
+    expect(breaker.snapshot('unstable-provider').state,
+        ProviderCircuitState.closed);
+  });
+
+
+  test('does not cache expiring signed stream URLs', () async {
+    var requests = 0;
+    final aggregator = SourceAggregator([
+      _FakeProvider(
+        id: 'signed-source',
+        displayName: 'Signed Fixture',
+        priority: 1,
+        supportedMediaTypes: const {'movie'},
+        handler: (_) async {
+          requests++;
+          return [
+            StreamCandidate(
+              id: 'signed-$requests',
+              label: 'Authorized fixture',
+              uri: Uri.parse(
+                'https://example.org/clip.m3u8?token=secret-$requests&expires=200',
+              ),
+            ),
+          ];
+        },
+      ),
+    ]);
+    const request = ProviderResolveRequest(mediaType: 'movie', mediaId: 'signed');
+    final first = await aggregator.resolve(request);
+    final second = await aggregator.resolve(request);
+    expect(requests, 2);
+    expect(first.candidates.single.id, 'signed-1');
+    expect(second.candidates.single.id, 'signed-2');
   });
 
 }

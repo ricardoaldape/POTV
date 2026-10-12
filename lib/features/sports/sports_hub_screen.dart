@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
+
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/sports/addon_sports_repository.dart';
 import '../../data/live_tv/live_tv_repository.dart';
@@ -80,8 +82,11 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final flags = ref.watch(potvRuntimeFlagStoreProvider).current;
     final query = (day: selectedDay, sport: selectedSport);
-    final eventsState = ref.watch(sportsEventsProvider(query));
+    final eventsState = flags.enabled('sports_calendar')
+        ? ref.watch(sportsEventsProvider(query))
+        : const AsyncData<List<SportsEvent>>([]);
     final events = eventsState.asData?.value ?? const <SportsEvent>[];
     final liveChannels = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
@@ -92,6 +97,13 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
     final addonSportsItems =
         addonSportsState.asData?.value ?? const <AddonSportsItem>[];
     final channels = _mergeChannels(liveChannels, sportsChannels);
+    final visibleSportsChannels = channels.where((channel) {
+      final category = (channel.group ?? '').toLowerCase();
+      final name = channel.name.toLowerCase();
+      return category.contains('sport') || category.contains('deport') ||
+          name.contains('sport') || name.contains('deport') ||
+          sportsChannels.any((known) => known.name.toLowerCase() == name);
+    }).toList(growable: false);
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
         const <EpgProgram>[];
 
@@ -121,10 +133,6 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'POTV combina el calendario deportivo con canales públicos disponibles y con tus propias fuentes locales. Nada de esto se proxifica por nuestros servidores.',
-            style: TextStyle(color: Colors.white60),
-          ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
@@ -193,7 +201,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               children: [
                 const Expanded(
                   child: Text(
-                    'En vivo desde tus addons',
+                    'Eventos disponibles',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
@@ -207,17 +215,13 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               ],
             ),
             const SizedBox(height: 6),
-            const Text(
-              'POTV lee el catálogo del addon instalado y pide sus servidores solo cuando eliges un evento.',
-              style: TextStyle(color: Colors.white60),
-            ),
             const SizedBox(height: 10),
             AddonSportsRail(items: addonSportsItems),
             const SizedBox(height: 22),
           ],
           if (sportsChannelsState.isLoading)
             const LinearProgressIndicator(minHeight: 2),
-          if (sportsChannels.isNotEmpty) ...[
+          if (visibleSportsChannels.isNotEmpty) ...[
             const SizedBox(height: 8),
             const Text(
               'Canales deportivos disponibles',
@@ -227,7 +231,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            SportsChannelRail(channels: sportsChannels),
+            SportsChannelRail(channels: visibleSportsChannels),
           ],
           const SizedBox(height: 22),
           if (eventsState.isLoading)
@@ -249,8 +253,8 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
             _SportsEventCard(
               event: event,
               channels: channels,
-              fallbackChannels: sportsChannels,
               programs: programs,
+              matchingEnabled: flags.enabled('sports_event_matching'),
             ),
           if (!eventsState.isLoading &&
               !eventsState.hasError &&
@@ -273,85 +277,26 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
 class _SportsEventCard extends StatelessWidget {
   final SportsEvent event;
   final List<LiveChannel> channels;
-  final List<LiveChannel> fallbackChannels;
   final List<EpgProgram> programs;
+  final bool matchingEnabled;
 
   const _SportsEventCard({
     required this.event,
     required this.channels,
-    required this.fallbackChannels,
     required this.programs,
+    required this.matchingEnabled,
   });
-
-  Future<void> _openFallbackChannels(BuildContext context) async {
-    final visible = fallbackChannels.take(24).toList(growable: false);
-    if (visible.isEmpty) return;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          children: [
-            const Text(
-              'Canales deportivos disponibles',
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'No encontramos una coincidencia automática para este evento. Elige un canal disponible para comprobar su programación.',
-              style: TextStyle(color: Colors.white60),
-            ),
-            const SizedBox(height: 14),
-            for (final channel in visible)
-              Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: channel.logo == null
-                      ? const CircleAvatar(child: Icon(Icons.live_tv_rounded))
-                      : CircleAvatar(
-                          backgroundImage: NetworkImage(channel.logo.toString()),
-                        ),
-                  title: Text(channel.name),
-                  subtitle: channel.group == null
-                      ? null
-                      : Text(
-                          channel.group!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                  trailing: const Icon(Icons.play_arrow_rounded),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    context.push(
-                      '/player',
-                      extra: PlaybackSession(
-                        title: channel.name,
-                        candidates: [channel.stream],
-                        isLive: true,
-                      ),
-                    );
-                  },
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     const resolver = SportsChannelResolver();
-    final matches = resolver.resolve(
-      event: event,
-      channels: channels,
-      programs: programs,
-    );
+    final matches = matchingEnabled
+        ? resolver.resolve(
+            event: event,
+            channels: channels,
+            programs: programs,
+          )
+        : <SportsChannelMatch>[];
     final best = matches.isEmpty ? null : matches.first;
 
     return Card(
@@ -380,7 +325,7 @@ class _SportsEventCard extends StatelessWidget {
               ),
             if (best != null)
               Text(
-                best.program?.title ?? 'Disponible en ${best.channel.name}',
+                best.program.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white70),
@@ -389,9 +334,7 @@ class _SportsEventCard extends StatelessWidget {
         ),
         trailing: FilledButton(
           onPressed: best == null
-              ? fallbackChannels.isEmpty
-                  ? null
-                  : () => _openFallbackChannels(context)
+              ? null
               : () {
                   final session = PlaybackSession(
                     title: event.title,
@@ -402,15 +345,11 @@ class _SportsEventCard extends StatelessWidget {
                   );
                   context.push('/player', extra: session);
                 },
-          child: Text(
-            best == null
-                ? fallbackChannels.isEmpty
-                    ? 'SIN CANALES'
-                    : 'CANALES'
-                : matches.length > 1
-                    ? 'VER · ${matches.length}'
-                    : 'VER',
-          ),
+          child: Text(best == null
+              ? 'SIN TRANSMISIÓN'
+              : matches.length > 1
+                  ? 'VER · ${matches.length}'
+                  : 'VER'),
         ),
       ),
     );

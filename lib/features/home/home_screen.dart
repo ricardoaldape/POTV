@@ -17,7 +17,8 @@ import 'widgets/media_rail.dart';
 import 'widgets/top_ten_rail.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  final MediaType initialType;
+  const HomeScreen({super.key, this.initialType = MediaType.movie});
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -25,11 +26,20 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   static bool _vodSetupPromptedThisSession = false;
-  MediaType selectedType = MediaType.movie;
+  late MediaType selectedType;
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialType != widget.initialType) {
+      selectedType = widget.initialType;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    selectedType = widget.initialType;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeShowVodSetup();
     });
@@ -91,11 +101,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   ];
 
   Future<void> _openItem(MediaItem item) async {
-    if (item.type == MediaType.movie) {
-      await MediaPlaybackCoordinator.play(context, ref, item);
-      ref.invalidate(playbackHistoryProvider);
-      return;
-    }
     if (!mounted) return;
     await context.push('/detail', extra: item);
     ref.invalidate(playbackHistoryProvider);
@@ -210,6 +215,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 icon: const Icon(Icons.search_rounded),
               ),
               IconButton(
+                tooltip: 'Perfiles',
+                onPressed: () => context.go('/profile'),
+                icon: const Icon(Icons.account_circle_rounded),
+              ),
+              IconButton(
                 tooltip: 'Ajustes',
                 onPressed: () => context.go('/settings'),
                 icon: const Icon(Icons.settings_rounded),
@@ -273,14 +283,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   MediaType.tv => 'Series',
                   MediaType.anime => 'Anime',
                 },
-                subtitle: switch (selectedType) {
-                  MediaType.movie =>
-                    'Elige una película y POTV buscará automáticamente el mejor servidor disponible.',
-                  MediaType.tv =>
-                    'Explora series sin salir de la misma pantalla.',
-                  MediaType.anime =>
-                    'AniList organiza el catálogo; los episodios se resuelven localmente.',
-                },
+                subtitle: '',
               ),
             ),
           ),
@@ -418,6 +421,7 @@ class _SectionHeading extends StatelessWidget {
               letterSpacing: -0.8,
             ),
           ),
+          if (subtitle.isNotEmpty) ...[
           const SizedBox(width: 14),
           Expanded(
             child: Padding(
@@ -433,6 +437,7 @@ class _SectionHeading extends StatelessWidget {
               ),
             ),
           ),
+          ],
         ],
       ),
     );
@@ -522,12 +527,7 @@ class _GenreSection extends ConsumerWidget {
       child: MediaRail(
         title: genre.title,
         items: items,
-        onPlay: (item) {
-          if (item.type == MediaType.movie) {
-            return MediaPlaybackCoordinator.play(context, ref, item);
-          }
-          return context.push('/detail', extra: item);
-        },
+        onPlay: (item) => context.push('/detail', extra: item),
         onViewMore: () {
           context.push(
             '/browse',

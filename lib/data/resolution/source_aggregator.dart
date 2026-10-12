@@ -3,16 +3,22 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../debug/debug_log_provider.dart';
 import '../extractors/resolver_manager.dart';
 import 'provider_registry.dart';
+import 'provider_circuit_breaker.dart';
 
 final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
+  // Recreate the source pipeline when signed emergency switches change.
+  // Switching off source resolution must also invalidate cached sources.
+  final enabled = ref.watch(potvRuntimeFlagStoreProvider).current
+      .enabled('external_source_resolution');
   return SourceAggregator(
-    ref.read(providerRegistryProvider),
-    resolverManager: ref.read(resolverManagerProvider),
+    enabled ? ref.read(providerRegistryProvider) : const <ProviderResolver>[],
+    resolverManager: enabled ? ref.read(resolverManagerProvider) : null,
   );
 });
 
@@ -24,19 +30,22 @@ class SourceAggregator {
   final Duration cacheTtl;
   final Duration negativeCacheTtl;
   final ResolverManager? resolverManager;
+  final ProviderCircuitBreaker circuitBreaker;
 
   final Map<String, _CachedResolution> _cache = {};
   final Map<String, Future<ProviderResolutionResult>> _inFlight = {};
+  int _cacheGeneration = 0;
 
   SourceAggregator(
     this.providers, {
     this.providerTimeout = const Duration(seconds: 18),
     this.resolutionTimeout = const Duration(seconds: 17),
     this.firstCandidateGrace = const Duration(milliseconds: 900),
-    this.cacheTtl = const Duration(minutes: 5),
+    this.cacheTtl = const Duration(seconds: 20),
     this.negativeCacheTtl = const Duration(seconds: 30),
     this.resolverManager,
-  });
+    ProviderCircuitBreaker? circuitBreaker,
+  }) : circuitBreaker = circuitBreaker ?? ProviderCircuitBreaker();
 
   Future<ProviderResolutionResult> resolve(
     ProviderResolveRequest request,
@@ -58,21 +67,30 @@ class SourceAggregator {
     final running = _inFlight[key];
     if (running != null) return running;
 
+    final generation = _cacheGeneration;
     final future = _resolveFresh(request);
     _inFlight[key] = future;
     return future.then((result) {
+      if (generation != _cacheGeneration) return result;
+      // Signed or expiring links cannot safely be reused across playback
+      // sessions even when the catalogue identity is the same.
+      if (result.candidates.any((c) => _looksEphemeral(c.uri))) {
+        return result;
+      }
       _cache[key] = _CachedResolution(
         result: result,
         createdAt: DateTime.now(),
       );
       return result;
     }).whenComplete(() {
-      _inFlight.remove(key);
+      if (generation == _cacheGeneration) _inFlight.remove(key);
     });
   }
 
   void clearCache() {
+    _cacheGeneration++;
     _cache.clear();
+    _inFlight.clear();
   }
 
   Future<ProviderResolutionResult> _resolveFresh(
@@ -80,6 +98,7 @@ class SourceAggregator {
   ) {
     final eligible = providers
         .where((provider) => provider.supports(request))
+        .where((provider) => circuitBreaker.canAttempt(provider.id))
         .toList(growable: false);
 
     final activeAddonsLog =
@@ -159,7 +178,7 @@ class SourceAggregator {
             final candidate = batch.candidates[index];
             final urlLog =
                 'SourceAggregator ${provider.id} URL ${index + 1}/${batch.candidates.length} '
-                '-> ${candidate.uri}';
+                '-> ${_safeLogUri(candidate.uri)}';
             debugPrint(urlLog);
             addDebugLog(urlLog);
           }
@@ -204,12 +223,13 @@ class SourceAggregator {
       providerFuture = provider.resolve(request);
     } catch (error, stackTrace) {
       final errorLog =
-          'Resolver ${provider.displayName} ERROR ${error.runtimeType}: $error';
+          'Resolver ${provider.displayName} ERROR ${error.runtimeType}: ${_redactError(error)}';
       final stackLog = 'Resolver ${provider.displayName} STACK: $stackTrace';
       debugPrint(errorLog);
       debugPrint(stackLog);
       addDebugLog(errorLog);
       addDebugLog(stackLog);
+      circuitBreaker.recordFailure(provider.id);
       return Future.value(
         const _ProviderBatch(candidates: [], failed: true),
       );
@@ -219,7 +239,7 @@ class SourceAggregator {
       (candidates) => _ProviderBatch(candidates: candidates),
       onError: (Object error, StackTrace stackTrace) {
         final errorLog =
-            'Resolver ${provider.displayName} ERROR ${error.runtimeType}: $error';
+            'Resolver ${provider.displayName} ERROR ${error.runtimeType}: ${_redactError(error)}';
         final stackLog = 'Resolver ${provider.displayName} STACK: $stackTrace';
         debugPrint(errorLog);
         debugPrint(stackLog);
@@ -253,8 +273,40 @@ class SourceAggregator {
         addDebugLog(timeoutLog);
         return const _ProviderBatch(candidates: [], failed: true);
       },
+    ).then((batch) {
+      if (batch.failed) {
+        circuitBreaker.recordFailure(provider.id);
+      } else {
+        circuitBreaker.recordSuccess(provider.id);
+      }
+      return batch;
+    });
+  }
+
+  // Signed stream links may carry access tokens in query or fragment.
+  // Keep enough information to diagnose which host/path failed without
+  // exposing credentials in log output.
+  bool _looksEphemeral(Uri uri) {
+    if (uri.userInfo.isNotEmpty) return true;
+    const volatileKeys = <String>{
+      'token', 'access_token', 'auth', 'authorization', 'jwt',
+      'signature', 'sig', 'expires', 'expiry', 'exp', 'policy',
+      'x-amz-signature', 'x-amz-credential', 'x-amz-expires',
+      'x-goog-signature', 'x-goog-credential', 'x-goog-expires',
+      'hdnea', 'hdnts',
+    };
+    return uri.queryParameters.keys.any(
+      (name) => volatileKeys.contains(name.toLowerCase()),
     );
   }
+
+  String _safeLogUri(Uri uri) =>
+      '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}/[redacted]';
+
+  String _redactError(Object error) => error.toString().replaceAll(
+        RegExp(r'https?://\S+'),
+        '[redacted-media-url]',
+      );
 
   String _cacheKey(ProviderResolveRequest request) {
     return [

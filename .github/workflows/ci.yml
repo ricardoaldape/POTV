@@ -69,6 +69,8 @@ jobs:
         env:
           POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
           POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
+          POTV_SIGNED_FLAGS_URL: ${{ vars.POTV_SIGNED_FLAGS_URL }}
+          POTV_FLAGS_ED25519_PUBLIC_KEY: ${{ vars.POTV_FLAGS_ED25519_PUBLIC_KEY }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           args=()
@@ -80,6 +82,13 @@ jobs:
           fi
           if [ -n "$TMDB_API_KEY" ]; then
             args+=("--dart-define=TMDB_API_KEY=$TMDB_API_KEY")
+          fi
+          if [ -n "$POTV_SIGNED_FLAGS_URL" ] && [ -n "$POTV_FLAGS_ED25519_PUBLIC_KEY" ]; then
+            args+=("--dart-define=POTV_SIGNED_FLAGS_URL=$POTV_SIGNED_FLAGS_URL")
+            args+=("--dart-define=POTV_FLAGS_ED25519_PUBLIC_KEY=$POTV_FLAGS_ED25519_PUBLIC_KEY")
+          elif [ -n "$POTV_SIGNED_FLAGS_URL" ] || [ -n "$POTV_FLAGS_ED25519_PUBLIC_KEY" ]; then
+            echo "Signed flag endpoint and public key must both be set." >&2
+            exit 1
           fi
           flutter build apk --release "${args[@]}"
 
