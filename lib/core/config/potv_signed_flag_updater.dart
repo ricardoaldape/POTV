@@ -46,13 +46,18 @@ class PotvSignedFlagUpdater {
           .timeout(const Duration(seconds: 8));
       // Never follow a redirect to an untrusted host or downgrade to HTTP.
       if (response.statusCode != 200) return false;
-      final bytes = <int>[];
-      await for (final chunk in response.stream.timeout(
-        const Duration(seconds: 8),
-      )) {
-        if (bytes.length + chunk.length > maxEnvelopeBytes) return false;
-        bytes.addAll(chunk);
-      }
+      // An absolute timeout prevents a server keeping the request alive by
+      // sending tiny chunks every few seconds.
+      final bytes = await response.stream.fold<List<int>>(
+        <int>[],
+        (buffer, chunk) {
+          if (buffer.length + chunk.length > maxEnvelopeBytes) {
+            throw const FormatException('Configuration too large');
+          }
+          buffer.addAll(chunk);
+          return buffer;
+        },
+      ).timeout(const Duration(seconds: 8));
 
       final envelope = jsonDecode(utf8.decode(bytes));
       if (envelope is! Map<String, dynamic> ||
