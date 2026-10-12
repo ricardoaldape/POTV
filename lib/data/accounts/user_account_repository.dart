@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'profile_scoped_storage.dart';
 import 'user_account.dart';
 import 'user_profile.dart';
 
@@ -61,7 +62,16 @@ class UserAccountRepository {
     return _prefs.getString(_kActiveProfileKey);
   }
 
+  Future<void> deleteProfileData(String profileId) async {
+    await ProfileScopedStorage.clearProfile(_prefs, profileId);
+  }
+
   Future<void> clearAll() async {
+    for (final profile in loadProfiles()) {
+      await ProfileScopedStorage.clearProfile(_prefs, profile.id);
+    }
+    await _prefs.remove(ProfileScopedStorage.historyKey);
+    await _prefs.remove(ProfileScopedStorage.liveTvFavoritesKey);
     await _prefs.remove(_kAccountKey);
     await _prefs.remove(_kProfilesKey);
     await _prefs.remove(_kActiveProfileKey);
