@@ -39,8 +39,26 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
   Future<void> _load() async {
     final repo = await ref.read(userAccountRepositoryProvider.future);
     if (!mounted) return;
-    state = repo.loadAccount();
-    unawaited(refreshSubscription());
+    final cached = repo.loadAccount();
+    if (cached != null &&
+        cached.subscriptionStatus == SubscriptionStatus.active &&
+        (cached.subscriptionExpiresAt == null ||
+            !cached.subscriptionExpiresAt!.isAfter(DateTime.now().toUtc()))) {
+      // Never grant stale offline entitlements after the expiry date.
+      final expired = UserAccount(
+        id: cached.id,
+        username: cached.username,
+        createdAt: cached.createdAt,
+        telegramChatId: cached.telegramChatId,
+        subscriptionStatus: SubscriptionStatus.expired,
+        subscriptionExpiresAt: cached.subscriptionExpiresAt,
+      );
+      state = expired;
+      await repo.saveAccount(expired);
+    } else {
+      state = cached;
+    }
+    if (mounted) unawaited(refreshSubscription());
   }
 
   Future<void> createAccount(String username) async {
