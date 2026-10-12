@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/config/potv_runtime_flags.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import 'built_in_live_sources.dart';
@@ -140,7 +141,11 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
   Future<List<LiveChannel>> _loadResiliently() async {
     // A failing user-configured provider cannot suppress the public/default TV
     // catalogue. The repository itself first tries its last valid M3U cache.
-    final builtIn = await ref.read(builtInLiveSourceRegistryProvider).mexico();
+    final builtInEnabled = ref.watch(potvRuntimeFlagStoreProvider).current
+        .enabled('live_tv_catalog');
+    final builtIn = builtInEnabled
+        ? await ref.read(builtInLiveSourceRegistryProvider).mexico()
+        : const <LiveChannel>[];
     try {
       final custom = await ref.read(liveTvRepositoryProvider).loadChannels();
       return _mergeChannels(builtIn, custom);
@@ -208,6 +213,9 @@ class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
 
   @override
   Future<List<EpgProgram>> build() async {
+    final enabled = ref.watch(potvRuntimeFlagStoreProvider).current
+        .enabled('live_tv_epg');
+    if (!enabled) return const [];
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString(_sourceKey);
     if (url == null || url.trim().isEmpty) return const [];
@@ -233,6 +241,9 @@ class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
   }
 
   Future<List<EpgProgram>> _load(String url) async {
+    if (!ref.read(potvRuntimeFlagStoreProvider).current.enabled('live_tv_epg')) {
+      return const [];
+    }
     final response = await _dio.get<String>(
       url,
       options: Options(responseType: ResponseType.plain),
