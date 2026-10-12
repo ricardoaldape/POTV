@@ -8,7 +8,7 @@ import '../../domain/services/source_resolver.dart';
 import '../resolution/source_aggregator.dart';
 
 final unifiedSourceResolverProvider = Provider<UnifiedSourceResolver>((ref) {
-  return UnifiedSourceResolver(ref.read(sourceAggregatorProvider));
+  return UnifiedSourceResolver(ref.watch(sourceAggregatorProvider));
 });
 
 /// Coalesces detail-screen warm-up and Play actions for the *same* item.
@@ -25,6 +25,21 @@ class UnifiedSourceResolver implements SourceResolver {
   final Map<String, _ResolvedCacheEntry> _cache = {};
   final Map<String, Future<List<StreamCandidate>>> _pending = {};
   int _generation = 0;
+
+  static const _expiringKeys = <String>{
+    'token', 'access_token', 'auth', 'authorization', 'jwt',
+    'signature', 'sig', 'expires', 'expiry', 'exp', 'policy',
+    'x-amz-signature', 'x-amz-credential', 'x-amz-expires',
+    'x-goog-signature', 'x-goog-credential', 'x-goog-expires',
+    'hdnea', 'hdnts',
+  };
+
+  static bool _hasSignedUrl(StreamCandidate candidate) {
+    final uri = candidate.uri;
+    return uri.userInfo.isNotEmpty || uri.queryParameters.keys.any(
+      (key) => _expiringKeys.contains(key.toLowerCase()),
+    );
+  }
 
   void invalidate() {
     _generation++;
@@ -80,7 +95,9 @@ class UnifiedSourceResolver implements SourceResolver {
       final response = await aggregator.resolve(request);
       final candidates = List<StreamCandidate>.unmodifiable(response.candidates);
       // Never retain unsuccessful lookup results, allowing quick retry.
-      if (candidates.isNotEmpty && generation == _generation) {
+      if (candidates.isNotEmpty &&
+          !candidates.any(_hasSignedUrl) &&
+          generation == _generation) {
         if (_cache.length >= _maxEntries) _cache.remove(_cache.keys.first);
         _cache[key] = _ResolvedCacheEntry(
           candidates,
