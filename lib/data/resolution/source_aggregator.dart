@@ -27,6 +27,7 @@ class SourceAggregator {
 
   final Map<String, _CachedResolution> _cache = {};
   final Map<String, Future<ProviderResolutionResult>> _inFlight = {};
+  int _cacheGeneration = 0;
 
   SourceAggregator(
     this.providers, {
@@ -58,21 +59,25 @@ class SourceAggregator {
     final running = _inFlight[key];
     if (running != null) return running;
 
+    final generation = _cacheGeneration;
     final future = _resolveFresh(request);
     _inFlight[key] = future;
     return future.then((result) {
+      if (generation != _cacheGeneration) return result;
       _cache[key] = _CachedResolution(
         result: result,
         createdAt: DateTime.now(),
       );
       return result;
     }).whenComplete(() {
-      _inFlight.remove(key);
+      if (generation == _cacheGeneration) _inFlight.remove(key);
     });
   }
 
   void clearCache() {
+    _cacheGeneration++;
     _cache.clear();
+    _inFlight.clear();
   }
 
   Future<ProviderResolutionResult> _resolveFresh(
