@@ -1,6 +1,12 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Injected at boot after reading the last known valid local configuration.
+final potvRuntimeFlagStoreProvider = Provider<PotvRuntimeFlagStore>((ref) {
+  throw StateError('Runtime flag store must be initialized before runApp');
+});
 
 /// Runtime switches for components that may fail independently.
 ///
