@@ -745,7 +745,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         !mounted ||
         generation != _openGeneration ||
         currentStream.externalAudioUri != null) return;
-    final preferred = _languageSelector.preferredAudio(target.state.tracks.audio);
+    final preferred = _languageSelector.preferredAudio(
+      target.state.tracks.audio,
+      preferredLanguage: playerPreferences.audioLanguage,
+    );
     if (preferred == null) return;
     _audioAutoSelected = true;
     try {
@@ -757,7 +760,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _loadPreferredSubtitles(Player target, int generation) async {
     final media = widget.session.playbackContext;
-    if (media == null || widget.session.isLive) return;
+    if (media == null ||
+        widget.session.isLive ||
+        playerPreferences.subtitleLanguage.toLowerCase() == 'off') {
+      return;
+    }
     List<StremioSubtitle> available;
     try {
       available = await StremioSubtitleService(
