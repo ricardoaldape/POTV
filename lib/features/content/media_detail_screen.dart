@@ -12,6 +12,7 @@ import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/series_episode.dart';
 import '../player/media_playback_coordinator.dart';
+import 'preload_network_policy.dart';
 
 class MediaDetailScreen extends ConsumerStatefulWidget {
   final MediaItem item;
@@ -69,6 +70,9 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     try {
       if (!ref.read(potvRuntimeFlagStoreProvider).current
           .enabled('predictive_preload')) return;
+      if (!await PreloadNetworkPolicy.isLikelyUnmetered() || !mounted) {
+        return;
+      }
       await ref.read(unifiedSourceResolverProvider).resolve(
             mediaType: widget.item.mediaTypeName,
             mediaId: widget.item.id.toString(),
