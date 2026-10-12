@@ -42,6 +42,19 @@ class PlaybackPreparationRequest {
     this.poster,
   });
 
+  factory PlaybackPreparationRequest.fromContext(
+    PlaybackContext context,
+  ) =>
+      PlaybackPreparationRequest(
+        mediaType: context.mediaType,
+        mediaId: context.mediaId,
+        title: context.title,
+        externalId: context.externalId,
+        season: context.season,
+        episode: context.episode,
+        poster: context.poster,
+      );
+
   factory PlaybackPreparationRequest.fromMediaItem(
     MediaItem item, {
     int? season,
