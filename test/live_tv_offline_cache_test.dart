@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
-  late HttpServer server;
   late Dio dio;
   var serviceAvailable = true;
 
@@ -16,37 +15,43 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     directory = await Directory.systemTemp.createTemp('potv-tv-test-');
     serviceAvailable = true;
-    server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    server.listen((request) async {
-      if (!serviceAvailable) {
-        request.response.statusCode = HttpStatus.serviceUnavailable;
-      } else {
-        request.response.headers.contentType = ContentType.text;
-        request.response.write(
-          '#EXTM3U\n'
-          '#EXTINF:-1 tvg-id="demo" group-title="Testing",Demo TV\n'
-          'https://example.org/channel.m3u8\n',
-        );
-      }
-      await request.response.close();
-    });
-    dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 2),
-      receiveTimeout: const Duration(seconds: 2),
-    ));
+    dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (!serviceAvailable) {
+            return handler.reject(DioException(
+              requestOptions: options,
+              response: Response(
+                requestOptions: options,
+                statusCode: 503,
+                statusMessage: 'Provider offline',
+              ),
+              type: DioExceptionType.badResponse,
+            ));
+          }
+          return handler.resolve(Response<String>(
+            requestOptions: options,
+            statusCode: 200,
+            data: '#EXTM3U\n'
+                '#EXTINF:-1 tvg-id="demo" group-title="Testing",Demo TV\n'
+                'https://example.org/channel.m3u8\n',
+          ));
+        },
+      ),
+    );
   });
 
   tearDown(() async {
     dio.close(force: true);
-    await server.close(force: true);
     if (await directory.exists()) {
       await directory.delete(recursive: true);
     }
   });
 
-  test('keeps an independently verified local playlist after 503', () async {
+  test('keeps last valid private playlist after provider outage', () async {
     final repository = LiveTvRepository(dio, supportDirectory: directory);
-    await repository.saveSource('http://127.0.0.1:${server.port}/tv');
+    await repository.saveSource('https://provider.example/tv');
     final first = await repository.loadChannels();
     expect(first, hasLength(1));
     expect(first.single.name, 'Demo TV');
@@ -57,13 +62,13 @@ void main() {
     expect(second.single.name, 'Demo TV');
   });
 
-  test('does not serve previous provider cache when URL changes', () async {
+  test('does not reuse previous cache when provider changes', () async {
     final repository = LiveTvRepository(dio, supportDirectory: directory);
-    await repository.saveSource('http://127.0.0.1:${server.port}/first');
+    await repository.saveSource('https://provider.example/first');
     expect(await repository.loadChannels(), hasLength(1));
 
     serviceAvailable = false;
-    await repository.saveSource('http://127.0.0.1:${server.port}/different');
+    await repository.saveSource('https://different.example/tv');
     await expectLater(repository.loadChannels(), throwsA(isA<DioException>()));
   });
 }
