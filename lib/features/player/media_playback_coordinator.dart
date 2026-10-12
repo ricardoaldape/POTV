@@ -2,17 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/history/stream_server_health_repository.dart';
-import '../../data/sources/stream_candidate_probe.dart';
-import '../../data/sources/unified_source_resolver.dart';
+import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
-import '../../domain/services/stream_candidate_ranker.dart';
 
 class MediaPlaybackCoordinator {
-  static const _ranker = StreamCandidateRanker();
-
   const MediaPlaybackCoordinator._();
 
   static Future<void> play(
@@ -74,34 +69,15 @@ class MediaPlaybackCoordinator {
     );
 
     try {
-      final candidates = await ref.read(unifiedSourceResolverProvider).resolve(
-            mediaType: item.mediaTypeName,
-            mediaId: item.id.toString(),
-            externalId: item.externalId,
-            title: item.title,
-            year: item.year,
-            season: season,
-            episode: episode,
-          );
-
-      final inAppCandidates = candidates
-          .where((candidate) => candidate.backend != PlaybackBackend.external)
-          .toList(growable: false);
-      final ranked = _ranker.rank(inAppCandidates);
-      final probed = ranked.isEmpty
-          ? ranked
-          : await ref.read(streamCandidateProbeProvider).preferReachable(ranked);
-      final playbackContext = PlaybackContext(
-        mediaId: item.id,
-        mediaType: item.mediaTypeName,
-        title: item.title,
-        externalId: item.externalId,
+      final request = PlaybackPreparationRequest.fromMediaItem(
+        item,
         season: season,
         episode: episode,
-        poster: item.poster?.toString(),
       );
-      final playable = await const StreamServerHealthRepository()
-          .rankFor(playbackContext.historyKey, probed);
+      final prepared =
+          await ref.read(playbackPreparationServiceProvider).prepare(request);
+      final playbackContext = request.playbackContext;
+      final playable = prepared.candidates;
 
       if (!context.mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
