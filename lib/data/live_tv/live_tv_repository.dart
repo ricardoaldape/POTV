@@ -90,6 +90,11 @@ class LiveTvRepository {
     final cachedFile = File(
       '${dir.path}${Platform.pathSeparator}$_lastGoodPath',
     );
+    Future<bool> stillSelected() async {
+      final current = await SharedPreferences.getInstance();
+      return current.getString(_sourceKindKey) != 'file' &&
+          current.getString(_sourceKey) == url;
+    }
     try {
       final response = await _dio.get<String>(
         url,
@@ -102,6 +107,8 @@ class LiveTvRepository {
           M3uParser.parse(raw).isEmpty) {
         throw const FormatException('Invalid or empty M3U playlist');
       }
+      // A previous fetch must not repopulate the cache after source switch.
+      if (!await stillSelected()) return null;
       final staging = File('${cachedFile.path}.tmp');
       await staging.writeAsString(raw, flush: true);
       try {
@@ -112,6 +119,7 @@ class LiveTvRepository {
       }
       return raw;
     } catch (_) {
+      if (!await stillSelected()) return null;
       if (await cachedFile.exists()) {
         final old = await cachedFile.readAsString();
         if (old.trimLeft().startsWith('#EXTM3U')) return old;
