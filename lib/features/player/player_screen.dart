@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,8 @@ import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/playback_language_selector.dart';
+import 'media3_player_surface.dart';
+import 'player_preferences.dart';
 import 'secure_webview_player.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -53,6 +56,12 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   Player? player;
   VideoController? videoController;
+  Media3PlayerController? media3Controller;
+  Media3PlayerState? media3State;
+  Duration? media3ResumeAt;
+  PlayerPreferences playerPreferences = const PlayerPreferences();
+  bool preferencesLoaded = false;
+  Timer? media3StateTimer;
   Timer? hideTimer;
   Timer? historyTimer;
   Timer? startupTimer;
@@ -91,8 +100,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     currentIndex = widget.session.initialIndex
         .clamp(0, widget.session.candidates.length - 1)
         .toInt();
-    unawaited(_openCurrent(notify: false));
+    unawaited(_initializePlayback());
     _armAutoHide();
+  }
+
+  Future<void> _initializePlayback() async {
+    playerPreferences = await PlayerPreferences.load();
+    if (!mounted) return;
+    setState(() => preferencesLoaded = true);
+    await _openCurrent(notify: false);
   }
 
   @override
@@ -102,6 +118,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     hideTimer?.cancel();
     historyTimer?.cancel();
     startupTimer?.cancel();
+    media3StateTimer?.cancel();
+    media3Controller?.dispose();
     unawaited(playingSubscription?.cancel());
     unawaited(_tracksSubscription?.cancel());
     unawaited(playerErrorSubscription?.cancel());
@@ -132,6 +150,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await player?.dispose();
     player = null;
     videoController = null;
+    media3StateTimer?.cancel();
+    media3StateTimer = null;
+    media3Controller?.dispose();
+    media3Controller = null;
+    media3State = null;
+    media3ResumeAt = null;
     playbackError = null;
 
     var effectiveResumeAt = resumeAt;
@@ -151,6 +175,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         addDebugLog(inputLog);
 
         if (currentStream.backend == PlaybackBackend.native) {
+          if (Platform.isAndroid) {
+            media3ResumeAt = effectiveResumeAt;
+            _armHistorySave();
+            break;
+          }
+
           final nextPlayer = Player();
           player = nextPlayer;
           videoController = VideoController(nextPlayer);
@@ -264,7 +294,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    if (mounted && (notify || playbackError != null)) setState(() {});
+    if (mounted &&
+        (notify || playbackError != null || media3ResumeAt != null)) {
+      setState(() {});
+    }
   }
 
   /// Recover a stream interruption twice on the same source; after the
