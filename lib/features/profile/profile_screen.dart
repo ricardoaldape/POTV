@@ -134,6 +134,26 @@ class ProfileScreen extends ConsumerWidget {
                     ? null
                     : () async {
                         final p = profiles.firstWhere((e) => e.id == activeId, orElse: () => profiles.first);
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) => AlertDialog(
+                            title: const Text('Eliminar perfil'),
+                            content: Text(
+                              '¿Eliminar el perfil "${p.name}"? Se borrarán su historial y sus favoritos guardados en este dispositivo.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(dialogContext).pop(false),
+                                child: const Text('Cancelar'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.of(dialogContext).pop(true),
+                                child: const Text('Eliminar'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true || !context.mounted) return;
                         await ref.read(userProfilesProvider.notifier).deleteProfile(p.id);
                       },
                 child: const Text('Eliminar'),
