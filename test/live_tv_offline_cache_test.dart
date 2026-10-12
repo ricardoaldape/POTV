@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:potv/data/live_tv/built_in_live_sources.dart';
+import 'package:potv/core/config/potv_runtime_flags.dart';
 import 'package:potv/domain/models/live_channel.dart';
 import 'package:potv/domain/models/stream_candidate.dart';
 import 'package:potv/data/live_tv/live_tv_repository.dart';
@@ -97,7 +98,9 @@ void main() {
     await repository.saveSource('https://offline.example/list.m3u');
     serviceAvailable = false;
 
+    final flags = PotvRuntimeFlagStore(await SharedPreferences.getInstance());
     final container = ProviderContainer(overrides: [
+      potvRuntimeFlagStoreProvider.overrideWith((ref) => flags),
       liveTvRepositoryProvider.overrideWithValue(repository),
       builtInLiveSourceRegistryProvider.overrideWithValue(_BuiltInFixture()),
     ]);
@@ -106,6 +109,27 @@ void main() {
     final channels = await container.read(liveChannelsProvider.future);
     expect(channels, hasLength(1));
     expect(channels.single.name, 'Public TV');
+  });
+
+
+  test('runtime kill switch disables only integrated channel catalogue', () async {
+    final repository = LiveTvRepository(dio, supportDirectory: directory);
+    await repository.saveSource('https://configured.example/custom.m3u');
+
+    final flags = PotvRuntimeFlagStore(await SharedPreferences.getInstance());
+    expect(await flags.applyVerifiedManifest(
+      '{"version":1,"flags":{"live_tv_catalog":false}}',
+    ), isTrue);
+
+    final container = ProviderContainer(overrides: [
+      potvRuntimeFlagStoreProvider.overrideWith((ref) => flags),
+      liveTvRepositoryProvider.overrideWithValue(repository),
+      builtInLiveSourceRegistryProvider.overrideWithValue(_BuiltInFixture()),
+    ]);
+    addTearDown(container.dispose);
+
+    final channels = await container.read(liveChannelsProvider.future);
+    expect(channels.map((item) => item.name), ['Demo TV']);
   });
 
 }
