@@ -5,7 +5,7 @@ void main() {
   test('new functionality stays disabled by default', () {
     final flags = PotvRuntimeFlags.initial();
     expect(flags.enabled('predictive_preload'), isFalse);
-    expect(flags.enabled('sports_event_matching'), isFalse);
+    expect(flags.enabled('sports_event_matching'), isTrue);
     expect(flags.enabled('missing_capability'), isFalse);
   });
 
