@@ -24,6 +24,7 @@ class LiveTvRepository {
   static const _sourceKey = 'live_tv_m3u_url';
   static const _sourceKindKey = 'live_tv_source_kind';
   static const _localPathKey = 'live_tv_local_path';
+  static const _lastGoodPath = 'potv_live_tv_last_good.m3u';
   static const _epgSourceKey = 'live_tv_xmltv_url';
 
   final Dio _dio;
@@ -68,11 +69,41 @@ class LiveTvRepository {
     final url = prefs.getString(_sourceKey);
     if (url == null || url.isEmpty) return null;
 
-    final response = await _dio.get<String>(
-      url,
-      options: Options(responseType: ResponseType.plain),
+    // Keep the previous validated playlist if the URL is temporarily offline.
+    // The cache is stored in the app-private support directory, never in a
+    // public/downloads folder. Stream URLs may carry access credentials.
+    final dir = await getApplicationSupportDirectory();
+    final cachedFile = File(
+      '${dir.path}${Platform.pathSeparator}$_lastGoodPath',
     );
-    return response.data ?? '';
+    try {
+      final response = await _dio.get<String>(
+        url,
+        options: Options(responseType: ResponseType.plain)
+            .copyWith(receiveTimeout: const Duration(seconds: 15),
+                      sendTimeout: const Duration(seconds: 15)),
+      );
+      final raw = response.data ?? '';
+      if (!raw.trimLeft().startsWith('#EXTM3U') ||
+          M3uParser.parse(raw).isEmpty) {
+        throw const FormatException('Invalid or empty M3U playlist');
+      }
+      final staging = File('${cachedFile.path}.tmp');
+      await staging.writeAsString(raw, flush: true);
+      try {
+        if (await cachedFile.exists()) await cachedFile.delete();
+        await staging.rename(cachedFile.path);
+      } finally {
+        if (await staging.exists()) await staging.delete();
+      }
+      return raw;
+    } catch (_) {
+      if (await cachedFile.exists()) {
+        final old = await cachedFile.readAsString();
+        if (old.trimLeft().startsWith('#EXTM3U')) return old;
+      }
+      rethrow;
+    }
   }
 
   Future<List<LiveChannel>> loadChannels() async {
