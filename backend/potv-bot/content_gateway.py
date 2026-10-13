@@ -473,40 +473,74 @@ class ContentGateway:
 
     def resolve_movie(self, *, tmdb_id=None, title=None, year=None):
         sources = []
+        seen_targets = set()
         for source in self.sources:
-            if self._xtream_config(source) is None:
+            upstream = None
+            headers = {}
+            quality = None
+
+            if self._xtream_config(source) is not None:
+                try:
+                    categories = self._category_map(
+                        source, "get_vod_categories"
+                    )
+                    rows = self._xtream_json(
+                        source, "get_vod_streams", ttl=600
+                    )
+                    row = self._match_xtream_item(
+                        rows,
+                        tmdb_id=tmdb_id,
+                        title=title,
+                        year=year,
+                        categories=categories,
+                    )
+                    if row is not None:
+                        direct = str(
+                            row.get("direct_source") or ""
+                        ).strip()
+                        if direct and self._allowed_upstream(direct):
+                            upstream = direct
+                        else:
+                            upstream = self._xtream_stream_url(
+                                source,
+                                "movie",
+                                row.get("stream_id"),
+                                row.get("container_extension") or "mp4",
+                            )
+                        quality = (
+                            str(row.get("quality") or "").strip() or None
+                        )
+                except Exception:
+                    upstream = None
+
+            if upstream is None:
+                try:
+                    fallback = self._fallback_movie_entry(
+                        source,
+                        title=title,
+                        year=year,
+                    )
+                except Exception:
+                    fallback = None
+                if fallback is not None:
+                    upstream = fallback["url"]
+                    headers = fallback.get("headers") or {}
+
+            if upstream is None:
                 continue
             try:
-                categories = self._category_map(source, "get_vod_categories")
-                rows = self._xtream_json(source, "get_vod_streams", ttl=600)
-                row = self._match_xtream_item(
-                    rows,
-                    tmdb_id=tmdb_id,
-                    title=title,
-                    year=year,
-                    categories=categories,
-                )
-                if row is None:
-                    continue
-                direct = str(row.get("direct_source") or "").strip()
-                if direct and self._allowed_upstream(direct):
-                    upstream = direct
-                else:
-                    upstream = self._xtream_stream_url(
-                        source,
-                        "movie",
-                        row.get("stream_id"),
-                        row.get("container_extension") or "mp4",
-                    )
-                target_id = self._register_target(upstream)
-                sources.append({
-                    "provider": "POTV",
-                    "real_url": self._proxy_url(target_id),
-                    "language": "es-MX",
-                    "quality": str(row.get("quality") or "").strip() or None,
-                })
-            except Exception:
+                target_id = self._register_target(upstream, headers)
+            except ContentGatewayError:
                 continue
+            if target_id in seen_targets:
+                continue
+            seen_targets.add(target_id)
+            sources.append({
+                "provider": "POTV",
+                "real_url": self._proxy_url(target_id),
+                "language": "es-MX",
+                "quality": quality,
+            })
         return {"sources": sources}
 
     def resolve_series_episode(
@@ -519,62 +553,107 @@ class ContentGateway:
         episode=1,
     ):
         sources = []
+        seen_targets = set()
         for source in self.sources:
-            if self._xtream_config(source) is None:
+            upstream = None
+            headers = {}
+            quality = None
+
+            if self._xtream_config(source) is not None:
+                try:
+                    categories = self._category_map(
+                        source, "get_series_categories"
+                    )
+                    rows = self._xtream_json(
+                        source, "get_series", ttl=600
+                    )
+                    series = self._match_xtream_item(
+                        rows,
+                        tmdb_id=tmdb_id,
+                        title=title,
+                        year=year,
+                        categories=categories,
+                    )
+                    if series is not None:
+                        info = self._xtream_json(
+                            source,
+                            "get_series_info",
+                            extra={"series_id": series.get("series_id")},
+                            ttl=600,
+                        )
+                        episodes = (
+                            info.get("episodes")
+                            if isinstance(info, dict)
+                            else None
+                        )
+                        if isinstance(episodes, dict):
+                            season_rows = (
+                                episodes.get(str(int(season)))
+                                or episodes.get(int(season))
+                            )
+                            if isinstance(season_rows, list):
+                                selected = None
+                                for row in season_rows:
+                                    if not isinstance(row, dict):
+                                        continue
+                                    row_episode = (
+                                        row.get("episode_num")
+                                        or row.get("episode")
+                                        or row.get("num")
+                                    )
+                                    try:
+                                        if int(row_episode) == int(episode):
+                                            selected = row
+                                            break
+                                    except (TypeError, ValueError):
+                                        continue
+                                if selected is not None:
+                                    upstream = self._xtream_stream_url(
+                                        source,
+                                        "series",
+                                        selected.get("id")
+                                        or selected.get("stream_id"),
+                                        selected.get("container_extension")
+                                        or "mp4",
+                                    )
+                                    quality = (
+                                        str(
+                                            selected.get("quality") or ""
+                                        ).strip()
+                                        or None
+                                    )
+                except Exception:
+                    upstream = None
+
+            if upstream is None:
+                try:
+                    fallback = self._fallback_series_entry(
+                        source,
+                        title=title,
+                        season=season,
+                        episode=episode,
+                    )
+                except Exception:
+                    fallback = None
+                if fallback is not None:
+                    upstream = fallback["url"]
+                    headers = fallback.get("headers") or {}
+
+            if upstream is None:
                 continue
             try:
-                categories = self._category_map(source, "get_series_categories")
-                rows = self._xtream_json(source, "get_series", ttl=600)
-                series = self._match_xtream_item(
-                    rows,
-                    tmdb_id=tmdb_id,
-                    title=title,
-                    year=year,
-                    categories=categories,
-                )
-                if series is None:
-                    continue
-                series_id = series.get("series_id")
-                info = self._xtream_json(
-                    source,
-                    "get_series_info",
-                    extra={"series_id": series_id},
-                    ttl=600,
-                )
-                episodes = info.get("episodes") if isinstance(info, dict) else None
-                if not isinstance(episodes, dict):
-                    continue
-                season_rows = episodes.get(str(int(season))) or episodes.get(int(season))
-                if not isinstance(season_rows, list):
-                    continue
-                selected = None
-                for row in season_rows:
-                    if not isinstance(row, dict):
-                        continue
-                    row_episode = row.get("episode_num") or row.get("episode") or row.get("num")
-                    try:
-                        if int(row_episode) == int(episode):
-                            selected = row
-                            break
-                    except (TypeError, ValueError):
-                        continue
-                if selected is None:
-                    continue
-                upstream = self._xtream_stream_url(
-                    source,
-                    "series",
-                    selected.get("id") or selected.get("stream_id"),
-                    selected.get("container_extension") or "mp4",
-                )
-                target_id = self._register_target(upstream)
-                sources.append({
-                    "provider": "POTV",
-                    "real_url": self._proxy_url(target_id),
-                    "language": "es-MX",
-                    "quality": str(selected.get("quality") or "").strip() or None,
-                })
-            except Exception:
+                target_id = self._register_target(upstream, headers)
+            except ContentGatewayError:
                 continue
+            if target_id in seen_targets:
+                continue
+            seen_targets.add(target_id)
+            sources.append({
+                "provider": "POTV",
+                "real_url": self._proxy_url(target_id),
+                "language": "es-MX",
+                "quality": quality,
+            })
         return {"sources": sources}
 
     def _target_id(self, url, headers):
@@ -1001,12 +1080,18 @@ class ContentGateway:
                 continue
             try:
                 if self._xtream_config(source) is not None:
-                    parsed = self._xtream_live_channels(source)
-                    xtream_guide.extend(
-                        self._xtream_sports_guide(source, parsed)
-                    )
+                    try:
+                        parsed = self._xtream_live_channels(source)
+                    except Exception:
+                        parsed = self._m3u_inventory(source)["live"]
+                    try:
+                        xtream_guide.extend(
+                            self._xtream_sports_guide(source, parsed)
+                        )
+                    except Exception:
+                        pass
                 else:
-                    parsed = self._parse_m3u(self._source_document(source))
+                    parsed = self._m3u_inventory(source)["live"]
             except Exception:
                 failures += 1
                 continue
