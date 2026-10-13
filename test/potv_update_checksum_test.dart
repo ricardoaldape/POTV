@@ -53,4 +53,18 @@ void main() {
     await file.writeAsBytes([1, 2, 3]);
     expect(await verifyPotvApk(file, _release(bytes)), isFalse);
   });
+
+  test('parses Android install preflight result', () {
+    final validation = PotvInstallValidation.fromMap({
+      'ok': false,
+      'code': 'SIGNATURE_MISMATCH',
+      'message': 'different signer',
+      'installedCode': 13,
+      'candidateCode': 14,
+    });
+    expect(validation.ok, isFalse);
+    expect(validation.code, 'SIGNATURE_MISMATCH');
+    expect(validation.installedCode, 13);
+    expect(validation.candidateCode, 14);
+  });
 }
