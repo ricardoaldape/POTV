@@ -107,6 +107,12 @@ class ContentGateway:
             source_mode
             or os.getenv("POTV_CONTENT_SOURCE_MODE", "merge")
         ).strip().lower()
+        raw_category_ids = os.getenv("POTV_CONTENT_LIVE_CATEGORY_IDS", "").strip()
+        self.live_category_ids = {
+            value.strip()
+            for value in raw_category_ids.split(",")
+            if value.strip()
+        }
         if self.source_mode not in ("merge", "failover"):
             self.source_mode = "merge"
         self.refresh_seconds = int(
@@ -269,6 +275,8 @@ class ContentGateway:
             name = str(row.get("name") or "").strip()
             category_id = str(row.get("category_id") or "").strip()
             group = categories.get(category_id, "")
+            if self.live_category_ids and category_id not in self.live_category_ids:
+                continue
             if (
                 not name
                 or self._is_promotional_name(name)
