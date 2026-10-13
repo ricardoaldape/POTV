@@ -12,13 +12,13 @@ import '../../ui/account/account_screen.dart';
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
-  static const _avatars = <String, IconData>{
-    'ocean': Icons.waves_rounded,
-    'rocket': Icons.rocket_launch_rounded,
-    'star': Icons.star_rounded,
-    'game': Icons.sports_esports_rounded,
-    'film': Icons.movie_rounded,
-    'smile': Icons.sentiment_satisfied_alt_rounded,
+  static const _avatars = <String, _AvatarSpec>{
+    'ocean': _AvatarSpec('Marea', Color(0xFF2F80ED), Color(0xFF56CCF2), 0),
+    'rocket': _AvatarSpec('Nova', Color(0xFF6C5CE7), Color(0xFFA29BFE), 1),
+    'star': _AvatarSpec('Sol', Color(0xFFF2994A), Color(0xFFF2C94C), 2),
+    'game': _AvatarSpec('Pixel', Color(0xFF00B894), Color(0xFF55EFC4), 3),
+    'film': _AvatarSpec('Noir', Color(0xFF2D3436), Color(0xFF636E72), 4),
+    'smile': _AvatarSpec('Luna', Color(0xFFE84393), Color(0xFFFF7675), 5),
   };
 
   Future<void> _activate(WidgetRef ref, String id) async {
@@ -73,8 +73,11 @@ class ProfileScreen extends ConsumerWidget {
                       for (final item in _avatars.entries)
                         ChoiceChip(
                           selected: avatar == item.key,
-                          avatar: Icon(item.value, size: 18),
-                          label: const Text(''),
+                          avatar: _ProfileAvatar(
+                            avatarId: item.key,
+                            size: 28,
+                          ),
+                          label: Text(item.value.label),
                           onSelected: (_) =>
                               setState(() => avatar = item.key),
                         ),
@@ -229,12 +232,9 @@ class ProfileScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(20),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 32,
-                      child: Icon(
-                        _avatars[active.avatarId] ?? Icons.person_rounded,
-                        size: 32,
-                      ),
+                    _ProfileAvatar(
+                      avatarId: active.avatarId,
+                      size: 64,
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -286,7 +286,6 @@ class ProfileScreen extends ConsumerWidget {
                 return _ProfileChoice(
                   profile: profile,
                   selected: selected,
-                  icon: _avatars[profile.avatarId] ?? Icons.person_rounded,
                   onTap: () => _activate(ref, profile.id),
                 );
               },
@@ -339,13 +338,11 @@ class ProfileScreen extends ConsumerWidget {
 class _ProfileChoice extends StatelessWidget {
   final UserProfile profile;
   final bool selected;
-  final IconData icon;
   final VoidCallback onTap;
 
   const _ProfileChoice({
     required this.profile,
     required this.selected,
-    required this.icon,
     required this.onTap,
   });
 
@@ -358,9 +355,22 @@ class _ProfileChoice extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircleAvatar(
-                radius: selected ? 30 : 27,
-                child: Icon(icon),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: EdgeInsets.all(selected ? 3 : 0),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: selected
+                      ? Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 2,
+                        )
+                      : null,
+                ),
+                child: _ProfileAvatar(
+                  avatarId: profile.avatarId,
+                  size: selected ? 58 : 54,
+                ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -375,6 +385,195 @@ class _ProfileChoice extends StatelessWidget {
           ),
         ),
       );
+}
+
+class _AvatarSpec {
+  final String label;
+  final Color start;
+  final Color end;
+  final int face;
+
+  const _AvatarSpec(this.label, this.start, this.end, this.face);
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  final String avatarId;
+  final double size;
+
+  const _ProfileAvatar({
+    required this.avatarId,
+    required this.size,
+  });
+
+  static const _specs = ProfileScreen._avatars;
+
+  @override
+  Widget build(BuildContext context) {
+    final spec = _specs[avatarId] ?? _specs['ocean']!;
+    return ClipOval(
+      child: SizedBox.square(
+        dimension: size,
+        child: CustomPaint(
+          painter: _AvatarPainter(spec),
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarPainter extends CustomPainter {
+  final _AvatarSpec spec;
+
+  const _AvatarPainter(this.spec);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final background = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [spec.start, spec.end],
+      ).createShader(rect);
+    canvas.drawRect(rect, background);
+
+    final center = Offset(size.width * .5, size.height * .54);
+    final faceRadius = size.width * .28;
+    final skin = Paint()..color = const Color(0xFFFFD7B5);
+    final shadow = Paint()..color = const Color(0x22000000);
+    canvas.drawCircle(
+      Offset(center.dx + size.width * .025, center.dy + size.height * .035),
+      faceRadius,
+      shadow,
+    );
+    canvas.drawCircle(center, faceRadius, skin);
+
+    final hair = Paint()..color = _hairColor(spec.face);
+    final hairRect = Rect.fromCircle(center: center, radius: faceRadius);
+    canvas.save();
+    canvas.clipPath(Path()..addOval(hairRect));
+    switch (spec.face) {
+      case 1:
+        canvas.drawArc(
+          Rect.fromLTWH(
+            center.dx - faceRadius,
+            center.dy - faceRadius * 1.18,
+            faceRadius * 2,
+            faceRadius * 1.35,
+          ),
+          3.05,
+          3.4,
+          true,
+          hair,
+        );
+        break;
+      case 2:
+        for (var i = 0; i < 5; i++) {
+          final x = center.dx - faceRadius + (i * faceRadius * .48);
+          canvas.drawCircle(
+            Offset(x, center.dy - faceRadius * .82),
+            faceRadius * .42,
+            hair,
+          );
+        }
+        break;
+      case 3:
+        canvas.drawRect(
+          Rect.fromLTWH(
+            center.dx - faceRadius,
+            center.dy - faceRadius,
+            faceRadius * 2,
+            faceRadius * .72,
+          ),
+          hair,
+        );
+        break;
+      case 4:
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: faceRadius * 1.08),
+          3.12,
+          3.15,
+          true,
+          hair,
+        );
+        break;
+      case 5:
+        canvas.drawOval(
+          Rect.fromLTWH(
+            center.dx - faceRadius * 1.05,
+            center.dy - faceRadius * 1.08,
+            faceRadius * 2.1,
+            faceRadius * .95,
+          ),
+          hair,
+        );
+        break;
+      default:
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: faceRadius * 1.05),
+          3.0,
+          3.3,
+          true,
+          hair,
+        );
+    }
+    canvas.restore();
+
+    final eye = Paint()..color = const Color(0xFF1B1B1B);
+    final eyeY = center.dy - faceRadius * .04;
+    canvas.drawCircle(
+      Offset(center.dx - faceRadius * .36, eyeY),
+      faceRadius * .075,
+      eye,
+    );
+    canvas.drawCircle(
+      Offset(center.dx + faceRadius * .36, eyeY),
+      faceRadius * .075,
+      eye,
+    );
+
+    final smile = Paint()
+      ..color = const Color(0xFF8D4B3E)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = (size.width * .025).clamp(1.4, 3.0)
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy + faceRadius * .23),
+        width: faceRadius * .78,
+        height: faceRadius * .48,
+      ),
+      .2,
+      2.7,
+      false,
+      smile,
+    );
+
+    final shoulder = Paint()..color = const Color(0xEEFFFFFF);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.width * .5, size.height * 1.02),
+        width: size.width * .78,
+        height: size.height * .58,
+      ),
+      shoulder,
+    );
+  }
+
+  Color _hairColor(int face) {
+    return const [
+      Color(0xFF15324A),
+      Color(0xFF3D2B56),
+      Color(0xFF7A4D20),
+      Color(0xFF263238),
+      Color(0xFF101010),
+      Color(0xFF5A2A4A),
+    ][face.clamp(0, 5)];
+  }
+
+  @override
+  bool shouldRepaint(covariant _AvatarPainter oldDelegate) =>
+      oldDelegate.spec != spec;
 }
 
 class _AddProfile extends StatelessWidget {
