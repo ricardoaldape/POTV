@@ -143,6 +143,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     final now = DateTime.now();
     final result = <_SportsNowItem>[];
     final seen = <String>{};
+    final representedChannels = <String>{};
 
     bool categoryMatchesChannel(LiveChannel channel, EpgProgram program) {
       if (selectedCategory == SportsHubCategory.all ||
@@ -173,6 +174,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
       }
       final key = 'epg:$epgId:${current.title.toLowerCase()}';
       if (!seen.add(key)) continue;
+      representedChannels.add(channel.id);
       result.add(
         _SportsNowItem(
           title: current.title,
@@ -199,6 +201,30 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
           subtitle: event.competition,
           startsAt: event.startsAt,
           candidates: event.streams,
+        ),
+      );
+    }
+
+    // Keep the rail useful even when a channel has no compatible EPG id.
+    // We show the signal itself without inventing a programme title.
+    for (final channel in channels) {
+      if (result.length >= 18 || representedChannels.contains(channel.id)) {
+        continue;
+      }
+      if (selectedCategory != SportsHubCategory.all &&
+          selectedCategory != SportsHubCategory.sportsTv &&
+          organizer.categoryForChannel(channel) != selectedCategory) {
+        continue;
+      }
+      final key = 'channel:${channel.id}';
+      if (!seen.add(key)) continue;
+      representedChannels.add(channel.id);
+      result.add(
+        _SportsNowItem(
+          title: channel.name,
+          subtitle: 'Señal deportiva disponible',
+          startsAt: now,
+          candidates: channel.playbackCandidates,
         ),
       );
     }
@@ -361,7 +387,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
             const _SectionHeading(
               label: 'EN VIVO AHORA',
               description:
-                  'Lo que está pasando en este momento en tus señales deportivas.',
+                  'Programas al aire y señales deportivas disponibles ahora.',
             ),
             const SizedBox(height: 10),
             _SportsNowRail(items: nowGuide),
