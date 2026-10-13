@@ -3,6 +3,8 @@ import io
 import json
 import os
 import tempfile
+import time
+import base64
 from urllib.parse import parse_qs, urlsplit
 
 from content_gateway import ContentGateway
@@ -32,6 +34,27 @@ class FakeOpener:
 
         if not uri.path.endswith("/player_api.php"):
             raise AssertionError("unexpected upstream request")
+
+        if action == "get_short_epg":
+            now = int(time.time())
+            def b64(value):
+                return base64.b64encode(value.encode("utf-8")).decode("ascii")
+            return FakeResponse(json.dumps({
+                "epg_listings": [
+                    {
+                        "title": b64("Partido de prueba"),
+                        "description": b64("Transmisión deportiva"),
+                        "start_timestamp": now - 300,
+                        "stop_timestamp": now + 1500,
+                    },
+                    {
+                        "title": b64("Resumen de prueba"),
+                        "description": b64("Después"),
+                        "start_timestamp": now + 1500,
+                        "stop_timestamp": now + 3300,
+                    },
+                ]
+            }).encode("utf-8"))
 
         payloads = {
             "get_live_categories": [
@@ -180,7 +203,11 @@ def run():
 
         assert [channel["name"] for channel in data["channels"]] == ["ESPN", "HBO"]
         assert [channel["name"] for channel in data["sports_channels"]] == ["ESPN"]
-        assert len(data["now_next"]) == 1
+        assert len(data["now_next"]) >= 1
+        assert any(
+            (row.get("current") or {}).get("title") == "Partido de prueba"
+            for row in data["now_next"]
+        )
         assert [event["id"] for event in data["sports_events"]] == ["with-stream"]
 
         movie = gateway.resolve_movie(
