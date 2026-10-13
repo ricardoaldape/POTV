@@ -9,6 +9,7 @@ account/subscription API consumed by the Flutter app.
 - `account_store.py`: local SQLite accounts, password hashing, sessions,
   password recovery, Telegram linkage and subscription synchronization.
 - `potv_ops.py`: sales/support/community bot workflows.
+- `content_gateway.py`: authorized M3U/Xtream catalog normalizer and credential-safe HTTPS stream proxy.
 - `group_config.py`: deployment routing loaded from environment variables.
 - `account_store_smoke.py`: isolated account lifecycle test.
 - `qa_smoke.py`: isolated sales/support/admin authorization regression test.
@@ -26,6 +27,8 @@ credential belongs in GitHub.
 - `POST /api/v1/account/recover/confirm`
 - `POST /api/v1/link/claim`
 - `GET /api/v1/license/status`
+- `GET /api/v1/content/catalog`
+- `GET /api/v1/content/stream/<opaque-id>` (short-lived signed proxy URL)
 
 Recovery is intentionally non-enumerating: the request endpoint responds as
 accepted even when no linked account exists. When a linked Telegram account is
@@ -36,17 +39,21 @@ Password changes invalidate existing account sessions.
 
 ```bash
 cd backend/potv-bot
-python3 -m py_compile app.py account_store.py potv_ops.py group_config.py
+python3 -m py_compile app.py account_store.py potv_ops.py group_config.py content_gateway.py
 python3 account_store_smoke.py
 python3 qa_smoke.py
+python3 content_gateway_smoke.py
 POTV_DB=/tmp/potv-self-test.sqlite3 python3 app.py --self-test
 ```
 
 ## Deployment
 
 Copy `.env.example` to the server's protected environment configuration,
-provide the real values there, keep the SQLite database outside version
-control, and run `app.py` behind the existing HTTPS reverse proxy.
+provide the real values there, keep the SQLite database and partner source files outside version
+control, and run `app.py` behind the existing HTTPS reverse proxy. Partner credentials belong only in
+`POTV_CONTENT_SOURCES_FILE`; the catalog returns opaque signed POTV URLs instead of upstream secrets.
+Optional `POTV_CONTENT_METADATA_FILE` supplies `now_next` and `sports_events`; events without an explicit
+stream are intentionally omitted from the playable catalog.
 
 The Flutter client contract is defined in
 `lib/config/subscription_endpoint.dart`. The production base remains
