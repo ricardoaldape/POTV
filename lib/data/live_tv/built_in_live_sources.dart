@@ -30,10 +30,6 @@ final builtInSportsChannelsProvider =
 });
 
 class BuiltInLiveSourceRegistry {
-  static const _livSportzCleartextHosts = <String>{
-    'sl.cdn.iutpcdn.com',
-  };
-
   static const _dearbulutMexico =
       'https://dearbulut.github.io/iptv/playlists/country/mx.m3u';
   static const _dearbulutSports =
@@ -244,17 +240,12 @@ class BuiltInLiveSourceRegistry {
   }
 
   bool _isAuthorizedLivSportzChannel(LiveChannel channel) {
-    final uri = channel.stream.uri;
-    final safeTransport = _isSafePublicStream(uri) ||
-        (uri.scheme == 'http' &&
-            _livSportzCleartextHosts.contains(uri.host.toLowerCase()) &&
-            _isSafePublicStream(uri.replace(scheme: 'https')));
-    if (!safeTransport) return false;
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
 
     // Do not re-license by channel name. If LivSportz supplied the source list,
-    // brands such as ESPN/TUDN/HBO/Disney/AXN/DAZN remain eligible here.
-    // Cleartext remains restricted by Android network_security_config to the
-    // explicitly approved partner CDN above.
+    // brands such as ESPN/TUDN/HBO/Disney/AXN/DAZN remain eligible here when
+    // delivered through a safe HTTPS source. Credential-bearing or cleartext
+    // partner feeds belong behind PartnerContentRepository's HTTPS gateway.
     return true;
   }
 
