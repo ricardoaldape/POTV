@@ -14,6 +14,7 @@ import re
 import secrets
 import threading
 import time
+import unicodedata
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
@@ -493,7 +494,9 @@ class ContentGateway:
         return attrs, name
 
     def _normalized_label(self, value):
-        return re.sub(r"[^a-z0-9+]+", " ", str(value).lower()).strip()
+        text = unicodedata.normalize("NFKD", str(value).lower())
+        text = "".join(char for char in text if not unicodedata.combining(char))
+        return re.sub(r"[^a-z0-9+]+", " ", text).strip()
 
     def _is_adult_entry(self, name, group=""):
         text = " " + self._normalized_label(f"{name} {group}") + " "
