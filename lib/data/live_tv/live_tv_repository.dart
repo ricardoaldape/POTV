@@ -268,9 +268,11 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
     List<LiveChannel> custom,
   ) => const LiveTvOrganizer().merge(
         partner: const [],
-        local: custom,
+        // Mexico/regional built-ins are ordinary TV channels. Sports-only
+        // sources are merged separately by Sports Hub / LiveTvScreen.
+        local: [...builtIn, ...custom],
         partnerSports: const [],
-        publicSports: builtIn,
+        publicSports: const [],
       );
 
 }
