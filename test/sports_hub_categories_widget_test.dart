@@ -124,6 +124,9 @@ void main() {
               ],
             ),
           ),
+          starterSportsChannelsProvider.overrideWith(
+            (ref) => <LiveChannel>[],
+          ),
           builtInSportsChannelsProvider.overrideWith(
             (ref) async => <LiveChannel>[],
           ),
@@ -143,6 +146,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('PARRILLA EN VIVO'), findsOneWidget);
+    expect(find.text('CANALES DEPORTIVOS'), findsOneWidget);
     expect(find.text('Partido en vivo'), findsOneWidget);
     expect(find.text('Después · Resumen deportivo'), findsOneWidget);
     expect(find.text('América vs Pumas'), findsOneWidget);
