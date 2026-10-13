@@ -65,7 +65,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   PlayerPreferences playerPreferences = const PlayerPreferences();
   bool preferencesLoaded = false;
   bool media3Ready = false;
+  bool _preferMediaKitNative = false;
   Timer? media3StateTimer;
+  Timer? media3BootstrapTimer;
   Timer? nextPreloadTimer;
   Timer? hideTimer;
   Timer? historyTimer;
@@ -127,6 +129,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     historyTimer?.cancel();
     startupTimer?.cancel();
     media3StateTimer?.cancel();
+    media3BootstrapTimer?.cancel();
     nextPreloadTimer?.cancel();
     media3Controller?.dispose();
     unawaited(playingSubscription?.cancel());
@@ -175,6 +178,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     videoController = null;
     media3StateTimer?.cancel();
     media3StateTimer = null;
+    media3BootstrapTimer?.cancel();
+    media3BootstrapTimer = null;
     media3Controller?.dispose();
     media3Controller = null;
     media3State = null;
@@ -199,9 +204,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         addDebugLog(inputLog);
 
         if (currentStream.backend == PlaybackBackend.native) {
-          if (Platform.isAndroid) {
+          if (Platform.isAndroid && !_preferMediaKitNative) {
             media3ResumeAt = effectiveResumeAt;
             media3Ready = true;
+            media3BootstrapTimer?.cancel();
+            media3BootstrapTimer = Timer(const Duration(seconds: 3), () {
+              if (!mounted ||
+                  generation != _openGeneration ||
+                  media3Controller != null ||
+                  _preferMediaKitNative) {
+                return;
+              }
+              addDebugLog(
+                'Player: Media3 no creó la superficie; usando respaldo nativo',
+              );
+              unawaited(_switchToMediaKitFallback());
+            });
             _armHistorySave();
             break;
           }
@@ -406,6 +424,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _attachMedia3Controller(Media3PlayerController controller) {
+    media3BootstrapTimer?.cancel();
+    media3BootstrapTimer = null;
     media3Controller?.dispose();
     media3Controller = controller;
     controller.setHandlers(
@@ -441,14 +461,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
 
     startupTimer?.cancel();
-    startupTimer = Timer(const Duration(seconds: 12), () {
+    startupTimer = Timer(const Duration(seconds: 8), () {
       if (!mounted ||
           failoverInProgress ||
           _startupPlaying ||
           media3Controller != controller) {
         return;
       }
-      unawaited(_autoFailover('La señal no inició a tiempo'));
+      addDebugLog(
+        'Player: Media3 no inició a tiempo; usando respaldo nativo',
+      );
+      unawaited(_switchToMediaKitFallback());
     });
 
     media3StateTimer?.cancel();
@@ -457,6 +480,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       (_) => unawaited(_refreshMedia3State(controller)),
     );
     unawaited(_refreshMedia3State(controller));
+  }
+
+  Future<void> _switchToMediaKitFallback() async {
+    if (!mounted || _preferMediaKitNative) return;
+    _preferMediaKitNative = true;
+    final resumeAt = widget.session.isLive ? null : _currentPosition;
+    startupTimer?.cancel();
+    media3BootstrapTimer?.cancel();
+    media3BootstrapTimer = null;
+    media3StateTimer?.cancel();
+    media3StateTimer = null;
+    media3Controller?.dispose();
+    media3Controller = null;
+    media3State = null;
+    media3Ready = false;
+    if (mounted) setState(() {});
+    await _openCurrent(resumeAt: resumeAt);
   }
 
   Future<void> _refreshMedia3State(Media3PlayerController controller) async {
@@ -1021,7 +1061,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
     } else {
       content = switch (currentStream.backend) {
-        PlaybackBackend.native => Platform.isAndroid
+        PlaybackBackend.native => Platform.isAndroid && !_preferMediaKitNative
             ? (!preferencesLoaded || !media3Ready
                 ? const Center(child: CircularProgressIndicator())
                 : Media3PlayerSurface(
