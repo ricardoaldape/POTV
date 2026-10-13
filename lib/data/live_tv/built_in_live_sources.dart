@@ -40,10 +40,11 @@ class BuiltInLiveSourceRegistry {
   static const _achoMexico =
       'https://www.achoapps.com/listas/mexico3.m3u';
 
-  // Curated source documents supplied to POTV by the authorized LivSportz
-  // partner. These URLs are catalog inputs only; credentials/tokens found
-  // inside a playlist are never accepted into playback candidates.
-  static const _livSportzMexicoSources = <String>[
+  // Source documents supplied to POTV by the authorized LivSportz partner.
+  // The partner has already scoped/cleared these catalogs for POTV, so channel
+  // entitlement is inherited from the source list instead of inferred from
+  // each brand/name. Credentials/tokens are still never embedded in the APK.
+  static const _livSportzAuthorizedSources = <String>[
     _achoMexico,
     'https://bit.ly/_TVMEX',
     'https://tvplayerlatino.com/lista.m3u',
@@ -77,7 +78,8 @@ class BuiltInLiveSourceRegistry {
       _dearbulutMexico,
       _iptvOrgMexico,
     ]);
-    final partnerChannels = await _loadAuthorizedMexico(_livSportzMexicoSources);
+    final partnerChannels =
+        await _loadAuthorizedPartner(_livSportzAuthorizedSources);
     final channels = _dedupe([
       ..._starterMexico(),
       ...publicChannels,
@@ -193,7 +195,7 @@ class BuiltInLiveSourceRegistry {
     ]);
   }
 
-  Future<List<LiveChannel>> _loadAuthorizedMexico(List<String> urls) async {
+  Future<List<LiveChannel>> _loadAuthorizedPartner(List<String> urls) async {
     final results = await Future.wait([
       for (final url in urls) _tryLoad(url, authorizedLivSportz: true),
     ]);
@@ -226,7 +228,7 @@ class BuiltInLiveSourceRegistry {
       return parsed
           .where(
             authorizedLivSportz
-                ? _isAuthorizedLivSportzMexicoChannel
+                ? _isAuthorizedLivSportzChannel
                 : _isBuiltInAllowed,
           )
           .toList(growable: false);
@@ -237,41 +239,11 @@ class BuiltInLiveSourceRegistry {
     }
   }
 
-  bool _isAuthorizedLivSportzMexicoChannel(LiveChannel channel) {
+  bool _isAuthorizedLivSportzChannel(LiveChannel channel) {
     if (!_isSafePublicStream(channel.stream.uri)) return false;
-    if (!_isMexicoRelevant(channel)) return false;
-    // Brand is intentionally not filtered here. LivSportz-provided catalogs
-    // may contain licensed premium channels; provenance is the entitlement.
+    // Do not re-license by channel name. If LivSportz supplied the source list,
+    // brands such as ESPN/TUDN/HBO/Disney/AXN/DAZN remain eligible here.
     return true;
-  }
-
-  bool _isMexicoRelevant(LiveChannel channel) {
-    final group = channel.group?.toLowerCase() ?? '';
-    final name = channel.name.toLowerCase();
-    final epg = channel.epgId?.toLowerCase() ?? '';
-    final text = '$group $name $epg';
-
-    if (group.contains('mexico') ||
-        group.contains('méxico') ||
-        group == 'mx' ||
-        epg.contains('.mx') ||
-        epg.endsWith('mx')) {
-      return true;
-    }
-
-    const mexicoTerms = <String>[
-      'mexico', 'méxico', 'cdmx', 'monterrey', 'guadalajara', 'puebla',
-      'zacatecas', 'queretaro', 'querétaro', 'guanajuato', 'jalisco',
-      'michoacan', 'michoacán', 'coahuila', 'saltillo', 'laguna',
-      'yucatan', 'yucatán', 'veracruz', 'oaxaca', 'chiapas', 'sonora',
-      'sinaloa', 'tabasco', 'tlaxcala', 'nayarit', 'colima', 'durango',
-      'campeche', 'chetumal', 'quintana roo', 'nuevo leon', 'nuevo león',
-      'tamaulipas', 'san luis', 'hidalgo', 'morelos', 'guerrero',
-      'mexiquense', 'canal once', 'canal 22', 'capital 21', 'adn 40',
-      'milenio', 'multimedios', 'las estrellas', 'azteca', 'imagen tv',
-      'foro tv', 'nmas', 'ñmas', 'tudn mexico', 'tudn méxico',
-    ];
-    return mexicoTerms.any(text.contains);
   }
 
   bool _containsSensitiveQuery(Uri uri) {
