@@ -38,25 +38,20 @@ if (-not $SkipTests) {
 }
 
 if ($BuildApk) {
-  # POTV does not store signing secrets inside this script. A locally built APK
-  # is for QA only, not an official OTA release signed for end users.
-  Invoke-Flutter -Arguments @('create', '--platforms=android', '--org', 'com.potv', '--project-name', 'potv', '.')
-  $manifest = Join-Path $projectRoot 'tool\AndroidManifest.xml'
-  if (Test-Path $manifest) {
-    Copy-Item $manifest (Join-Path $projectRoot 'android\app\src\main\AndroidManifest.xml') -Force
+  # Local QA always uses a debug APK. Production OTA release signing is isolated
+  # in the dedicated POTV OTA workflow and must never be emulated here.
+  foreach ($required in @(
+    'android\app\src\main\AndroidManifest.xml',
+    'android\app\src\main\kotlin\com\potv\potv\MainActivity.kt',
+    'android\app\src\main\res\xml\potv_update_paths.xml'
+  )) {
+    if (-not (Test-Path (Join-Path $projectRoot $required))) {
+      throw ('Committed Android file missing: ' + $required)
+    }
   }
-  foreach ($density in @('mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi')) {
-    $from = Join-Path $projectRoot ('tool\icons\mipmap-' + $density + '\ic_launcher.png')
-    $to = Join-Path $projectRoot ('android\app\src\main\res\mipmap-' + $density + '\ic_launcher.png')
-    if (Test-Path $from) { Copy-Item $from $to -Force }
-  }
-  $banner = Join-Path $projectRoot 'tool\tv_banner.png'
-  if (Test-Path $banner) {
-    Copy-Item $banner (Join-Path $projectRoot 'android\app\src\main\res\drawable\tv_banner.png') -Force
-  }
-  Invoke-Flutter -Arguments @('build', 'apk', '--release')
-  $apk = Join-Path $projectRoot 'build\app\outputs\flutter-apk\app-release.apk'
-  if (-not (Test-Path $apk)) { throw 'APK build returned success but no app-release.apk was found.' }
+  Invoke-Flutter -Arguments @('build', 'apk', '--debug')
+  $apk = Join-Path $projectRoot 'build\app\outputs\flutter-apk\app-debug.apk'
+  if (-not (Test-Path $apk)) { throw 'APK build returned success but no app-debug.apk was found.' }
   Write-Output ('POTV_QA_APK=' + $apk)
   Write-Output ('POTV_QA_APK_SHA256=' + (Get-FileHash $apk -Algorithm SHA256).Hash)
 }
