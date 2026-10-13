@@ -159,6 +159,16 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
       if (current == null || !categoryMatchesChannel(channel, current)) {
         continue;
       }
+      EpgProgram? next;
+      for (final program in programs) {
+        if (program.channelId.trim().toLowerCase() != epgId ||
+            !program.startsAt.isAfter(now)) {
+          continue;
+        }
+        if (next == null || program.startsAt.isBefore(next.startsAt)) {
+          next = program;
+        }
+      }
       final key = 'epg:$epgId:${current.title.toLowerCase()}';
       if (!seen.add(key)) continue;
       representedChannels.add(channel.id);
@@ -169,6 +179,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
           startsAt: current.startsAt,
           endsAt: current.endsAt,
           candidates: channel.playbackCandidates,
+          nextTitle: next?.title,
         ),
       );
     }
@@ -537,6 +548,7 @@ class _SportsNowItem {
   final DateTime startsAt;
   final DateTime? endsAt;
   final List<StreamCandidate> candidates;
+  final String? nextTitle;
 
   const _SportsNowItem({
     required this.title,
@@ -544,6 +556,7 @@ class _SportsNowItem {
     required this.startsAt,
     this.endsAt,
     required this.candidates,
+    this.nextTitle,
   });
 }
 
@@ -556,7 +569,7 @@ class _SportsNowRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     return SizedBox(
-      height: 154,
+      height: 178,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
@@ -630,6 +643,18 @@ class _SportsNowRail extends StatelessWidget {
                           fontSize: 12,
                         ),
                       ),
+                      if (item.nextTitle != null) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          'Después · ${item.nextTitle}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                       const Spacer(),
                       if (progress != null)
                         LinearProgressIndicator(
