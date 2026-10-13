@@ -118,6 +118,7 @@ class ContentGateway:
         self._catalog = None
         self._catalog_at = 0.0
         self._xtream_cache = {}
+        self._m3u_cache = {}
 
     @property
     def configured(self):
@@ -731,6 +732,134 @@ class ContentGateway:
                 }
             )
         return channels
+
+    def _m3u_inventory(self, source, ttl=600):
+        now = time.monotonic()
+        cached = self._m3u_cache.get(source)
+        if cached and now - cached[0] < ttl:
+            return cached[1]
+
+        inventory = {
+            "live": [],
+            "movies": [],
+            "series": [],
+        }
+        pending = None
+        headers = {}
+        entries = 0
+
+        with self._fetch(source, timeout=35) as response:
+            for raw_line in response:
+                try:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                except AttributeError:
+                    line = str(raw_line).strip()
+                if not line:
+                    continue
+                if line.startswith("#EXTINF"):
+                    attrs, name = self._parse_extinf(line)
+                    pending = (attrs, name)
+                    headers = {}
+                    continue
+                if line.startswith("#EXTVLCOPT:"):
+                    value = line[len("#EXTVLCOPT:") :]
+                    key, _, option = value.partition("=")
+                    key = key.strip().lower()
+                    option = option.strip()
+                    if key in ("http-user-agent", "user-agent") and option:
+                        headers["User-Agent"] = option
+                    elif key in (
+                        "http-referrer",
+                        "http-referer",
+                        "referer",
+                    ) and option:
+                        headers["Referer"] = option
+                    continue
+                if line.startswith("#") or pending is None:
+                    continue
+
+                attrs, name = pending
+                pending = None
+                group = attrs.get("group-title") or ""
+                if (
+                    not name
+                    or self._is_promotional_name(name)
+                    or self._is_adult_entry(name, group)
+                    or not self._allowed_upstream(line)
+                ):
+                    continue
+
+                item = {
+                    "name": name,
+                    "url": line,
+                    "group": group,
+                    "epg_id": attrs.get("tvg-id") or "",
+                    "logo": attrs.get("tvg-logo") or "",
+                    "language": attrs.get("tvg-language") or "",
+                    "headers": dict(headers),
+                }
+                path = urlsplit(line).path.lower()
+                if "/movie/" in path:
+                    inventory["movies"].append(item)
+                elif "/series/" in path:
+                    inventory["series"].append(item)
+                else:
+                    inventory["live"].append(item)
+
+                entries += 1
+                if entries >= 200000:
+                    break
+
+        self._m3u_cache[source] = (now, inventory)
+        return inventory
+
+    def _fallback_movie_entry(self, source, *, title=None, year=None):
+        inventory = self._m3u_inventory(source)
+        target = self._normalize_title(title)
+        target_year = str(year or "").strip()
+        matches = []
+        for item in inventory["movies"]:
+            if self._normalize_title(item.get("name")) != target:
+                continue
+            matches.append(item)
+        if not matches:
+            return None
+        if target_year:
+            for item in matches:
+                if target_year in str(item.get("name") or ""):
+                    return item
+        return matches[0] if len(matches) == 1 else None
+
+    def _series_entry_identity(self, name):
+        text = str(name or "").split("|", 1)[0].strip()
+        patterns = (
+            re.compile(r"(?i)\bS(?:eason)?\s*0*(\d+)\s*E(?:pisode)?\s*0*(\d+)\b"),
+            re.compile(r"(?i)\b(\d{1,2})x(\d{1,3})\b"),
+        )
+        for pattern in patterns:
+            match = pattern.search(text)
+            if match:
+                return (
+                    self._normalize_title(text[: match.start()]),
+                    int(match.group(1)),
+                    int(match.group(2)),
+                )
+        return (self._normalize_title(text), None, None)
+
+    def _fallback_series_entry(self, source, *, title=None, season=1, episode=1):
+        inventory = self._m3u_inventory(source)
+        target = self._normalize_title(title)
+        for item in inventory["series"]:
+            base, item_season, item_episode = self._series_entry_identity(
+                item.get("name")
+            )
+            if (
+                base == target
+                and item_season == int(season)
+                and item_episode == int(episode)
+            ):
+                return item
+        return None
 
     def _source_document(self, url):
         with self._fetch(url) as response:
