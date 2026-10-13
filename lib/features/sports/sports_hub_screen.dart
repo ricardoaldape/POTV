@@ -9,13 +9,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/catalog/partner_content_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
+import '../../data/sports/addon_sports_repository.dart';
+import '../../data/sports/sports_repository.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
+import '../../domain/models/addon_sports_item.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/sports_channel_language.dart';
 import '../../domain/services/sports_hub_organizer.dart';
+import 'addon_sports_rail.dart';
 import 'sports_channel_rail.dart';
 
 String _subtitle(String competition, DateTime startsAt) =>
@@ -109,6 +113,14 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     ref.invalidate(builtInSportsChannelsProvider);
     ref.invalidate(liveChannelsProvider);
     ref.invalidate(epgProgramsProvider);
+    if (!selectedCategory.isTelevision) {
+      ref.invalidate(sportsEventsProvider(
+        (day: selectedDay, sport: selectedCategory.apiSport),
+      ));
+      ref.invalidate(addonSportsItemsProvider(
+        selectedCategory.apiSport ?? 'all',
+      ));
+    }
   }
 
   @override
@@ -230,6 +242,15 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
   @override
   Widget build(BuildContext context) {
     final isTv = selectedCategory.isTelevision;
+    final query = (day: selectedDay, sport: selectedCategory.apiSport);
+    final scheduleState = isTv
+        ? const AsyncData<List<SportsEvent>>([])
+        : ref.watch(sportsEventsProvider(query));
+    final addonState = isTv
+        ? const AsyncData<List<AddonSportsItem>>([])
+        : ref.watch(addonSportsItemsProvider(
+            selectedCategory.apiSport ?? 'all',
+          ));
     final partner = ref.watch(partnerContentProvider).asData?.value;
     final starterSports = ref.watch(starterSportsChannelsProvider);
     final builtInState = ref.watch(builtInSportsChannelsProvider);
@@ -259,7 +280,14 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
       ...partner?.guidePrograms ?? const <EpgProgram>[],
       ...programs,
     ];
-    final events = organizer
+    final scheduleEvents = organizer.eventsFor(
+      scheduleState.asData?.value ?? const <SportsEvent>[],
+      selectedCategory,
+      day: selectedDay,
+    );
+    final addonItems =
+        addonState.asData?.value ?? const <AddonSportsItem>[];
+    final playableEvents = organizer
         .eventsFor(
           partner?.sportsEvents ?? const <SportsEvent>[],
           selectedCategory,
@@ -510,15 +538,45 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               ),
               const SizedBox(height: 22),
             ],
-            if (events.isNotEmpty) ...[
+            if (scheduleState.isLoading)
+              const LinearProgressIndicator(minHeight: 2),
+            if (scheduleEvents.isNotEmpty) ...[
               _SectionHeading(
-                label: 'PARTIDOS Y EVENTOS',
-                description: '${events.length} con transmisión confirmada.',
+                label: 'AGENDA',
+                description:
+                    '${scheduleEvents.length} eventos programados para la fecha.',
               ),
               const SizedBox(height: 10),
-              for (final event in events)
+              for (final event in scheduleEvents)
+                _SportsScheduleCard(event: event),
+              const SizedBox(height: 20),
+            ],
+            if (addonState.isLoading)
+              const LinearProgressIndicator(minHeight: 2),
+            if (addonItems.isNotEmpty) ...[
+              _SectionHeading(
+                label: 'EVENTOS DE ADDONS',
+                description:
+                    '${addonItems.length} eventos; POTV verifica la señal al abrir.',
+              ),
+              const SizedBox(height: 10),
+              AddonSportsRail(items: addonItems),
+              const SizedBox(height: 20),
+            ],
+            if (playableEvents.isNotEmpty) ...[
+              _SectionHeading(
+                label: 'EVENTOS CON SEÑAL',
+                description:
+                    '${playableEvents.length} con transmisión confirmada.',
+              ),
+              const SizedBox(height: 10),
+              for (final event in playableEvents)
                 _SportsEventCard(event: event),
-            ] else if (activeChannels.isEmpty && generalChannels.isEmpty)
+            ] else if (!scheduleState.isLoading &&
+                scheduleEvents.isEmpty &&
+                addonItems.isEmpty &&
+                activeChannels.isEmpty &&
+                generalChannels.isEmpty)
               _EmptySection(
                 'No hay eventos ni señales de ${selectedCategory.title.toLowerCase()} '
                 'para esta fecha. Prueba otro deporte o consulta TV deportiva.',
@@ -708,6 +766,41 @@ class _SportsNowRail extends StatelessWidget {
   }
 }
 
+class _SportsScheduleCard extends StatelessWidget {
+  final SportsEvent event;
+
+  const _SportsScheduleCard({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: const Icon(Icons.event_rounded),
+        title: Text(
+          event.title,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(_subtitle(event.competition, event.startsAt)),
+        trailing: event.isLive
+            ? const Text(
+                'EN VIVO',
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w900,
+                ),
+              )
+            : Text(
+                DateFormat.Hm().format(event.startsAt),
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+      ),
+    );
+  }
+}
 class _SportsEventCard extends StatelessWidget {
   final SportsEvent event;
 
