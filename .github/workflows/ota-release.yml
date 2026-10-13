@@ -1,0 +1,239 @@
+name: POTV OTA release on HP
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish the signed APK as the official GitHub OTA release'
+        type: boolean
+        required: true
+        default: false
+      release_notes:
+        description: 'Release notes shown inside POTV Update Center'
+        type: string
+        required: false
+        default: 'Actualización de POTV'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: potv-ota-release
+  cancel-in-progress: false
+
+jobs:
+  ota-release:
+    runs-on: [self-hosted, Windows, X64, potv]
+    timeout-minutes: 100
+
+    steps:
+      - name: Checkout requested revision
+        uses: actions/checkout@v4
+
+      - name: Read and validate OTA version
+        id: meta
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $line = Get-Content pubspec.yaml | Where-Object { $_ -match '^version:\s*' } | Select-Object -First 1
+          if ($line -notmatch '^version:\s*(\d+\.\d+\.\d+(?:-beta\.\d+)?)\+(\d+)\s*$') {
+            throw 'pubspec.yaml version must be X.Y.Z+CODE or X.Y.Z-beta.N+CODE'
+          }
+          $versionName = $Matches[1]
+          $versionCode = [int]$Matches[2]
+          $tag = 'v' + $versionName
+          $prerelease = $versionName -match '-beta\.\d+$'
+
+          $headers = @{
+            Authorization = 'Bearer ' + $env:GH_TOKEN
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $releases = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
+          $publishedCodes = @()
+          foreach ($release in @($releases)) {
+            if ($release.body -match '(?m)^POTV-Version-Code:\s*(\d+)\s*$') {
+              $publishedCodes += [int]$Matches[1]
+            }
+            if ($release.tag_name -eq $tag) {
+              throw "Release tag $tag already exists. Bump pubspec version before publishing another OTA."
+            }
+          }
+          if ($publishedCodes.Count -gt 0) {
+            $maxCode = ($publishedCodes | Measure-Object -Maximum).Maximum
+            if ($versionCode -le $maxCode) {
+              throw "Android versionCode $versionCode must be greater than published OTA code $maxCode."
+            }
+          }
+
+          "version_name=$versionName" >> $env:GITHUB_OUTPUT
+          "version_code=$versionCode" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "prerelease=$($prerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Write-Output "OTA candidate: $tag (versionCode $versionCode), prerelease=$prerelease"
+
+      - name: Dependencies and tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & 'C:\flutter\bin\flutter.bat' pub get
+          if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed' }
+          & 'C:\flutter\bin\flutter.bat' test --no-pub
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
+
+      - name: Restore production signing key
+        shell: powershell
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('KEYSTORE_BASE64','KEYSTORE_PASSWORD','KEY_PASSWORD','KEY_ALIAS')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw ('Production signing secret missing: ' + $name)
+            }
+          }
+          $keystore = Join-Path (Get-Location).Path 'android\app\potv-release.keystore'
+          [IO.File]::WriteAllBytes($keystore, [Convert]::FromBase64String($env:KEYSTORE_BASE64))
+          $properties = @(
+            'storePassword=' + $env:KEYSTORE_PASSWORD
+            'keyPassword=' + $env:KEY_PASSWORD
+            'keyAlias=' + $env:KEY_ALIAS
+            'storeFile=potv-release.keystore'
+          )
+          [IO.File]::WriteAllLines(
+            (Join-Path (Get-Location).Path 'android\key.properties'),
+            $properties,
+            [Text.Encoding]::UTF8
+          )
+          & 'python' 'tool\configure_android_release_signing.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Release signing configuration failed' }
+
+      - name: Build production OTA APK
+        shell: powershell
+        env:
+          POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
+          POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
+          POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
+          POTV_PARTNER_SOURCES_URL: ${{ vars.POTV_PARTNER_SOURCES_URL }}
+          POTV_PARTNER_API_BASE_URL: ${{ vars.POTV_PARTNER_API_BASE_URL }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $args = @()
+          foreach ($item in @(
+            @('POTV_RESOLVER_ENDPOINTS_JSON', $env:POTV_RESOLVER_ENDPOINTS_JSON),
+            @('POTV_CONTROL_URL', $env:POTV_CONTROL_URL),
+            @('POTV_PARTNER_CATALOG_URL', $env:POTV_PARTNER_CATALOG_URL),
+            @('POTV_PARTNER_SOURCES_URL', $env:POTV_PARTNER_SOURCES_URL),
+            @('POTV_PARTNER_API_BASE_URL', $env:POTV_PARTNER_API_BASE_URL),
+            @('TMDB_API_KEY', $env:TMDB_API_KEY)
+          )) {
+            if (![string]::IsNullOrWhiteSpace($item[1])) {
+              $args += ('--dart-define=' + $item[0] + '=' + $item[1])
+            }
+          }
+          & 'C:\flutter\bin\flutter.bat' build apk --release --no-pub @args
+          if ($LASTEXITCODE -ne 0) { throw 'Production OTA build failed' }
+
+      - name: Verify package, version and pinned signing certificate
+        id: verify
+        shell: powershell
+        env:
+          EXPECTED_CERT: ${{ vars.POTV_RELEASE_CERT_SHA256 }}
+          PUBLISH: ${{ inputs.publish }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $apk = 'build\app\outputs\flutter-apk\app-release.apk'
+          if (!(Test-Path $apk)) { throw 'Signed release APK missing' }
+
+          $tools = Get-ChildItem 'C:\Users\familia\AppData\Local\Android\Sdk\build-tools' -Directory |
+            Sort-Object Name -Descending | Select-Object -First 1
+          if (!$tools) { throw 'Android build-tools not installed' }
+          $apksigner = Join-Path $tools.FullName 'apksigner.bat'
+          $aapt = Join-Path $tools.FullName 'aapt.exe'
+
+          $cert = & $apksigner verify --print-certs $apk
+          if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
+          if ($cert -match 'CN=Android Debug') { throw 'Refusing OTA signed with Android Debug certificate' }
+          $digestLine = @($cert | Select-String 'Signer #1 certificate SHA-256 digest:')
+          if ($digestLine.Count -ne 1) { throw 'Signing certificate SHA-256 missing' }
+          $digest = $digestLine[0].ToString().Split(':')[-1].Trim().ToLowerInvariant()
+
+          if ($env:PUBLISH -eq 'true' -and [string]::IsNullOrWhiteSpace($env:EXPECTED_CERT)) {
+            throw 'Set repository variable POTV_RELEASE_CERT_SHA256 before publishing OTA.'
+          }
+          if (![string]::IsNullOrWhiteSpace($env:EXPECTED_CERT) -and
+              $digest -ne $env:EXPECTED_CERT.Trim().ToLowerInvariant()) {
+            throw 'Production signing certificate changed. Refusing OTA.'
+          }
+
+          $package = (& $aapt dump badging $apk | Select-Object -First 1)
+          if ($package -notmatch "name='com\.potv\.potv'") {
+            throw 'Unexpected Android package name'
+          }
+          if ($package -notmatch ("versionCode='" + [regex]::Escape($env:VERSION_CODE) + "'")) {
+            throw 'APK versionCode does not match pubspec'
+          }
+
+          New-Item -ItemType Directory -Force -Path 'ota-out' | Out-Null
+          $target = Join-Path 'ota-out' ('POTV-' + $env:TAG + '.apk')
+          Copy-Item $apk $target -Force
+          $sha = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item $target).Length
+          "apk=$target" >> $env:GITHUB_OUTPUT
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+          "size=$size" >> $env:GITHUB_OUTPUT
+          Write-Output ('OTA_SHA256=' + $sha)
+          Write-Output ('OTA_SIGNING_CERT_SHA256=' + $digest)
+          Write-Output ('OTA_SIZE_BYTES=' + $size)
+
+      - name: Create release notes
+        shell: powershell
+        env:
+          NOTES: ${{ inputs.release_notes }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+        run: |
+          @(
+            $env:NOTES.Trim()
+            ''
+            ('POTV-Version-Code: ' + $env:VERSION_CODE)
+          ) | Set-Content -Encoding UTF8 'ota-out\release-notes.txt'
+
+      - name: Preserve signed candidate locally
+        if: ${{ !inputs.publish }}
+        shell: powershell
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          $targetDir = 'C:\POTV-ReleaseCandidates'
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          Copy-Item ('ota-out\POTV-' + $env:TAG + '.apk') $targetDir -Force
+          Copy-Item 'ota-out\release-notes.txt' $targetDir -Force
+          Write-Output ('Signed OTA candidate saved locally in ' + $targetDir)
+
+      - name: Publish official OTA release
+        if: ${{ inputs.publish }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: POTV ${{ steps.meta.outputs.version_name }}
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          body_path: ota-out/release-notes.txt
+          files: ota-out/POTV-${{ steps.meta.outputs.tag }}.apk
+          fail_on_unmatched_files: true
+
+      - name: Remove signing material
+        if: always()
+        shell: powershell
+        run: |
+          foreach ($path in @('android\key.properties','android\app\potv-release.keystore')) {
+            if (Test-Path $path) { Remove-Item $path -Force }
+          }
