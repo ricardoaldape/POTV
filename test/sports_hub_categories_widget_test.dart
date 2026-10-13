@@ -47,6 +47,13 @@ void main() {
         home: 'América',
         away: 'Pumas',
         startsAt: DateTime(day.year, day.month, day.day, 15),
+        streams: [
+          StreamCandidate(
+            id: 'soccer-stream',
+            label: 'Liga MX',
+            uri: Uri.parse('https://example.org/soccer.m3u8'),
+          ),
+        ],
       ),
       SportsEvent(
         id: 'nfl',
@@ -55,12 +62,28 @@ void main() {
         home: 'Chiefs',
         away: 'Bills',
         startsAt: DateTime(day.year, day.month, day.day, 18),
+        streams: [
+          StreamCandidate(
+            id: 'nfl-stream',
+            label: 'NFL',
+            uri: Uri.parse('https://example.org/nfl.m3u8'),
+          ),
+        ],
+      ),
+      SportsEvent(
+        id: 'no-signal',
+        sport: 'Soccer',
+        competition: 'Liga MX',
+        home: 'Sin',
+        away: 'Señal',
+        startsAt: DateTime(day.year, day.month, day.day, 19),
       ),
     ];
     final sportsChannel = LiveChannel(
       id: 'sports-news',
       name: 'POTV Deportes',
       group: 'TV Deportiva',
+      epgId: 'potv-deportes',
       stream: StreamCandidate(
         id: 'sports-news',
         label: 'TV Deportiva',
@@ -77,6 +100,18 @@ void main() {
               fetchedAt: DateTime.now(),
               sportsEvents: events,
               sportsChannels: [sportsChannel],
+              guidePrograms: [
+                EpgProgram(
+                  channelId: 'potv-deportes',
+                  title: 'Partido en vivo',
+                  startsAt: DateTime.now().subtract(
+                    const Duration(minutes: 10),
+                  ),
+                  endsAt: DateTime.now().add(
+                    const Duration(minutes: 50),
+                  ),
+                ),
+              ],
             ),
           ),
           builtInSportsChannelsProvider.overrideWith(
@@ -97,8 +132,20 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
+    expect(find.text('PARRILLA EN VIVO'), findsOneWidget);
+    expect(find.text('Partido en vivo'), findsOneWidget);
+    expect(find.text('América vs Pumas'), findsOneWidget);
+    expect(find.text('Chiefs vs Bills'), findsOneWidget);
+    expect(find.text('Sin vs Señal'), findsNothing);
+
+    await tester.tap(find.byKey(
+      const ValueKey('sports-category-soccer'),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('América vs Pumas'), findsOneWidget);
     expect(find.text('Chiefs vs Bills'), findsNothing);
+    expect(find.text('Sin vs Señal'), findsNothing);
 
     await tester.tap(find.byKey(
       const ValueKey('sports-category-americanFootball'),
