@@ -23,7 +23,7 @@ class AppConfig {
 
   static const partnerCatalogUrl = String.fromEnvironment(
     'POTV_PARTNER_CATALOG_URL',
-    defaultValue: '',
+    defaultValue: 'https://potv.fxqubit.com/api/v1/content/catalog',
   );
 
   static const resolverEndpointsJson = String.fromEnvironment(
