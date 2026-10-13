@@ -68,6 +68,26 @@ void main() {
       ),
       LiveTvCategory.regional,
     );
+    expect(
+      organizer.categoryFor(makeChannel('AXN', group: '')),
+      LiveTvCategory.movies,
+    );
+    expect(
+      organizer.categoryFor(makeChannel('Discovery Channel', group: '')),
+      LiveTvCategory.documentary,
+    );
+    expect(
+      organizer.categoryFor(makeChannel('NatGeo', group: '')),
+      LiveTvCategory.documentary,
+    );
+    expect(
+      organizer.categoryFor(makeChannel('FOX', group: '')),
+      LiveTvCategory.entertainment,
+    );
+    expect(
+      organizer.categoryFor(makeChannel('FOX Sports 2', group: '')),
+      LiveTvCategory.sports,
+    );
   });
 
   test('merges partner, local M3U and sports streams with distinct backups', () {
