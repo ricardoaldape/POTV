@@ -102,18 +102,22 @@ class LiveTvOrganizer {
   }
 
   bool isAllowedChannel(LiveChannel channel) {
-    final text = normalize('${channel.name} ${channel.group ?? ''}');
+    final raw = '${channel.name} ${channel.group ?? ''}'.toLowerCase();
+    if (RegExp(r'(^|[^0-9])(?:18\+|\+18)([^0-9]|$)').hasMatch(raw)) {
+      return false;
+    }
+    final text = normalize(raw);
     final padded = ' $text ';
     const blocked = <String>[
       'adultos', 'adulto', 'adult', 'xxx', 'porno', 'porn',
-      'pornografia', 'pornografico', 'erotico', 'erotica', 'erotic',
+      'pornografia', 'pornografico', 'pornografica',
+      'erotico', 'eroticos', 'erotica', 'eroticas', 'erotic',
       'desnudos', 'desnudas', 'desnudo', 'nude', 'nudity',
       'sex tv', 'sex channel', 'playboy', 'penthouse', 'hustler',
       'brazzers', 'redlight',
     ];
     if (blocked.any((term) => padded.contains(' $term '))) return false;
-    final compact = text.replaceAll(' ', '');
-    return !compact.contains('18+') && !compact.contains('+18');
+    return true;
   }
 
   LiveTvCategory categoryFor(LiveChannel channel) {
