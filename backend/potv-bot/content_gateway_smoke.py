@@ -204,6 +204,16 @@ def run():
         assert [channel["name"] for channel in data["channels"]] == ["ESPN", "HBO"]
         assert [channel["name"] for channel in data["sports_channels"]] == ["ESPN"]
         assert len(data["now_next"]) >= 1
+        # Xtream short-EPG hydration is intentionally asynchronous so catalog
+        # startup never blocks on one provider. The cached catalog object is
+        # updated in place when the background refresh finishes.
+        for _ in range(40):
+            if any(
+                (row.get("current") or {}).get("title") == "Partido de prueba"
+                for row in data["now_next"]
+            ):
+                break
+            time.sleep(0.05)
         assert any(
             (row.get("current") or {}).get("title") == "Partido de prueba"
             for row in data["now_next"]
