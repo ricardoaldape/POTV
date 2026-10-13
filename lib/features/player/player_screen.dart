@@ -332,7 +332,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
 
     if (mounted &&
-        (notify || playbackError != null || media3ResumeAt != null)) {
+        (notify ||
+            playbackError != null ||
+            media3ResumeAt != null ||
+            media3Ready)) {
       setState(() {});
     }
   }
