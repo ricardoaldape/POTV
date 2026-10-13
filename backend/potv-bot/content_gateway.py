@@ -366,7 +366,7 @@ class ContentGateway:
                     "get_short_epg",
                     extra={
                         "stream_id": channel.get("stream_id"),
-                        "limit": 3,
+                        "limit": 12,
                     },
                     ttl=60,
                 )
