@@ -53,12 +53,19 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
   SportsHubCategory selectedCategory = SportsHubCategory.all;
   DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
   Timer? _catalogTimer;
+  Timer? _initialGuideRefresh;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startRefreshTimer();
+    _initialGuideRefresh = Timer(
+      const Duration(seconds: 5),
+      () {
+        if (mounted) ref.invalidate(partnerContentProvider);
+      },
+    );
     unawaited(_loadPreferredLanguage());
   }
 
@@ -118,6 +125,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
   @override
   void dispose() {
     _catalogTimer?.cancel();
+    _initialGuideRefresh?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
