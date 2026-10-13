@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +19,10 @@ class _FakeUpdateCenter extends PotvUpdateCenter {
   Future<void> changeChannel(PotvUpdateChannel channel) async {
     active = channel;
   }
+  @override
+  Future<File?> cachedVerifiedDownload(PotvUpdateRelease release) async => null;
+  @override
+  Future<void> clearDownloadedUpdate() async {}
   @override
   Future<PotvUpdateRelease?> check({
     required PotvUpdateChannel channel,
