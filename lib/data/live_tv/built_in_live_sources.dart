@@ -226,6 +226,7 @@ class BuiltInLiveSourceRegistry {
 
       final parsed = M3uParser.parse(raw);
       return parsed
+          .where((channel) => !_isPromotionalEntry(channel))
           .where(
             authorizedLivSportz
                 ? _isAuthorizedLivSportzChannel
@@ -237,6 +238,24 @@ class BuiltInLiveSourceRegistry {
       // must never take down the rest of the Mexico catalog.
       return const [];
     }
+  }
+
+  bool _isPromotionalEntry(LiveChannel channel) {
+    final text = channel.name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    const blocked = <String>[
+      'mejor proveedor',
+      'proveedor de iptv',
+      'iptv premium',
+      'mas de 3000 canales',
+      'más de 3000 canales',
+      'suscripcion iptv',
+      'suscripción iptv',
+      'contrata iptv',
+      'whatsapp',
+      'telegram',
+      'visita nuestro',
+    ];
+    return blocked.any(text.contains);
   }
 
   bool _isAuthorizedLivSportzChannel(LiveChannel channel) {
