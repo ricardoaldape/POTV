@@ -184,6 +184,10 @@ class BuiltInLiveSourceRegistry {
     if (!_isSafePublicStream(channel.stream.uri)) return false;
 
     final name = channel.name.toLowerCase();
+    // This block applies only to anonymous/public built-in playlists.
+    // Licensed partner channels are delivered by PartnerContentRepository and
+    // are allowed regardless of brand when their entitlement comes from the
+    // authorized gateway.
     const excluded = <String>[
       'hbo',
       'cinemax',
