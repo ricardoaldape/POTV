@@ -206,6 +206,23 @@ class ContentGateway:
         name = line.split(",", 1)[1].strip() if "," in line else ""
         return attrs, name
 
+    def _is_promotional_name(self, name):
+        text = re.sub(r"\s+", " ", str(name).lower()).strip()
+        blocked = (
+            "mejor proveedor",
+            "proveedor de iptv",
+            "iptv premium",
+            "mas de 3000 canales",
+            "más de 3000 canales",
+            "suscripcion iptv",
+            "suscripción iptv",
+            "contrata iptv",
+            "whatsapp",
+            "telegram",
+            "visita nuestro",
+        )
+        return any(term in text for term in blocked)
+
     def _parse_m3u(self, raw):
         lines = raw.replace("\ufeff", "").splitlines()
         channels = []
@@ -236,7 +253,11 @@ class ContentGateway:
                 continue
             attrs, name = pending
             pending = None
-            if not name or not self._allowed_upstream(line):
+            if (
+                not name
+                or self._is_promotional_name(name)
+                or not self._allowed_upstream(line)
+            ):
                 continue
             channels.append(
                 {
