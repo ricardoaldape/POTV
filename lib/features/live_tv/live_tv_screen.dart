@@ -126,7 +126,6 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
   Widget build(BuildContext context) {
     final channelsState = ref.watch(liveChannelsProvider);
     final partnerState = ref.watch(partnerContentProvider);
-    final sportsState = ref.watch(builtInSportsChannelsProvider);
     final epgState = ref.watch(epgProgramsProvider);
     final favoritesState = ref.watch(liveTvFavoritesProvider);
     final partner = partnerState.asData?.value;
@@ -139,8 +138,11 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
     final channels = _organizer.merge(
       partner: partner?.channels ?? const <LiveChannel>[],
       local: channelsState.asData?.value ?? const <LiveChannel>[],
-      partnerSports: partner?.sportsChannels ?? const <LiveChannel>[],
-      publicSports: sportsState.asData?.value ?? const <LiveChannel>[],
+      // Dedicated sports feeds belong in Sports Hub. Ordinary Mexico TV
+      // channels that happen to be sports remain available through local or
+      // partner general TV catalogs.
+      partnerSports: const <LiveChannel>[],
+      publicSports: const <LiveChannel>[],
     );
     final counts = _organizer.counts(channels);
     final filtered = _organizer.filter(
@@ -156,8 +158,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
       ...filtered.where((c) => _isFavorite(c, favorites)),
       ...filtered.where((c) => !_isFavorite(c, favorites)),
     ];
-    final loading = channelsState.isLoading ||
-        partnerState.isLoading || sportsState.isLoading;
+    final loading = channelsState.isLoading || partnerState.isLoading;
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 600;
 
@@ -249,8 +250,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
             ),
           ),
           if (loading) const LinearProgressIndicator(minHeight: 2),
-          if (channels.isNotEmpty &&
-              (channelsState.hasError || sportsState.hasError))
+          if (channels.isNotEmpty && channelsState.hasError)
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 6, 20, 2),
               child: Text(
