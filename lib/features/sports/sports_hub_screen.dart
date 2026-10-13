@@ -365,7 +365,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               'Consulta TV deportiva para ver las señales disponibles.',
             ),
           const SizedBox(height: 22),
-          if (allChannels.isNotEmpty) ...[
+          if (!isTv && allChannels.isNotEmpty) ...[
             _SectionHeading(
               label: 'CANALES DEPORTIVOS',
               description:
@@ -380,7 +380,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               preferredLanguage: preferredLanguage,
             ),
             const SizedBox(height: 22),
-          ] else if (builtInState.isLoading) ...[
+          ] else if (!isTv && builtInState.isLoading) ...[
             const _SectionHeading(
               label: 'CANALES DEPORTIVOS',
               description: 'Cargando señales deportivas…',
