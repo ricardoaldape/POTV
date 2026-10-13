@@ -568,7 +568,7 @@ class _AvatarPainter extends CustomPainter {
       Color(0xFF263238),
       Color(0xFF101010),
       Color(0xFF5A2A4A),
-    ][face.clamp(0, 5)];
+    ][face.clamp(0, 5).toInt()];
   }
 
   @override
