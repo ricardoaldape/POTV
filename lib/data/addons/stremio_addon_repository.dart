@@ -29,7 +29,10 @@ class EncryptedAddonSecretStore implements AddonSecretStore {
   final FlutterSecureStorage storage;
 
   EncryptedAddonSecretStore({FlutterSecureStorage? storage})
-      : storage = storage ?? const FlutterSecureStorage();
+      : storage = storage ??
+            const FlutterSecureStorage(
+              aOptions: AndroidOptions(resetOnError: true),
+            );
 
   @override
   Future<void> write(String key, String value) =>
