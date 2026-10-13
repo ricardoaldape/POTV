@@ -48,12 +48,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig =
-                if (keystorePropertiesFile.exists()) {
-                    signingConfigs.getByName("release")
-                } else {
-                    signingConfigs.getByName("debug")
-                }
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
@@ -98,4 +95,18 @@ val verifyLockedLauncherIcon by tasks.registering {
 
 tasks.named("preBuild").configure {
     dependsOn(verifyLockedLauncherIcon)
+}
+
+gradle.taskGraph.whenReady {
+    val wantsRelease = allTasks.any {
+        it.name.contains("Release", ignoreCase = true) &&
+            (it.name.contains("assemble", ignoreCase = true) ||
+                it.name.contains("package", ignoreCase = true) ||
+                it.name.contains("bundle", ignoreCase = true))
+    }
+    if (wantsRelease && !keystorePropertiesFile.exists()) {
+        throw GradleException(
+            "POTV release signing is required. Refusing to create an OTA/release APK with a debug or missing certificate."
+        )
+    }
 }
