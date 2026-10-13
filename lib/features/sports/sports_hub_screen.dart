@@ -16,6 +16,7 @@ import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
+import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/sports_channel_resolver.dart';
 import '../../domain/services/sports_channel_language.dart';
 import '../../domain/services/sports_hub_organizer.dart';
@@ -134,6 +135,77 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     super.dispose();
   }
 
+  List<_SportsNowItem> _buildNowGuide({
+    required List<LiveChannel> channels,
+    required List<EpgProgram> programs,
+    required List<SportsEvent> events,
+  }) {
+    final now = DateTime.now();
+    final result = <_SportsNowItem>[];
+    final seen = <String>{};
+
+    bool categoryMatchesChannel(LiveChannel channel, EpgProgram program) {
+      if (selectedCategory == SportsHubCategory.all ||
+          selectedCategory == SportsHubCategory.sportsTv) {
+        return true;
+      }
+      final channelCategory = organizer.categoryForChannel(channel);
+      final programCategory = organizer.classifySport(
+        '${program.title} ${program.description ?? ''}',
+      );
+      return channelCategory == selectedCategory ||
+          programCategory == selectedCategory;
+    }
+
+    for (final channel in channels) {
+      final epgId = channel.epgId?.trim().toLowerCase();
+      if (epgId == null || epgId.isEmpty) continue;
+      EpgProgram? current;
+      for (final program in programs) {
+        if (program.channelId.trim().toLowerCase() == epgId &&
+            program.isOnAir(now)) {
+          current = program;
+          break;
+        }
+      }
+      if (current == null || !categoryMatchesChannel(channel, current)) {
+        continue;
+      }
+      final key = 'epg:$epgId:${current.title.toLowerCase()}';
+      if (!seen.add(key)) continue;
+      result.add(
+        _SportsNowItem(
+          title: current.title,
+          subtitle: channel.name,
+          startsAt: current.startsAt,
+          endsAt: current.endsAt,
+          candidates: channel.playbackCandidates,
+        ),
+      );
+    }
+
+    for (final event in events) {
+      if (!event.isLive || event.streams.isEmpty) continue;
+      if (selectedCategory != SportsHubCategory.all &&
+          selectedCategory != SportsHubCategory.sportsTv &&
+          organizer.categoryForEvent(event) != selectedCategory) {
+        continue;
+      }
+      final key = 'event:${event.id}';
+      if (!seen.add(key)) continue;
+      result.add(
+        _SportsNowItem(
+          title: event.title,
+          subtitle: event.competition,
+          startsAt: event.startsAt,
+          candidates: event.streams,
+        ),
+      );
+    }
+
+    return result.take(18).toList(growable: false);
+  }
+
   Future<void> _pickDate() async {
     final now = DateTime.now();
     final value = await showDatePicker(
@@ -190,6 +262,17 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     );
     final addonItems = addonsState.asData?.value ??
         const <AddonSportsItem>[];
+    final nowGuide = _buildNowGuide(
+      channels: languageService.preferredChannels(
+        allChannels,
+        preferredLanguage,
+      ),
+      programs: programs,
+      events: [
+        ...partner?.sportsEvents ?? const <SportsEvent>[],
+        ...eventsState.asData?.value ?? const <SportsEvent>[],
+      ],
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -274,6 +357,16 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
             ],
           ),
           const SizedBox(height: 20),
+          if (nowGuide.isNotEmpty) ...[
+            const _SectionHeading(
+              label: 'EN VIVO AHORA',
+              description:
+                  'Lo que está pasando en este momento en tus señales deportivas.',
+            ),
+            const SizedBox(height: 10),
+            _SportsNowRail(items: nowGuide),
+            const SizedBox(height: 22),
+          ],
           if (isTv) ...[
             _SectionHeading(
               label: 'TV DEPORTIVA',
@@ -485,6 +578,123 @@ class _EmptySection extends StatelessWidget {
       );
 }
 
+class _SportsNowItem {
+  final String title;
+  final String subtitle;
+  final DateTime startsAt;
+  final DateTime? endsAt;
+  final List<StreamCandidate> candidates;
+
+  const _SportsNowItem({
+    required this.title,
+    required this.subtitle,
+    required this.startsAt,
+    this.endsAt,
+    required this.candidates,
+  });
+}
+
+class _SportsNowRail extends StatelessWidget {
+  final List<_SportsNowItem> items;
+
+  const _SportsNowRail({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    return SizedBox(
+      height: 154,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final duration = item.endsAt?.difference(item.startsAt);
+          final elapsed = now.difference(item.startsAt);
+          final progress = duration == null ||
+                  duration.inMilliseconds <= 0 ||
+                  elapsed.isNegative
+              ? null
+              : (elapsed.inMilliseconds / duration.inMilliseconds)
+                  .clamp(0.0, 1.0)
+                  .toDouble();
+          return SizedBox(
+            width: 260,
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: item.candidates.isEmpty
+                    ? null
+                    : () => context.push(
+                          '/player',
+                          extra: PlaybackSession(
+                            title: item.title,
+                            candidates: item.candidates,
+                            isLive: true,
+                          ),
+                        ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 9,
+                            color: Colors.redAccent,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'EN VIVO',
+                            style: TextStyle(
+                              color: Colors.redAccent,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        item.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        item.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (progress != null)
+                        LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 3,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _SportsEventCard extends StatelessWidget {
   final SportsEvent event;
   final List<LiveChannel> channels;
@@ -551,10 +761,9 @@ class _SportsEventCard extends StatelessWidget {
               ),
           ],
         ),
-        trailing: FilledButton(
-          onPressed: !hasConfirmedBroadcast
-              ? null
-              : () => context.push(
+        trailing: hasConfirmedBroadcast
+            ? FilledButton(
+                onPressed: () => context.push(
                   '/player',
                   extra: PlaybackSession(
                     title: event.title,
@@ -562,8 +771,15 @@ class _SportsEventCard extends StatelessWidget {
                     isLive: true,
                   ),
                 ),
-          child: Text(hasConfirmedBroadcast ? 'VER EVENTO' : 'SIN SEÑAL'),
-        ),
+                child: const Text('VER EVENTO'),
+              )
+            : Text(
+                DateFormat.Hm().format(event.startsAt),
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
       ),
     );
   }
