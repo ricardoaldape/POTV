@@ -16,7 +16,7 @@ import threading
 import time
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import (
     HTTPCookieProcessor,
     Request,
@@ -114,6 +114,7 @@ class ContentGateway:
         self._targets = {}
         self._catalog = None
         self._catalog_at = 0.0
+        self._xtream_cache = {}
 
     @property
     def configured(self):
@@ -154,6 +155,291 @@ class ContentGateway:
         request_headers.update(headers or {})
         req = Request(url, headers=request_headers)
         return self.opener.open(req, timeout=timeout)
+
+    def _xtream_config(self, source):
+        try:
+            uri = urlsplit(str(source).strip())
+            query = parse_qs(uri.query)
+            username = (query.get("username") or [""])[0].strip()
+            password = (query.get("password") or [""])[0].strip()
+            if (
+                uri.scheme not in ("http", "https")
+                or not uri.netloc
+                or not username
+                or not password
+            ):
+                return None
+            base = urlunsplit((uri.scheme, uri.netloc, "", "", "")).rstrip("/")
+            return {
+                "base": base,
+                "username": username,
+                "password": password,
+            }
+        except Exception:
+            return None
+
+    def _fetch_json(self, url, *, timeout=25):
+        with self._fetch(url, timeout=timeout) as response:
+            raw = response.read(32 * 1024 * 1024 + 1)
+        if len(raw) > 32 * 1024 * 1024:
+            raise ContentGatewayError(413, "source_too_large")
+        try:
+            return json.loads(raw.decode("utf-8", errors="replace"))
+        except ValueError as exc:
+            raise ContentGatewayError(422, "invalid_partner_json") from exc
+
+    def _xtream_json(self, source, action, *, extra=None, ttl=300):
+        config = self._xtream_config(source)
+        if config is None:
+            raise ContentGatewayError(422, "not_xtream_source")
+        cache_key = (source, action, json.dumps(extra or {}, sort_keys=True))
+        now = time.monotonic()
+        cached = self._xtream_cache.get(cache_key)
+        if cached and now - cached[0] < ttl:
+            return cached[1]
+
+        query = {
+            "username": config["username"],
+            "password": config["password"],
+            "action": action,
+        }
+        query.update(extra or {})
+        url = config["base"] + "/player_api.php?" + urlencode(query)
+        data = self._fetch_json(url)
+        self._xtream_cache[cache_key] = (now, data)
+        return data
+
+    def _category_map(self, source, action):
+        raw = self._xtream_json(source, action, ttl=600)
+        result = {}
+        if isinstance(raw, list):
+            for row in raw:
+                if not isinstance(row, dict):
+                    continue
+                category_id = str(row.get("category_id") or "").strip()
+                name = str(row.get("category_name") or "").strip()
+                if category_id and name:
+                    result[category_id] = name
+        return result
+
+    def _xtream_stream_url(self, source, kind, stream_id, extension):
+        config = self._xtream_config(source)
+        if config is None:
+            raise ContentGatewayError(422, "not_xtream_source")
+        stream_id = str(stream_id or "").strip()
+        extension = re.sub(r"[^A-Za-z0-9]+", "", str(extension or "")).lower()
+        if not stream_id:
+            raise ContentGatewayError(422, "missing_stream_id")
+        if kind == "live":
+            extension = extension or "ts"
+        elif kind in ("movie", "series"):
+            extension = extension or "mp4"
+        else:
+            raise ContentGatewayError(422, "invalid_stream_kind")
+        return (
+            f"{config['base']}/{kind}/"
+            f"{quote(config['username'], safe='')}/"
+            f"{quote(config['password'], safe='')}/"
+            f"{quote(stream_id, safe='')}.{extension}"
+        )
+
+    def _xtream_live_channels(self, source):
+        categories = self._category_map(source, "get_live_categories")
+        raw = self._xtream_json(source, "get_live_streams", ttl=180)
+        if not isinstance(raw, list):
+            return []
+        channels = []
+        for row in raw:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            category_id = str(row.get("category_id") or "").strip()
+            group = categories.get(category_id, "")
+            if (
+                not name
+                or self._is_promotional_name(name)
+                or self._is_adult_entry(name, group)
+            ):
+                continue
+            direct = str(row.get("direct_source") or "").strip()
+            if direct and self._allowed_upstream(direct):
+                url = direct
+            else:
+                try:
+                    url = self._xtream_stream_url(
+                        source,
+                        "live",
+                        row.get("stream_id"),
+                        row.get("container_extension") or "ts",
+                    )
+                except ContentGatewayError:
+                    continue
+            channels.append({
+                "name": name,
+                "url": url,
+                "group": group,
+                "epg_id": str(row.get("epg_channel_id") or "").strip(),
+                "logo": str(row.get("stream_icon") or "").strip(),
+                "language": "",
+                "headers": {},
+            })
+        return channels
+
+    def _normalize_title(self, value):
+        text = str(value or "").lower().strip()
+        text = re.sub(r"\([^)]*(?:19|20)\d{2}[^)]*\)", " ", text)
+        text = re.sub(r"\b(?:19|20)\d{2}\b", " ", text)
+        text = re.sub(r"[^a-z0-9]+", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _year_text(self, row):
+        for key in ("year", "releaseDate", "release_date", "releasedate"):
+            value = str(row.get(key) or "").strip()
+            match = re.search(r"(19|20)\d{2}", value)
+            if match:
+                return match.group(0)
+        return ""
+
+    def _match_xtream_item(self, rows, *, tmdb_id=None, title=None, year=None, categories=None):
+        if not isinstance(rows, list):
+            return None
+        target_title = self._normalize_title(title)
+        target_year = str(year or "").strip()
+        target_tmdb = str(tmdb_id or "").strip()
+
+        exact_title = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or row.get("title") or "").strip()
+            group = ""
+            if categories is not None:
+                group = categories.get(str(row.get("category_id") or "").strip(), "")
+            if self._is_adult_entry(name, group) or self._is_promotional_name(name):
+                continue
+
+            provider_tmdb = str(
+                row.get("tmdb") or row.get("tmdb_id") or row.get("tmdbId") or ""
+            ).strip()
+            if target_tmdb and provider_tmdb and provider_tmdb == target_tmdb:
+                return row
+
+            if target_title and self._normalize_title(name) == target_title:
+                exact_title.append(row)
+
+        if not exact_title:
+            return None
+        if target_year:
+            for row in exact_title:
+                if self._year_text(row) == target_year:
+                    return row
+        return exact_title[0] if len(exact_title) == 1 else None
+
+    def resolve_movie(self, *, tmdb_id=None, title=None, year=None):
+        sources = []
+        for source in self.sources:
+            if self._xtream_config(source) is None:
+                continue
+            try:
+                categories = self._category_map(source, "get_vod_categories")
+                rows = self._xtream_json(source, "get_vod_streams", ttl=600)
+                row = self._match_xtream_item(
+                    rows,
+                    tmdb_id=tmdb_id,
+                    title=title,
+                    year=year,
+                    categories=categories,
+                )
+                if row is None:
+                    continue
+                direct = str(row.get("direct_source") or "").strip()
+                if direct and self._allowed_upstream(direct):
+                    upstream = direct
+                else:
+                    upstream = self._xtream_stream_url(
+                        source,
+                        "movie",
+                        row.get("stream_id"),
+                        row.get("container_extension") or "mp4",
+                    )
+                target_id = self._register_target(upstream)
+                sources.append({
+                    "provider": "POTV",
+                    "real_url": self._proxy_url(target_id),
+                    "language": "es-MX",
+                    "quality": str(row.get("quality") or "").strip() or None,
+                })
+            except Exception:
+                continue
+        return {"sources": sources}
+
+    def resolve_series_episode(
+        self,
+        *,
+        tmdb_id=None,
+        title=None,
+        year=None,
+        season=1,
+        episode=1,
+    ):
+        sources = []
+        for source in self.sources:
+            if self._xtream_config(source) is None:
+                continue
+            try:
+                categories = self._category_map(source, "get_series_categories")
+                rows = self._xtream_json(source, "get_series", ttl=600)
+                series = self._match_xtream_item(
+                    rows,
+                    tmdb_id=tmdb_id,
+                    title=title,
+                    year=year,
+                    categories=categories,
+                )
+                if series is None:
+                    continue
+                series_id = series.get("series_id")
+                info = self._xtream_json(
+                    source,
+                    "get_series_info",
+                    extra={"series_id": series_id},
+                    ttl=600,
+                )
+                episodes = info.get("episodes") if isinstance(info, dict) else None
+                if not isinstance(episodes, dict):
+                    continue
+                season_rows = episodes.get(str(int(season))) or episodes.get(int(season))
+                if not isinstance(season_rows, list):
+                    continue
+                selected = None
+                for row in season_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    row_episode = row.get("episode_num") or row.get("episode") or row.get("num")
+                    try:
+                        if int(row_episode) == int(episode):
+                            selected = row
+                            break
+                    except (TypeError, ValueError):
+                        continue
+                if selected is None:
+                    continue
+                upstream = self._xtream_stream_url(
+                    source,
+                    "series",
+                    selected.get("id") or selected.get("stream_id"),
+                    selected.get("container_extension") or "mp4",
+                )
+                target_id = self._register_target(upstream)
+                sources.append({
+                    "provider": "POTV",
+                    "real_url": self._proxy_url(target_id),
+                    "language": "es-MX",
+                    "quality": str(selected.get("quality") or "").strip() or None,
+                })
+            except Exception:
+                continue
+        return {"sources": sources}
 
     def _target_id(self, url, headers):
         material = url + "\n" + json.dumps(headers or {}, sort_keys=True)
