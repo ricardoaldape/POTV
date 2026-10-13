@@ -733,7 +733,10 @@ class ContentGateway:
                 failures += 1
                 continue
             try:
-                parsed = self._parse_m3u(self._source_document(source))
+                if self._xtream_config(source) is not None:
+                    parsed = self._xtream_live_channels(source)
+                else:
+                    parsed = self._parse_m3u(self._source_document(source))
             except Exception:
                 failures += 1
                 continue
