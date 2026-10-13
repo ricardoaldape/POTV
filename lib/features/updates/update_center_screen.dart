@@ -187,8 +187,20 @@ class _UpdateCenterScreenState extends State<UpdateCenterScreen> {
 
   Future<void> _install() async {
     final apk = _downloaded;
-    if (apk == null || !mounted) return;
+    final release = _available;
+    if (apk == null || release == null || !mounted) return;
     try {
+      if (!await verifyPotvApk(apk, release)) {
+        await _updater.clearDownloadedUpdate();
+        if (!mounted) return;
+        setState(() {
+          _downloaded = null;
+          _failed = true;
+          _message = 'La APK cambió después de descargarse o está dañada. '
+              'POTV la eliminó; vuelve a descargarla.';
+        });
+        return;
+      }
       final validation = await _updater.validateAndroidInstall(apk);
       if (!mounted) return;
       if (!validation.ok) {
