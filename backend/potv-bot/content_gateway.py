@@ -1191,6 +1191,32 @@ class ContentGateway:
                 return self._catalog
         payload = self._build_catalog()
         with self._lock:
+            # The async short-EPG worker can finish between _build_catalog()
+            # taking its cache snapshot and this assignment. Reconcile the
+            # newest cache here so the first catalog response cannot lose a
+            # completed guide refresh due to that race.
+            latest_guide = list(self._sports_guide_cache)
+            if latest_guide:
+                existing = payload["data"].get("now_next") or []
+                seen = {
+                    (
+                        str(row.get("channel_id") or ""),
+                        str((row.get("current") or {}).get("title") or ""),
+                        str((row.get("next") or {}).get("title") or ""),
+                    )
+                    for row in existing
+                    if isinstance(row, dict)
+                }
+                for row in latest_guide:
+                    key = (
+                        str(row.get("channel_id") or ""),
+                        str((row.get("current") or {}).get("title") or ""),
+                        str((row.get("next") or {}).get("title") or ""),
+                    )
+                    if key not in seen:
+                        existing.append(row)
+                        seen.add(key)
+                payload["data"]["now_next"] = existing
             self._catalog = payload
             self._catalog_at = time.monotonic()
         return payload
