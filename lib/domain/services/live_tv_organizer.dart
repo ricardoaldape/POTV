@@ -5,16 +5,16 @@ import 'sports_hub_organizer.dart';
 
 enum LiveTvCategory {
   all,
-  sports,
+  regional,
   news,
-  movies,
+  sports,
   entertainment,
+  movies,
   kids,
   music,
   documentary,
   culture,
   lifestyle,
-  regional,
   international,
   other,
 }
@@ -120,6 +120,10 @@ class LiveTvOrganizer {
       'tamaulipas', 'tlaxcala', 'veracruz', 'yucatan', 'zacatecas',
       'monterrey', 'saltillo', 'laguna', 'chetumal', 'guadalajara',
       'mexiquense', 'edomex', 'capital 21', 'cdmx',
+      'cozumel', 'cancun', 'cancún', 'merida', 'merida yucatan',
+      'leon guanajuato', 'tepic', 'toluca', 'cuernavaca',
+      'acapulco', 'tuxtla', 'villahermosa', 'hermosillo',
+      'culiacan', 'culiacán', 'torreon', 'torreón', 'juarez', 'juárez',
     ])) return LiveTvCategory.regional;
     if (_containsAny(text, const [
       'news', 'noticias', 'informativo', 'informativos', 'noticiero',
@@ -161,6 +165,7 @@ class LiveTvOrganizer {
     if (_containsAny(text, const [
       'entertainment', 'entretenimiento', 'variedades',
       'humor', 'comedy', 'reality', 'show', 'shows',
+      'las estrellas', 'azteca uno', 'azteca 7', 'canal 5',
     ])) return LiveTvCategory.entertainment;
 
     if (_containsAny(group, const [
