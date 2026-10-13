@@ -5,6 +5,7 @@ Partner source URLs and credentials are loaded only from protected server
 configuration. The Flutter client receives opaque, short-lived HTTPS proxy
 URLs and never receives the upstream credentials.
 """
+import base64
 import hashlib
 import hmac
 import ipaddress
@@ -15,6 +16,7 @@ import secrets
 import threading
 import time
 import unicodedata
+from datetime import datetime, timezone
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
@@ -283,8 +285,140 @@ class ContentGateway:
                 "logo": str(row.get("stream_icon") or "").strip(),
                 "language": "",
                 "headers": {},
+                "stream_id": row.get("stream_id"),
             })
         return channels
+
+    def _decode_epg_text(self, value):
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        try:
+            padded = raw + "=" * ((4 - len(raw) % 4) % 4)
+            decoded = base64.b64decode(padded, validate=True).decode("utf-8")
+            if decoded and sum(char.isprintable() for char in decoded) / len(decoded) > 0.9:
+                return decoded.strip()
+        except Exception:
+            pass
+        return raw
+
+    def _epg_slot(self, row):
+        if not isinstance(row, dict):
+            return None
+        title = self._decode_epg_text(row.get("title"))
+        description = self._decode_epg_text(row.get("description"))
+        try:
+            start_ts = int(row.get("start_timestamp") or 0)
+            end_ts = int(row.get("stop_timestamp") or 0)
+        except (TypeError, ValueError):
+            start_ts = 0
+            end_ts = 0
+        if start_ts <= 0 or end_ts <= start_ts:
+            try:
+                start = datetime.strptime(
+                    str(row.get("start") or ""),
+                    "%Y-%m-%d %H:%M:%S",
+                ).replace(tzinfo=timezone.utc)
+                end = datetime.strptime(
+                    str(row.get("end") or ""),
+                    "%Y-%m-%d %H:%M:%S",
+                ).replace(tzinfo=timezone.utc)
+                start_ts = int(start.timestamp())
+                end_ts = int(end.timestamp())
+            except (TypeError, ValueError):
+                return None
+        if not title:
+            return None
+        return {
+            "title": title,
+            "starts_at": datetime.fromtimestamp(
+                start_ts, timezone.utc
+            ).isoformat(),
+            "ends_at": datetime.fromtimestamp(
+                end_ts, timezone.utc
+            ).isoformat(),
+            **({"description": description} if description else {}),
+            "_start_ts": start_ts,
+            "_end_ts": end_ts,
+        }
+
+    def _xtream_sports_guide(self, source, channels, limit=24):
+        candidates = [
+            channel
+            for channel in channels
+            if channel.get("stream_id")
+            and _SPORTS.search(
+                f"{channel.get('name', '')} {channel.get('group', '')}"
+            )
+        ]
+        candidates.sort(
+            key=lambda item: (
+                0 if str(item.get("epg_id") or "").strip() else 1,
+                str(item.get("name") or "").lower(),
+            )
+        )
+        now = int(time.time())
+        guide = []
+        for channel in candidates[:limit]:
+            try:
+                document = self._xtream_json(
+                    source,
+                    "get_short_epg",
+                    extra={
+                        "stream_id": channel.get("stream_id"),
+                        "limit": 3,
+                    },
+                    ttl=60,
+                )
+            except Exception:
+                continue
+            listings = (
+                document.get("epg_listings")
+                if isinstance(document, dict)
+                else None
+            )
+            if not isinstance(listings, list):
+                continue
+            slots = [
+                slot
+                for slot in (self._epg_slot(row) for row in listings)
+                if slot is not None
+            ]
+            slots.sort(key=lambda item: item["_start_ts"])
+            current = next(
+                (
+                    slot
+                    for slot in slots
+                    if slot["_start_ts"] <= now < slot["_end_ts"]
+                ),
+                None,
+            )
+            upcoming = next(
+                (slot for slot in slots if slot["_start_ts"] > now),
+                None,
+            )
+            if current is None and upcoming is None:
+                continue
+            channel_id = str(
+                channel.get("epg_id") or channel.get("name") or ""
+            ).strip()
+            if not channel_id:
+                continue
+            row = {"channel_id": channel_id}
+            if current is not None:
+                row["current"] = {
+                    key: value
+                    for key, value in current.items()
+                    if not key.startswith("_")
+                }
+            if upcoming is not None:
+                row["next"] = {
+                    key: value
+                    for key, value in upcoming.items()
+                    if not key.startswith("_")
+                }
+            guide.append(row)
+        return guide
 
     def _normalize_title(self, value):
         text = str(value or "").lower().strip()
@@ -729,6 +863,7 @@ class ContentGateway:
 
     def _build_catalog(self):
         all_channels = []
+        xtream_guide = []
         seen = set()
         failures = 0
         for source in self.sources:
@@ -738,6 +873,9 @@ class ContentGateway:
             try:
                 if self._xtream_config(source) is not None:
                     parsed = self._xtream_live_channels(source)
+                    xtream_guide.extend(
+                        self._xtream_sports_guide(source, parsed)
+                    )
                 else:
                     parsed = self._parse_m3u(self._source_document(source))
             except Exception:
@@ -764,7 +902,10 @@ class ContentGateway:
             )
         ]
         metadata = self._metadata()
-        guide = self._guide_payload(metadata)
+        guide = [
+            *self._guide_payload(metadata),
+            *xtream_guide,
+        ]
         events = self._events_payload(metadata)
         revision_material = "|".join(sorted(channel["id"] for channel in all_channels))
         revision_material += f"|{len(guide)}|{len(events)}"
