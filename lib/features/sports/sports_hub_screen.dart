@@ -205,8 +205,13 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
       );
     }
 
-    // Keep the rail useful even when a channel has no compatible EPG id.
-    // We show the signal itself without inventing a programme title.
+    // Outside the TV-directory view, keep the rail useful even when a channel
+    // has no compatible EPG id. In TV deportiva the channel rail below already
+    // shows those raw signals, so repeating them here would duplicate cards and
+    // would turn "EN VIVO AHORA" into a second channel directory.
+    if (selectedCategory == SportsHubCategory.sportsTv) {
+      return result.take(18).toList(growable: false);
+    }
     for (final channel in channels) {
       if (result.length >= 18 || representedChannels.contains(channel.id)) {
         continue;
