@@ -302,13 +302,35 @@ class BuiltInLiveSourceRegistry {
     return true;
   }
 
+  String _canonicalChannelName(String value) {
+    var name = value.toLowerCase();
+    name = name.replaceAll(
+      RegExp(r'\[(?:[^\]]*not\s*24\s*/?\s*7[^\]]*)\]', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\((?:2160|1440|1080|720|576|480|360)p\)', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\|\s*(?:uhd|fhd|hd|sd)\b', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'www\.achoapps\.com', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return name;
+  }
+
   List<LiveChannel> _dedupe(List<LiveChannel> channels) {
     final seen = <String>{};
     final result = <LiveChannel>[];
 
     for (final channel in channels) {
       final epg = channel.epgId?.trim().toLowerCase() ?? '';
-      final name = channel.name.trim().toLowerCase();
+      final name = _canonicalChannelName(channel.name);
       final key = epg.isNotEmpty ? 'epg:$epg' : 'name:$name';
 
       if (seen.add(key)) result.add(channel);
