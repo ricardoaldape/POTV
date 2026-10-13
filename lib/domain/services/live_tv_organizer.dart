@@ -132,12 +132,15 @@ class LiveTvOrganizer {
 
     if (_containsAny(text, const [
       'kids', 'kids tv', 'infantil', 'infantiles', 'ninos', 'children',
-      'cartoon', 'nickelodeon', 'animacion', 'animados', 'baby tv',
+      'cartoon', 'nickelodeon', 'nick jr', 'disney channel', 'disney jr',
+      'disney xd', 'animacion', 'animados', 'baby tv', 'discovery kids',
     ])) return LiveTvCategory.kids;
 
     if (_containsAny(text, const [
       'cine', 'movies', 'movie', 'peliculas', 'series', 'cinema',
-      'film', 'filmes', 'filmoteca',
+      'film', 'filmes', 'filmoteca', 'axn', 'amc', 'hbo', 'cinemax',
+      'sony channel', 'warner channel', 'universal tv', 'star channel',
+      'fx', 'tnt', 'paramount channel',
     ])) return LiveTvCategory.movies;
 
     if (_containsAny(text, const [
@@ -148,7 +151,9 @@ class LiveTvOrganizer {
     if (_containsAny(text, const [
       'documentary', 'documentaries', 'documental', 'documentales',
       'nature', 'naturaleza', 'science', 'ciencia', 'historia',
-      'history', 'discovery',
+      'history', 'history channel', 'discovery', 'discovery channel',
+      'discovery science', 'natgeo', 'nat geo', 'national geographic',
+      'animal planet', 'investigation discovery', 'id discovery',
     ])) return LiveTvCategory.documentary;
 
     if (_containsAny(text, const [
@@ -166,6 +171,8 @@ class LiveTvOrganizer {
       'entertainment', 'entretenimiento', 'variedades',
       'humor', 'comedy', 'reality', 'show', 'shows',
       'las estrellas', 'azteca uno', 'azteca 7', 'canal 5',
+      'fox', 'televisa', 'telemundo', 'unicable', 'distrito comedia',
+      'e entertainment', 'tlc',
     ])) return LiveTvCategory.entertainment;
 
     if (_containsAny(group, const [
