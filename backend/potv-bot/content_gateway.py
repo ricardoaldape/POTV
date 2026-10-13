@@ -126,6 +126,9 @@ class ContentGateway:
         self._catalog_at = 0.0
         self._xtream_cache = {}
         self._m3u_cache = {}
+        self._sports_guide_cache = []
+        self._sports_guide_at = 0.0
+        self._sports_guide_refreshing = False
 
     @property
     def configured(self):
@@ -427,6 +430,37 @@ class ContentGateway:
                 }
             guide.append(row)
         return guide
+
+    def _schedule_sports_guide(self, source, channels):
+        now = time.monotonic()
+        with self._lock:
+            if self._sports_guide_refreshing:
+                return
+            if now - self._sports_guide_at < 60:
+                return
+            self._sports_guide_refreshing = True
+
+        def worker():
+            try:
+                guide = self._xtream_sports_guide(source, channels)
+            except Exception:
+                guide = []
+            with self._lock:
+                self._sports_guide_cache = guide
+                self._sports_guide_at = time.monotonic()
+                self._sports_guide_refreshing = False
+                if self._catalog is not None:
+                    metadata = self._guide_payload(self._metadata())
+                    self._catalog["data"]["now_next"] = [
+                        *metadata,
+                        *guide,
+                    ]
+
+        threading.Thread(
+            target=worker,
+            name="potv-sports-guide",
+            daemon=True,
+        ).start()
 
     def _normalize_title(self, value):
         text = str(value or "").lower().strip()
@@ -1082,7 +1116,8 @@ class ContentGateway:
 
     def _build_catalog(self):
         all_channels = []
-        xtream_guide = []
+        with self._lock:
+            xtream_guide = list(self._sports_guide_cache)
         seen = set()
         failures = 0
         for source in self.sources:
@@ -1095,12 +1130,7 @@ class ContentGateway:
                         parsed = self._xtream_live_channels(source)
                     except Exception:
                         parsed = self._m3u_inventory(source)["live"]
-                    try:
-                        xtream_guide.extend(
-                            self._xtream_sports_guide(source, parsed)
-                        )
-                    except Exception:
-                        pass
+                    self._schedule_sports_guide(source, parsed)
                 else:
                     parsed = self._m3u_inventory(source)["live"]
             except Exception:
