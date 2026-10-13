@@ -90,6 +90,34 @@ void main() {
     );
   });
 
+  test('adult and explicit TV entries are rejected globally', () {
+    const organizer = LiveTvOrganizer();
+    expect(
+      organizer.isAllowedChannel(
+        makeChannel('Canal familiar', group: 'Entretenimiento'),
+      ),
+      isTrue,
+    );
+    expect(
+      organizer.isAllowedChannel(
+        makeChannel('Canal XXX', group: 'Adultos'),
+      ),
+      isFalse,
+    );
+    expect(
+      organizer.isAllowedChannel(
+        makeChannel('Noches Eróticas', group: 'Variedades'),
+      ),
+      isFalse,
+    );
+    expect(
+      organizer.isAllowedChannel(
+        makeChannel('Desnudos TV', group: 'Otros'),
+      ),
+      isFalse,
+    );
+  });
+
   test('merges partner, local M3U and sports streams with distinct backups', () {
     final merged = organizer.merge(
       partner: [makeChannel('Canal Uno', group: 'Noticias', epg: 'canal1',
