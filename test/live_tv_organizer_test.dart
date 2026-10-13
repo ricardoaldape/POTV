@@ -36,6 +36,7 @@ void main() {
       'Cultura': LiveTvCategory.culture,
       'Documentales': LiveTvCategory.documentary,
       'Entretenimiento': LiveTvCategory.entertainment,
+      'Regional': LiveTvCategory.regional,
       'Internacional': LiveTvCategory.international,
       'Más canales': LiveTvCategory.other,
     };
@@ -54,6 +55,18 @@ void main() {
     expect(
       organizer.categoryFor(makeChannel('Canal 22', group: 'México · Cultura')),
       LiveTvCategory.culture,
+    );
+    expect(
+      organizer.categoryFor(
+        makeChannel('Canal 20 Zacatecas', group: 'MEXICO'),
+      ),
+      LiveTvCategory.regional,
+    );
+    expect(
+      organizer.categoryFor(
+        makeChannel('Capital 21 CDMX', group: 'MEXICO'),
+      ),
+      LiveTvCategory.regional,
     );
   });
 
