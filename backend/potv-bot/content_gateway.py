@@ -91,6 +91,7 @@ class ContentGateway:
         refresh_seconds=None,
         opener=None,
         metadata_file=None,
+        source_mode=None,
     ):
         self.sources = list(_load_source_urls() if sources is None else sources)
         self.public_base = (
@@ -102,6 +103,12 @@ class ContentGateway:
             or os.getenv("POTV_CONTENT_SIGNING_SECRET", "").encode("utf-8")
         )
         self.secret = secret if isinstance(secret, bytes) and secret else secrets.token_bytes(32)
+        self.source_mode = (
+            source_mode
+            or os.getenv("POTV_CONTENT_SOURCE_MODE", "merge")
+        ).strip().lower()
+        if self.source_mode not in ("merge", "failover"):
+            self.source_mode = "merge"
         self.refresh_seconds = int(
             refresh_seconds
             if refresh_seconds is not None
@@ -541,6 +548,8 @@ class ContentGateway:
                 "language": "es-MX",
                 "quality": quality,
             })
+            if self.source_mode == "failover":
+                break
         return {"sources": sources}
 
     def resolve_series_episode(
@@ -654,6 +663,8 @@ class ContentGateway:
                 "language": "es-MX",
                 "quality": quality,
             })
+            if self.source_mode == "failover":
+                break
         return {"sources": sources}
 
     def _target_id(self, url, headers):
@@ -1107,6 +1118,8 @@ class ContentGateway:
                     all_channels.append(self._channel_payload(channel))
                 except ContentGatewayError:
                     continue
+            if parsed and self.source_mode == "failover":
+                break
 
         sports = [
             channel
