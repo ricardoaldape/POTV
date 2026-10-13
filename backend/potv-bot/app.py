@@ -4,8 +4,9 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from account_store import AccountStore, AccountError
+from content_gateway import ContentGateway, ContentGatewayError
 
 BASE=os.path.dirname(os.path.abspath(__file__))
 DB=os.getenv("POTV_DB",os.path.join(BASE,"potv.sqlite3"))
@@ -214,6 +215,7 @@ def parse(v): return datetime.fromisoformat(v) if v else None
 def dbc():
     c=sqlite3.connect(DB,timeout=20); c.row_factory=sqlite3.Row; return c
 ACCOUNT_STORE=AccountStore(DB)
+CONTENT_GATEWAY=ContentGateway()
 
 def init_db():
     ACCOUNT_STORE.init()
@@ -455,17 +457,31 @@ class ApiHandler(BaseHTTPRequestHandler):
         return token or None
 
     def do_GET(self):
-        if self.path=="/health":
+        parsed=urlsplit(self.path)
+        path=parsed.path
+        if path=="/api/v1/content/catalog":
+            try:
+                self.out(200,CONTENT_GATEWAY.catalog())
+            except ContentGatewayError as exc:
+                self.out(exc.status,{"ok":False,"error":exc.code})
+            return
+        if path.startswith("/api/v1/content/stream/"):
+            target_id=path.rsplit("/",1)[-1].strip()
+            if not target_id:
+                self.out(404,{"ok":False,"error":"stream_not_found"}); return
+            CONTENT_GATEWAY.serve_target(self,target_id,parsed.query)
+            return
+        if path=="/health":
             self.out(200,{"ok":True,"service":"potv-bot","bot":BOT_USER,"bot_id":BOT_ID})
             return
-        if self.path=="/api/v1/version/latest":
+        if path=="/api/v1/version/latest":
             try:
                 with open(os.path.join(BASE,"version.json"),"r",encoding="utf-8") as fh:
                     self.out(200,json.load(fh))
             except Exception:
                 self.out(500,{"ok":False,"error":"version_unavailable"})
             return
-        if self.path=="/api/v1/account/session":
+        if path=="/api/v1/account/session":
             token=self._bearer()
             if not token:
                 self.out(401,{"ok":False,"error":"missing_token"}); return
@@ -474,7 +490,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.out(401,{"ok":False,"error":"invalid_session"}); return
             self.out(200,{"ok":True,"account":account})
             return
-        if self.path=="/api/v1/license/status":
+        if path=="/api/v1/license/status":
             token=self._bearer()
             if not token:
                 self.out(401,{"ok":False,"error":"missing_token"}); return
