@@ -39,28 +39,58 @@ class BuiltInLiveSourceRegistry {
       'https://iptv-org.github.io/iptv/countries/mx.m3u';
   static const _achoMexico =
       'https://www.achoapps.com/listas/mexico3.m3u';
+
+  // Curated source documents supplied to POTV by the authorized LivSportz
+  // partner. These URLs are catalog inputs only; credentials/tokens found
+  // inside a playlist are never accepted into playback candidates.
+  static const _livSportzMexicoSources = <String>[
+    _achoMexico,
+    'https://bit.ly/_TVMEX',
+    'https://tvplayerlatino.com/lista.m3u',
+    'https://bit.ly/Lat1N0s',
+    'https://bit.ly/_Latinotv',
+    'https://bit.ly/_latinovariado',
+    'https://bit.ly/VIP-LIST4',
+    'https://bit.ly/ListaFluxs',
+    'https://bit.ly/ListAlterna',
+  ];
+
   static const _iptvOrgSports =
       'https://iptv-org.github.io/iptv/categories/sports.m3u';
 
   final Dio _dio;
+  List<LiveChannel>? _mexicoCache;
+  DateTime? _mexicoCacheAt;
 
   BuiltInLiveSourceRegistry(this._dio);
 
   Future<List<LiveChannel>> mexico() async {
+    final cached = _mexicoCache;
+    final cachedAt = _mexicoCacheAt;
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(minutes: 15)) {
+      return cached;
+    }
+
+    final publicChannels = await _loadMerged([
+      _dearbulutMexico,
+      _iptvOrgMexico,
+    ]);
+    final partnerChannels = await _loadAuthorizedMexico(_livSportzMexicoSources);
     final channels = _dedupe([
       ..._starterMexico(),
-      ...await _loadMerged([
-        _dearbulutMexico,
-        _iptvOrgMexico,
-        _achoMexico,
-      ]),
+      ...publicChannels,
+      ...partnerChannels,
     ]);
     channels.sort((a, b) {
       final score = _mexicoPriority(b).compareTo(_mexicoPriority(a));
       if (score != 0) return score;
       return a.name.compareTo(b.name);
     });
-    return channels;
+    _mexicoCache = List.unmodifiable(channels);
+    _mexicoCacheAt = DateTime.now();
+    return _mexicoCache!;
   }
 
   Future<List<LiveChannel>> sports() async {
@@ -163,7 +193,27 @@ class BuiltInLiveSourceRegistry {
     ]);
   }
 
-  Future<List<LiveChannel>> _tryLoad(String url) async {
+  Future<List<LiveChannel>> _loadAuthorizedMexico(List<String> urls) async {
+    final results = await Future.wait([
+      for (final url in urls) _tryLoad(url, authorizedLivSportz: true),
+    ]);
+    return _dedupe([
+      for (final channels in results) ...channels,
+    ]);
+  }
+
+  Future<List<LiveChannel>> _tryLoad(
+    String url, {
+    bool authorizedLivSportz = false,
+  }) async {
+    final sourceUri = Uri.tryParse(url);
+    if (sourceUri == null ||
+        sourceUri.scheme != 'https' ||
+        sourceUri.host.isEmpty ||
+        sourceUri.userInfo.isNotEmpty ||
+        _containsSensitiveQuery(sourceUri)) {
+      return const [];
+    }
     try {
       final response = await _dio.get<String>(
         url,
@@ -172,12 +222,65 @@ class BuiltInLiveSourceRegistry {
       final raw = response.data ?? '';
       if (raw.trim().isEmpty) return const [];
 
-      return M3uParser.parse(raw)
-          .where(_isBuiltInAllowed)
+      final parsed = M3uParser.parse(raw);
+      return parsed
+          .where(
+            authorizedLivSportz
+                ? _isAuthorizedLivSportzMexicoChannel
+                : _isBuiltInAllowed,
+          )
           .toList(growable: false);
     } on DioException {
       return const [];
     }
+  }
+
+  bool _isAuthorizedLivSportzMexicoChannel(LiveChannel channel) {
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
+    if (!_isMexicoRelevant(channel)) return false;
+    // Brand is intentionally not filtered here. LivSportz-provided catalogs
+    // may contain licensed premium channels; provenance is the entitlement.
+    return true;
+  }
+
+  bool _isMexicoRelevant(LiveChannel channel) {
+    final group = channel.group?.toLowerCase() ?? '';
+    final name = channel.name.toLowerCase();
+    final epg = channel.epgId?.toLowerCase() ?? '';
+    final text = '$group $name $epg';
+
+    if (group.contains('mexico') ||
+        group.contains('méxico') ||
+        group == 'mx' ||
+        epg.contains('.mx') ||
+        epg.endsWith('mx')) {
+      return true;
+    }
+
+    const mexicoTerms = <String>[
+      'mexico', 'méxico', 'cdmx', 'monterrey', 'guadalajara', 'puebla',
+      'zacatecas', 'queretaro', 'querétaro', 'guanajuato', 'jalisco',
+      'michoacan', 'michoacán', 'coahuila', 'saltillo', 'laguna',
+      'yucatan', 'yucatán', 'veracruz', 'oaxaca', 'chiapas', 'sonora',
+      'sinaloa', 'tabasco', 'tlaxcala', 'nayarit', 'colima', 'durango',
+      'campeche', 'chetumal', 'quintana roo', 'nuevo leon', 'nuevo león',
+      'tamaulipas', 'san luis', 'hidalgo', 'morelos', 'guerrero',
+      'mexiquense', 'canal once', 'canal 22', 'capital 21', 'adn 40',
+      'milenio', 'multimedios', 'las estrellas', 'azteca', 'imagen tv',
+      'foro tv', 'nmas', 'ñmas', 'tudn mexico', 'tudn méxico',
+    ];
+    return mexicoTerms.any(text.contains);
+  }
+
+  bool _containsSensitiveQuery(Uri uri) {
+    const sensitive = <String>{
+      'username', 'user', 'password', 'pass', 'token', 'auth',
+      'apikey', 'api_key', 'key', 'secret', 'signature', 'sig',
+      'hdnea', 'expires', 'session',
+    };
+    return uri.queryParameters.keys
+        .map((key) => key.toLowerCase())
+        .any(sensitive.contains);
   }
 
   bool _isBuiltInAllowed(LiveChannel channel) {
@@ -273,14 +376,7 @@ class BuiltInLiveSourceRegistry {
     if (uri.scheme != 'https') return false;
     if (uri.userInfo.isNotEmpty) return false;
 
-    final sensitiveKeys = <String>{
-      'username', 'user', 'password', 'pass', 'token', 'auth',
-      'apikey', 'api_key', 'key', 'secret', 'signature', 'sig',
-      'hdnea', 'expires', 'session',
-    };
-    for (final key in uri.queryParameters.keys) {
-      if (sensitiveKeys.contains(key.toLowerCase())) return false;
-    }
+    if (_containsSensitiveQuery(uri)) return false;
 
     final host = uri.host.toLowerCase();
     if (host.isEmpty ||
