@@ -37,6 +37,8 @@ class BuiltInLiveSourceRegistry {
 
   static const _iptvOrgMexico =
       'https://iptv-org.github.io/iptv/countries/mx.m3u';
+  static const _achoMexico =
+      'https://www.achoapps.com/listas/mexico3.m3u';
   static const _iptvOrgSports =
       'https://iptv-org.github.io/iptv/categories/sports.m3u';
 
@@ -50,6 +52,7 @@ class BuiltInLiveSourceRegistry {
       ...await _loadMerged([
         _dearbulutMexico,
         _iptvOrgMexico,
+        _achoMexico,
       ]),
     ]);
     channels.sort((a, b) {
@@ -201,6 +204,15 @@ class BuiltInLiveSourceRegistry {
       'national geographic',
       'comedy central',
       'axn',
+      'star channel',
+      'fx ',
+      'paramount',
+      'universal tv',
+      'warner',
+      'history channel',
+      'animal planet',
+      'amc',
+      'sony channel',
     ];
 
     return !excluded.any(name.contains);
@@ -255,6 +267,16 @@ class BuiltInLiveSourceRegistry {
 
   bool _isSafePublicStream(Uri uri) {
     if (uri.scheme != 'https') return false;
+    if (uri.userInfo.isNotEmpty) return false;
+
+    final sensitiveKeys = <String>{
+      'username', 'user', 'password', 'pass', 'token', 'auth',
+      'apikey', 'api_key', 'key', 'secret', 'signature', 'sig',
+      'hdnea', 'expires', 'session',
+    };
+    for (final key in uri.queryParameters.keys) {
+      if (sensitiveKeys.contains(key.toLowerCase())) return false;
+    }
 
     final host = uri.host.toLowerCase();
     if (host.isEmpty ||
