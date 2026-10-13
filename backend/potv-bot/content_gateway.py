@@ -206,6 +206,41 @@ class ContentGateway:
         name = line.split(",", 1)[1].strip() if "," in line else ""
         return attrs, name
 
+    def _normalized_label(self, value):
+        return re.sub(r"[^a-z0-9+]+", " ", str(value).lower()).strip()
+
+    def _is_adult_entry(self, name, group=""):
+        text = " " + self._normalized_label(f"{name} {group}") + " "
+        blocked_phrases = (
+            " adultos ",
+            " adulto ",
+            " adult ",
+            " xxx ",
+            " porno ",
+            " porn ",
+            " pornografia ",
+            " pornografico ",
+            " erotico ",
+            " erotica ",
+            " erotic ",
+            " desnudos ",
+            " desnudas ",
+            " desnudo ",
+            " nude ",
+            " nudity ",
+            " sex tv ",
+            " sex channel ",
+            " playboy ",
+            " penthouse ",
+            " hustler ",
+            " brazzers ",
+            " redlight ",
+        )
+        if any(term in text for term in blocked_phrases):
+            return True
+        compact = text.replace(" ", "")
+        return "+18" in compact or "18+" in compact
+
     def _is_promotional_name(self, name):
         text = re.sub(r"\s+", " ", str(name).lower()).strip()
         blocked = (
@@ -253,9 +288,11 @@ class ContentGateway:
                 continue
             attrs, name = pending
             pending = None
+            group = attrs.get("group-title") or ""
             if (
                 not name
                 or self._is_promotional_name(name)
+                or self._is_adult_entry(name, group)
                 or not self._allowed_upstream(line)
             ):
                 continue
