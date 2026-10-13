@@ -101,6 +101,21 @@ class LiveTvOrganizer {
     return terms.any((term) => value.contains(' $term '));
   }
 
+  bool isAllowedChannel(LiveChannel channel) {
+    final text = normalize('${channel.name} ${channel.group ?? ''}');
+    final padded = ' $text ';
+    const blocked = <String>[
+      'adultos', 'adulto', 'adult', 'xxx', 'porno', 'porn',
+      'pornografia', 'pornografico', 'erotico', 'erotica', 'erotic',
+      'desnudos', 'desnudas', 'desnudo', 'nude', 'nudity',
+      'sex tv', 'sex channel', 'playboy', 'penthouse', 'hustler',
+      'brazzers', 'redlight',
+    ];
+    if (blocked.any((term) => padded.contains(' $term '))) return false;
+    final compact = text.replaceAll(' ', '');
+    return !compact.contains('18+') && !compact.contains('+18');
+  }
+
   LiveTvCategory categoryFor(LiveChannel channel) {
     final group = normalize(channel.group ?? '');
     final name = normalize(channel.name);
@@ -219,6 +234,7 @@ class LiveTvOrganizer {
       ...partnerSports.map(_declaredSports),
       ...publicSports.map(_declaredSports),
     ]) {
+      if (!isAllowedChannel(channel)) continue;
       final name = normalize(channel.name);
       if (name.isEmpty) continue;
       final epg = normalize(channel.epgId ?? '');
