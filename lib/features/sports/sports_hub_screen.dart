@@ -476,11 +476,10 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               ],
             ),
             const SizedBox(height: 16),
-            if (activeChannels.isNotEmpty) ...[
+            if (activeChannels.isNotEmpty &&
+                selectedCategory != SportsHubCategory.all) ...[
               _SectionHeading(
-                label: selectedCategory == SportsHubCategory.all
-                    ? 'CANALES DEPORTIVOS'
-                    : 'CANALES · ${selectedCategory.title.toUpperCase()}',
+                label: 'CANALES · ${selectedCategory.title.toUpperCase()}',
                 description: 'Señales para esta categoría.',
               ),
               const SizedBox(height: 9),
