@@ -268,6 +268,22 @@ class ContentGateway:
         raw = self._xtream_json(source, "get_live_streams", ttl=180)
         if not isinstance(raw, list):
             return []
+
+        # Some Xtream providers expose player_api.php on one hostname while
+        # their generated M3U points each live stream at a different CDN.
+        # Prefer the provider's own M3U URL for playback and use the API only
+        # for taxonomy/EPG metadata.
+        m3u_by_stream = {}
+        try:
+            for item in self._m3u_inventory(source)["live"]:
+                path = urlsplit(str(item.get("url") or "")).path.rstrip("/")
+                tail = path.rsplit("/", 1)[-1]
+                stream_id = tail.split(".", 1)[0]
+                if stream_id.isdigit() and stream_id not in m3u_by_stream:
+                    m3u_by_stream[stream_id] = item
+        except Exception:
+            m3u_by_stream = {}
+
         channels = []
         for row in raw:
             if not isinstance(row, dict):
@@ -283,9 +299,15 @@ class ContentGateway:
                 or self._is_adult_entry(name, group)
             ):
                 continue
+            stream_id = str(row.get("stream_id") or "").strip()
+            m3u_item = m3u_by_stream.get(stream_id)
             direct = str(row.get("direct_source") or "").strip()
-            if direct and self._allowed_upstream(direct):
+            if m3u_item is not None and self._allowed_upstream(m3u_item.get("url")):
+                url = m3u_item["url"]
+                headers = dict(m3u_item.get("headers") or {})
+            elif direct and self._allowed_upstream(direct):
                 url = direct
+                headers = {}
             else:
                 try:
                     url = self._xtream_stream_url(
@@ -294,16 +316,25 @@ class ContentGateway:
                         row.get("stream_id"),
                         row.get("container_extension") or "ts",
                     )
+                    headers = {}
                 except ContentGatewayError:
                     continue
             channels.append({
                 "name": name,
                 "url": url,
-                "group": group,
-                "epg_id": str(row.get("epg_channel_id") or "").strip(),
-                "logo": str(row.get("stream_icon") or "").strip(),
-                "language": "",
-                "headers": {},
+                "group": group or (m3u_item or {}).get("group", ""),
+                "epg_id": str(
+                    row.get("epg_channel_id")
+                    or (m3u_item or {}).get("epg_id")
+                    or ""
+                ).strip(),
+                "logo": str(
+                    row.get("stream_icon")
+                    or (m3u_item or {}).get("logo")
+                    or ""
+                ).strip(),
+                "language": str((m3u_item or {}).get("language") or ""),
+                "headers": headers,
                 "stream_id": row.get("stream_id"),
             })
         return channels
