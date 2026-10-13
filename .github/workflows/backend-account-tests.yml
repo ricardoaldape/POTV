@@ -28,11 +28,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile backend
-        run: python -m py_compile app.py account_store.py potv_ops.py group_config.py
+        run: python -m py_compile app.py account_store.py potv_ops.py group_config.py content_gateway.py
       - name: Account lifecycle smoke test
         run: python account_store_smoke.py
       - name: Bot operations smoke test
         run: python qa_smoke.py
+      - name: Authorized content gateway smoke test
+        run: python content_gateway_smoke.py
       - name: API/database self test
         run: |
           rm -f /tmp/potv-self-test.sqlite3
