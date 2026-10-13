@@ -65,7 +65,7 @@ jobs:
               print(f'POTV resolver endpoints configured: {len(data)}')
           PY
 
-      - name: Build V6 APK
+      - name: Build QA APK (not OTA)
         env:
           POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
           POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
@@ -93,10 +93,10 @@ jobs:
           if [ -n "$TMDB_API_KEY" ]; then
             args+=("--dart-define=TMDB_API_KEY=$TMDB_API_KEY")
           fi
-          flutter build apk --release "${args[@]}"
+          flutter build apk --debug "${args[@]}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: POTV-V6-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: POTV-QA-DEBUG-APK
+          path: build/app/outputs/flutter-apk/app-debug.apk
