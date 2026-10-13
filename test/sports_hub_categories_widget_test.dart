@@ -111,6 +111,16 @@ void main() {
                     const Duration(minutes: 50),
                   ),
                 ),
+                EpgProgram(
+                  channelId: 'potv-deportes',
+                  title: 'Resumen deportivo',
+                  startsAt: DateTime.now().add(
+                    const Duration(minutes: 50),
+                  ),
+                  endsAt: DateTime.now().add(
+                    const Duration(minutes: 80),
+                  ),
+                ),
               ],
             ),
           ),
@@ -134,6 +144,7 @@ void main() {
 
     expect(find.text('PARRILLA EN VIVO'), findsOneWidget);
     expect(find.text('Partido en vivo'), findsOneWidget);
+    expect(find.text('Después · Resumen deportivo'), findsOneWidget);
     expect(find.text('América vs Pumas'), findsOneWidget);
     expect(find.text('Chiefs vs Bills'), findsOneWidget);
     expect(find.text('Sin vs Señal'), findsNothing);
