@@ -3,12 +3,13 @@ import io
 import json
 import os
 import tempfile
+from urllib.parse import parse_qs, urlsplit
 
 from content_gateway import ContentGateway
 
 
 class FakeResponse(io.BytesIO):
-    def __init__(self, body, content_type="application/vnd.apple.mpegurl"):
+    def __init__(self, body, content_type="application/json"):
         super().__init__(body)
         self.status = 200
         self.headers = {
@@ -24,15 +25,97 @@ class FakeResponse(io.BytesIO):
 
 
 class FakeOpener:
-    def __init__(self, source_url, source_body):
-        self.source_url = source_url
-        self.source_body = source_body
-
     def open(self, request, timeout=0):
-        url = request.full_url
-        if url == self.source_url:
-            return FakeResponse(self.source_body.encode("utf-8"), "audio/x-mpegurl")
-        raise AssertionError("unexpected upstream request")
+        uri = urlsplit(request.full_url)
+        query = parse_qs(uri.query)
+        action = (query.get("action") or [""])[0]
+
+        if not uri.path.endswith("/player_api.php"):
+            raise AssertionError("unexpected upstream request")
+
+        payloads = {
+            "get_live_categories": [
+                {"category_id": "1", "category_name": "⭐️ Deportes México"},
+                {"category_id": "2", "category_name": "Adultos ❌❌❌"},
+                {"category_id": "3", "category_name": "⭐️ CINE PREMIUM"},
+            ],
+            "get_live_streams": [
+                {
+                    "stream_id": 101,
+                    "name": "ESPN",
+                    "category_id": "1",
+                    "epg_channel_id": "espn.mx",
+                    "container_extension": "ts",
+                },
+                {
+                    "stream_id": 102,
+                    "name": "HBO",
+                    "category_id": "3",
+                    "epg_channel_id": "hbo.mx",
+                    "container_extension": "ts",
+                },
+                {
+                    "stream_id": 999,
+                    "name": "Canal XXX",
+                    "category_id": "2",
+                    "container_extension": "ts",
+                },
+            ],
+            "get_vod_categories": [
+                {"category_id": "10", "category_name": "Películas"},
+                {"category_id": "11", "category_name": "Adultos"},
+            ],
+            "get_vod_streams": [
+                {
+                    "stream_id": 501,
+                    "name": "Sample Movie (2026)",
+                    "category_id": "10",
+                    "container_extension": "mp4",
+                    "tmdb": "101",
+                    "year": "2026",
+                },
+                {
+                    "stream_id": 599,
+                    "name": "Película XXX",
+                    "category_id": "11",
+                    "container_extension": "mp4",
+                    "tmdb": "999",
+                },
+            ],
+            "get_series_categories": [
+                {"category_id": "20", "category_name": "Series"},
+                {"category_id": "21", "category_name": "Adultos"},
+            ],
+            "get_series": [
+                {
+                    "series_id": 601,
+                    "name": "Sample Show",
+                    "category_id": "20",
+                    "tmdb": "202",
+                    "year": "2025",
+                },
+                {
+                    "series_id": 699,
+                    "name": "Serie Erótica",
+                    "category_id": "21",
+                    "tmdb": "998",
+                },
+            ],
+            "get_series_info": {
+                "episodes": {
+                    "1": [
+                        {
+                            "id": 701,
+                            "episode_num": 2,
+                            "container_extension": "mp4",
+                        }
+                    ]
+                }
+            },
+        }
+        if action not in payloads:
+            raise AssertionError("unexpected Xtream action")
+        return FakeResponse(json.dumps(payloads[action]).encode("utf-8"))
 
 
 def run():
@@ -40,12 +123,6 @@ def run():
         "https://partner.example/get.php?"
         "username=private-user&password=private-password&type=m3u_plus"
     )
-    m3u = """#EXTM3U
-#EXTINF:-1 tvg-id="espn.mx" group-title="Deportes",ESPN
-http://media.partner.example/live/espn.m3u8?token=private-stream-token
-#EXTINF:-1 tvg-id="hbo.mx" group-title="Cine",HBO
-https://media.partner.example/live/hbo.m3u8
-"""
     with tempfile.TemporaryDirectory() as directory:
         metadata_path = os.path.join(directory, "metadata.json")
         with open(metadata_path, "w", encoding="utf-8") as fh:
@@ -95,7 +172,7 @@ https://media.partner.example/live/hbo.m3u8
             public_base="https://potv.example",
             signing_secret=b"smoke-secret",
             refresh_seconds=120,
-            opener=FakeOpener(source, m3u),
+            opener=FakeOpener(),
             metadata_file=metadata_path,
         )
         payload = gateway.catalog()
@@ -106,12 +183,49 @@ https://media.partner.example/live/hbo.m3u8
         assert len(data["now_next"]) == 1
         assert [event["id"] for event in data["sports_events"]] == ["with-stream"]
 
-        encoded = json.dumps(payload)
+        movie = gateway.resolve_movie(
+            tmdb_id="101",
+            title="Sample Movie",
+            year="2026",
+        )
+        assert len(movie["sources"]) == 1
+
+        episode = gateway.resolve_series_episode(
+            tmdb_id="202",
+            title="Sample Show",
+            year="2025",
+            season=1,
+            episode=2,
+        )
+        assert len(episode["sources"]) == 1
+
+        blocked_movie = gateway.resolve_movie(
+            tmdb_id="999",
+            title="Película XXX",
+        )
+        blocked_series = gateway.resolve_series_episode(
+            tmdb_id="998",
+            title="Serie Erótica",
+            season=1,
+            episode=2,
+        )
+        assert blocked_movie["sources"] == []
+        assert blocked_series["sources"] == []
+
+        encoded = json.dumps(
+            {
+                "catalog": payload,
+                "movie": movie,
+                "episode": episode,
+            },
+            ensure_ascii=False,
+        )
         assert "private-user" not in encoded
         assert "private-password" not in encoded
-        assert "private-stream-token" not in encoded
+        assert "partner.example/movie/" not in encoded
+        assert "partner.example/series/" not in encoded
         assert "events.partner.example" not in encoded
-        assert "media.partner.example" not in encoded
+        assert "Canal XXX" not in encoded
         assert "https://potv.example/api/v1/content/stream/" in encoded
 
         rewritten = gateway._rewrite_hls(
@@ -122,7 +236,10 @@ https://media.partner.example/live/hbo.m3u8
         assert "media.partner.example" not in rewritten
         assert "https://potv.example/api/v1/content/stream/" in rewritten
 
-    print("PASS: partner credentials hidden, premium preserved, sports guide/event integrity")
+    print(
+        "PASS: Xtream live/VOD/series split, adult content blocked, "
+        "credentials hidden, sports integrity preserved"
+    )
 
 
 if __name__ == "__main__":
