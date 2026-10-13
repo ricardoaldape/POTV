@@ -431,7 +431,8 @@ class BuiltInLiveSourceRegistry {
     final result = <LiveChannel>[];
 
     for (final channel in channels) {
-      final epg = channel.epgId?.trim().toLowerCase() ?? '';
+      final rawEpg = channel.epgId?.trim().toLowerCase() ?? '';
+      final epg = rawEpg.split('@').first.trim();
       final name = _canonicalChannelName(channel.name);
       final key = epg.isNotEmpty ? 'epg:$epg' : 'name:$name';
 
