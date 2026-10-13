@@ -230,7 +230,9 @@ class BuiltInLiveSourceRegistry {
                 : _isBuiltInAllowed,
           )
           .toList(growable: false);
-    } on DioException {
+    } on Object {
+      // One malformed, redirected or temporarily unavailable partner list
+      // must never take down the rest of the Mexico catalog.
       return const [];
     }
   }
