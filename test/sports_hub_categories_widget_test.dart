@@ -164,7 +164,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('TV DEPORTIVA'), findsOneWidget);
-    expect(find.text('POTV Deportes'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sports-channel-sports-news')), findsOneWidget);
     expect(find.text('Chiefs vs Bills'), findsNothing);
     expect(find.byKey(const ValueKey('sports-language-spanish')), findsOneWidget);
     await tester.ensureVisible(find.byKey(const ValueKey('sports-language-english')));
@@ -173,7 +173,7 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(SportsChannelLanguage.preferenceKey), 'english');
     // The unlabeled fallback sports station is not discarded.
-    expect(find.text('POTV Deportes'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sports-channel-sports-news')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('sports-language-all')));
     await tester.pump();
     expect(prefs.getString(SportsChannelLanguage.preferenceKey), 'all');
