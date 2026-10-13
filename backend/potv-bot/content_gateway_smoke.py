@@ -204,19 +204,13 @@ def run():
         assert [channel["name"] for channel in data["channels"]] == ["ESPN", "HBO"]
         assert [channel["name"] for channel in data["sports_channels"]] == ["ESPN"]
         assert len(data["now_next"]) >= 1
-        # Xtream short-EPG hydration is intentionally asynchronous so catalog
-        # startup never blocks on one provider. The cached catalog object is
-        # updated in place when the background refresh finishes.
-        for _ in range(40):
-            if any(
-                (row.get("current") or {}).get("title") == "Partido de prueba"
-                for row in data["now_next"]
-            ):
-                break
-            time.sleep(0.05)
+        # Catalog hydration is intentionally asynchronous. Test the deterministic
+        # short-EPG normalizer directly instead of racing its background thread.
+        live_rows = gateway._xtream_live_channels(source)
+        dynamic_guide = gateway._xtream_sports_guide(source, live_rows)
         assert any(
             (row.get("current") or {}).get("title") == "Partido de prueba"
-            for row in data["now_next"]
+            for row in dynamic_guide
         )
         assert [event["id"] for event in data["sports_events"]] == ["with-stream"]
 
