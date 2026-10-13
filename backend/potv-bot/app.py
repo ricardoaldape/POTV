@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 from account_store import AccountStore, AccountError
 from content_gateway import ContentGateway, ContentGatewayError
 
@@ -459,6 +459,55 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed=urlsplit(self.path)
         path=parsed.path
+        query=parse_qs(parsed.query or "")
+        def q(name):
+            value=(query.get(name) or [""])[0]
+            return str(value).strip() or None
+
+        movie_prefixes=(
+            "/api/v1/vod/sources/movie/",
+            "/api/v1/sources/movie/",
+        )
+        movie_prefix=next((prefix for prefix in movie_prefixes if path.startswith(prefix)),None)
+        if movie_prefix:
+            tmdb_id=path[len(movie_prefix):].strip("/")
+            try:
+                self.out(200,CONTENT_GATEWAY.resolve_movie(
+                    tmdb_id=tmdb_id,
+                    title=q("title"),
+                    year=q("year"),
+                ))
+            except ContentGatewayError as exc:
+                self.out(exc.status,{"ok":False,"error":exc.code})
+            return
+
+        tv_prefixes=(
+            "/api/v1/vod/sources/tv/",
+            "/api/v1/sources/tv/",
+            "/api/v1/sources/anime/",
+        )
+        tv_prefix=next((prefix for prefix in tv_prefixes if path.startswith(prefix)),None)
+        if tv_prefix:
+            tail=path[len(tv_prefix):].strip("/").split("/")
+            if len(tail)!=3:
+                self.out(400,{"ok":False,"error":"tv_route_requires_id_season_episode"}); return
+            tmdb_id,season,episode=tail
+            try:
+                season=int(season); episode=int(episode)
+            except ValueError:
+                self.out(400,{"ok":False,"error":"invalid_episode"}); return
+            try:
+                self.out(200,CONTENT_GATEWAY.resolve_series_episode(
+                    tmdb_id=tmdb_id,
+                    title=q("title"),
+                    year=q("year"),
+                    season=season,
+                    episode=episode,
+                ))
+            except ContentGatewayError as exc:
+                self.out(exc.status,{"ok":False,"error":exc.code})
+            return
+
         if path=="/api/v1/content/catalog":
             try:
                 self.out(200,CONTENT_GATEWAY.catalog())
