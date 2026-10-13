@@ -231,6 +231,7 @@ class BuiltInLiveSourceRegistry {
       final parsed = M3uParser.parse(raw);
       return parsed
           .where((channel) => !_isPromotionalEntry(channel))
+          .where((channel) => !_isAdultEntry(channel))
           .where(
             authorizedLivSportz
                 ? _isAuthorizedLivSportzChannel
@@ -242,6 +243,25 @@ class BuiltInLiveSourceRegistry {
       // must never take down the rest of the Mexico catalog.
       return const [];
     }
+  }
+
+  bool _isAdultEntry(LiveChannel channel) {
+    final text = '${channel.name} ${channel.group ?? ''}'
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9+]+'), ' ');
+    const blocked = <String>[
+      'adultos', 'adulto', 'adult', 'xxx', 'porno', 'porn',
+      'pornografia', 'pornografico', 'erotico', 'erotica', 'erotic',
+      'desnudos', 'desnudas', 'desnudo', 'nude', 'nudity',
+      'sex tv', 'sex channel', 'playboy', 'penthouse', 'hustler',
+      'brazzers', 'redlight',
+    ];
+    if (blocked.any((term) => RegExp('(^| )' + RegExp.escape(term) + r'( |$)')
+        .hasMatch(text))) {
+      return true;
+    }
+    final compact = text.replaceAll(' ', '');
+    return compact.contains('+18') || compact.contains('18+');
   }
 
   bool _isPromotionalEntry(LiveChannel channel) {
