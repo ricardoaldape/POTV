@@ -14,6 +14,7 @@ enum LiveTvCategory {
   documentary,
   culture,
   lifestyle,
+  regional,
   international,
   other,
 }
@@ -30,6 +31,7 @@ extension LiveTvCategoryInfo on LiveTvCategory {
         LiveTvCategory.documentary => 'Documentales',
         LiveTvCategory.culture => 'Cultura',
         LiveTvCategory.lifestyle => 'Estilo de vida',
+        LiveTvCategory.regional => 'Regional',
         LiveTvCategory.international => 'Internacional',
         LiveTvCategory.other => 'Otros',
       };
@@ -108,6 +110,17 @@ class LiveTvOrganizer {
     if (const SportsHubOrganizer().isSportsChannel(channel)) {
       return LiveTvCategory.sports;
     }
+    if (_containsAny(text, const [
+      'regional', 'local', 'estatal', 'municipal',
+      'aguascalientes', 'baja california', 'campeche', 'chiapas',
+      'chihuahua', 'coahuila', 'colima', 'durango', 'guanajuato',
+      'guerrero', 'hidalgo', 'jalisco', 'michoacan', 'morelos',
+      'nayarit', 'nuevo leon', 'oaxaca', 'puebla', 'queretaro',
+      'quintana roo', 'san luis', 'sinaloa', 'sonora', 'tabasco',
+      'tamaulipas', 'tlaxcala', 'veracruz', 'yucatan', 'zacatecas',
+      'monterrey', 'saltillo', 'laguna', 'chetumal', 'guadalajara',
+      'mexiquense', 'edomex', 'capital 21', 'cdmx',
+    ])) return LiveTvCategory.regional;
     if (_containsAny(text, const [
       'news', 'noticias', 'informativo', 'informativos', 'noticiero',
       'cnn', 'adn 40', 'milenio', 'bbc news', 'dw espanol',
