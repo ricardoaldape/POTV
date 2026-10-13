@@ -9,18 +9,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/catalog/partner_content_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
 import '../../data/live_tv/live_tv_repository.dart';
-import '../../data/sports/addon_sports_repository.dart';
-import '../../data/sports/sports_repository.dart';
-import '../../domain/models/addon_sports_item.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
 import '../../domain/models/stream_candidate.dart';
-import '../../domain/services/sports_channel_resolver.dart';
 import '../../domain/services/sports_channel_language.dart';
 import '../../domain/services/sports_hub_organizer.dart';
-import 'addon_sports_rail.dart';
 import 'sports_channel_rail.dart';
 
 String _subtitle(String competition, DateTime startsAt) =>
@@ -55,7 +50,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
   static const organizer = SportsHubOrganizer();
   static const languageService = SportsChannelLanguage();
   SportsLanguagePreference preferredLanguage = SportsLanguagePreference.spanish;
-  SportsHubCategory selectedCategory = SportsHubCategory.soccer;
+  SportsHubCategory selectedCategory = SportsHubCategory.all;
   DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
   Timer? _catalogTimer;
 
@@ -107,14 +102,6 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     ref.invalidate(builtInSportsChannelsProvider);
     ref.invalidate(liveChannelsProvider);
     ref.invalidate(epgProgramsProvider);
-    if (!selectedCategory.isTelevision) {
-      ref.invalidate(sportsEventsProvider(
-        (day: selectedDay, sport: selectedCategory.apiSport),
-      ));
-      ref.invalidate(addonSportsItemsProvider(
-        selectedCategory.apiSport ?? 'all',
-      ));
-    }
   }
 
   @override
@@ -205,35 +192,6 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
       );
     }
 
-    // Outside the TV-directory view, keep the rail useful even when a channel
-    // has no compatible EPG id. In TV deportiva the channel rail below already
-    // shows those raw signals, so repeating them here would duplicate cards and
-    // would turn "EN VIVO AHORA" into a second channel directory.
-    if (selectedCategory == SportsHubCategory.sportsTv) {
-      return result.take(18).toList(growable: false);
-    }
-    for (final channel in channels) {
-      if (result.length >= 18 || representedChannels.contains(channel.id)) {
-        continue;
-      }
-      if (selectedCategory != SportsHubCategory.all &&
-          selectedCategory != SportsHubCategory.sportsTv &&
-          organizer.categoryForChannel(channel) != selectedCategory) {
-        continue;
-      }
-      final key = 'channel:${channel.id}';
-      if (!seen.add(key)) continue;
-      representedChannels.add(channel.id);
-      result.add(
-        _SportsNowItem(
-          title: channel.name,
-          subtitle: 'Señal deportiva disponible',
-          startsAt: now,
-          candidates: channel.playbackCandidates,
-        ),
-      );
-    }
-
     return result.take(18).toList(growable: false);
   }
 
@@ -253,15 +211,6 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
   @override
   Widget build(BuildContext context) {
     final isTv = selectedCategory.isTelevision;
-    final query = (day: selectedDay, sport: selectedCategory.apiSport);
-    final eventsState = isTv
-        ? const AsyncData<List<SportsEvent>>([])
-        : ref.watch(sportsEventsProvider(query));
-    final addonsState = isTv
-        ? const AsyncData<List<AddonSportsItem>>([])
-        : ref.watch(
-            addonSportsItemsProvider(selectedCategory.apiSport ?? 'all'),
-          );
     final partner = ref.watch(partnerContentProvider).asData?.value;
     final builtInState = ref.watch(builtInSportsChannelsProvider);
     final builtIn = builtInState.asData?.value ?? const <LiveChannel>[];
@@ -283,26 +232,25 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     final generalChannels = languageService.preferredChannels(
       organizer.generalChannels(allChannels), preferredLanguage);
 
-    final events = organizer.eventsFor(
-      [
-        ...partner?.sportsEvents ?? const <SportsEvent>[],
-        ...eventsState.asData?.value ?? const <SportsEvent>[],
-      ],
-      selectedCategory,
-      day: selectedDay,
-    );
-    final addonItems = addonsState.asData?.value ??
-        const <AddonSportsItem>[];
+    final guidePrograms = <EpgProgram>[
+      ...partner?.guidePrograms ?? const <EpgProgram>[],
+      ...programs,
+    ];
+    final events = organizer
+        .eventsFor(
+          partner?.sportsEvents ?? const <SportsEvent>[],
+          selectedCategory,
+          day: selectedDay,
+        )
+        .where((event) => event.streams.isNotEmpty)
+        .toList(growable: false);
     final nowGuide = _buildNowGuide(
       channels: languageService.preferredChannels(
         allChannels,
         preferredLanguage,
       ),
-      programs: programs,
-      events: [
-        ...partner?.sportsEvents ?? const <SportsEvent>[],
-        ...eventsState.asData?.value ?? const <SportsEvent>[],
-      ],
+      programs: guidePrograms,
+      events: partner?.sportsEvents ?? const <SportsEvent>[],
     );
 
     return Scaffold(
@@ -388,16 +336,20 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
             ],
           ),
           const SizedBox(height: 20),
-          if (nowGuide.isNotEmpty) ...[
-            const _SectionHeading(
-              label: 'EN VIVO AHORA',
-              description:
-                  'Programas al aire y señales deportivas disponibles ahora.',
+          const _SectionHeading(
+            label: 'PARRILLA EN VIVO',
+            description:
+                'Sólo programas y eventos con transmisión confirmada ahora.',
+          ),
+          const SizedBox(height: 10),
+          if (nowGuide.isNotEmpty)
+            _SportsNowRail(items: nowGuide)
+          else
+            const _EmptySection(
+              'No hay una transmisión deportiva en vivo confirmada ahora. '
+              'Consulta TV deportiva para ver las señales disponibles.',
             ),
-            const SizedBox(height: 10),
-            _SportsNowRail(items: nowGuide),
-            const SizedBox(height: 22),
-          ],
+          const SizedBox(height: 22),
           if (isTv) ...[
             _SectionHeading(
               label: 'TV DEPORTIVA',
@@ -485,17 +437,6 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               ],
             ),
             const SizedBox(height: 16),
-            if (addonsState.isLoading)
-              const LinearProgressIndicator(minHeight: 2),
-            if (addonItems.isNotEmpty) ...[
-              _SectionHeading(
-                label: 'MÁS EVENTOS',
-                description: '${addonItems.length} eventos disponibles.',
-              ),
-              const SizedBox(height: 10),
-              AddonSportsRail(items: addonItems),
-              const SizedBox(height: 20),
-            ],
             if (activeChannels.isNotEmpty) ...[
               _SectionHeading(
                 label: selectedCategory == SportsHubCategory.all
@@ -523,34 +464,15 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               ),
               const SizedBox(height: 22),
             ],
-            if (eventsState.isLoading && events.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 22),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            if (eventsState.hasError && events.isEmpty)
-              const _EmptySection(
-                'No pudimos actualizar la agenda. Las señales disponibles '
-                'siguen funcionando.',
-              ),
             if (events.isNotEmpty) ...[
               _SectionHeading(
                 label: 'PARTIDOS Y EVENTOS',
-                description: '${events.length} programados o en vivo.',
+                description: '${events.length} con transmisión confirmada.',
               ),
               const SizedBox(height: 10),
               for (final event in events)
-                _SportsEventCard(
-                  event: event,
-                  channels: languageService.preferredChannels(
-                    allChannels,
-                    preferredLanguage,
-                  ),
-                  programs: programs,
-                ),
-            ] else if (!eventsState.isLoading && !eventsState.hasError &&
-                addonItems.isEmpty && activeChannels.isEmpty &&
-                generalChannels.isEmpty)
+                _SportsEventCard(event: event),
+            ] else if (activeChannels.isEmpty && generalChannels.isEmpty)
               _EmptySection(
                 'No hay eventos ni señales de ${selectedCategory.title.toLowerCase()} '
                 'para esta fecha. Prueba otro deporte o consulta TV deportiva.',
@@ -728,32 +650,12 @@ class _SportsNowRail extends StatelessWidget {
 
 class _SportsEventCard extends StatelessWidget {
   final SportsEvent event;
-  final List<LiveChannel> channels;
-  final List<EpgProgram> programs;
 
-  const _SportsEventCard({
-    required this.event,
-    required this.channels,
-    required this.programs,
-  });
+  const _SportsEventCard({required this.event});
 
   @override
   Widget build(BuildContext context) {
-    const resolver = SportsChannelResolver();
-    final matches = resolver.resolve(
-      event: event,
-      channels: channels,
-      programs: programs,
-    );
-    final best = matches.isEmpty ? null : matches.first;
-    // Direct watch candidates are returned by the authorized partner for
-    // this exact event. EPG matches are a lower-priority verified fallback.
-    final eventStreams = event.streams;
-    final playable = eventStreams.isNotEmpty
-        ? eventStreams
-        : [for (final match in matches) ...match.channel.playbackCandidates];
-    final hasConfirmedBroadcast = playable.isNotEmpty;
-
+    final playable = event.streams;
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
@@ -778,39 +680,23 @@ class _SportsEventCard extends StatelessWidget {
                   color: Colors.redAccent,
                 ),
               ),
-            if (eventStreams.isNotEmpty)
-              const Text(
-                'Transmisión del evento disponible',
-                style: TextStyle(color: Colors.white70),
-              )
-            else if (best != null)
-              Text(
-                best.program?.title ?? 'Disponible en ${best.channel.name}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white70),
-              ),
+            const Text(
+              'Transmisión del evento disponible',
+              style: TextStyle(color: Colors.white70),
+            ),
           ],
         ),
-        trailing: hasConfirmedBroadcast
-            ? FilledButton(
-                onPressed: () => context.push(
-                  '/player',
-                  extra: PlaybackSession(
-                    title: event.title,
-                    candidates: playable,
-                    isLive: true,
-                  ),
-                ),
-                child: const Text('VER EVENTO'),
-              )
-            : Text(
-                DateFormat.Hm().format(event.startsAt),
-                style: const TextStyle(
-                  color: Colors.white54,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+        trailing: FilledButton(
+          onPressed: () => context.push(
+            '/player',
+            extra: PlaybackSession(
+              title: event.title,
+              candidates: playable,
+              isLive: true,
+            ),
+          ),
+          child: const Text('VER EVENTO'),
+        ),
       ),
     );
   }
