@@ -223,8 +223,12 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
   Widget build(BuildContext context) {
     final isTv = selectedCategory.isTelevision;
     final partner = ref.watch(partnerContentProvider).asData?.value;
+    final starterSports = ref.watch(starterSportsChannelsProvider);
     final builtInState = ref.watch(builtInSportsChannelsProvider);
-    final builtIn = builtInState.asData?.value ?? const <LiveChannel>[];
+    final builtIn = [
+      ...starterSports,
+      ...builtInState.asData?.value ?? const <LiveChannel>[],
+    ];
     final local = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
@@ -361,6 +365,30 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               'Consulta TV deportiva para ver las señales disponibles.',
             ),
           const SizedBox(height: 22),
+          if (allChannels.isNotEmpty) ...[
+            _SectionHeading(
+              label: 'CANALES DEPORTIVOS',
+              description:
+                  '${languageService.preferredChannels(allChannels, preferredLanguage).length} señales disponibles.',
+            ),
+            const SizedBox(height: 9),
+            SportsChannelRail(
+              channels: languageService.preferredChannels(
+                allChannels,
+                preferredLanguage,
+              ),
+              preferredLanguage: preferredLanguage,
+            ),
+            const SizedBox(height: 22),
+          ] else if (builtInState.isLoading) ...[
+            const _SectionHeading(
+              label: 'CANALES DEPORTIVOS',
+              description: 'Cargando señales deportivas…',
+            ),
+            const SizedBox(height: 9),
+            const LinearProgressIndicator(minHeight: 2),
+            const SizedBox(height: 22),
+          ],
           if (isTv) ...[
             _SectionHeading(
               label: 'TV DEPORTIVA',
