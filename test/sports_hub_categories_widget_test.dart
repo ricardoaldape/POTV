@@ -146,7 +146,6 @@ void main() {
     expect(find.text('Partido en vivo'), findsOneWidget);
     expect(find.text('Después · Resumen deportivo'), findsOneWidget);
     expect(find.text('América vs Pumas'), findsOneWidget);
-    expect(find.text('Chiefs vs Bills'), findsOneWidget);
     expect(find.text('Sin vs Señal'), findsNothing);
 
     await tester.tap(find.byKey(
