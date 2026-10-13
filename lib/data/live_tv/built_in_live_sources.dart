@@ -29,6 +29,10 @@ final builtInSportsChannelsProvider =
   return ref.read(builtInLiveSourceRegistryProvider).sports();
 });
 
+final starterSportsChannelsProvider = Provider<List<LiveChannel>>((ref) {
+  return ref.read(builtInLiveSourceRegistryProvider).starterSports();
+});
+
 class BuiltInLiveSourceRegistry {
   static const _dearbulutMexico =
       'https://dearbulut.github.io/iptv/playlists/country/mx.m3u';
@@ -97,7 +101,7 @@ class BuiltInLiveSourceRegistry {
 
   Future<List<LiveChannel>> sports() async {
     final channels = _dedupe([
-      ..._starterSports(),
+      ...starterSports(),
       ...await _loadMerged([
         _dearbulutSports,
         _iptvOrgSports,
@@ -138,7 +142,7 @@ class BuiltInLiveSourceRegistry {
         ),
       ];
 
-  List<LiveChannel> _starterSports() => [
+  List<LiveChannel> starterSports() => [
         _channel(
           id: 'potv-sport-fifa-hispanic',
           name: 'FIFA+ Hispanic America',
