@@ -26,6 +26,16 @@ class _Channels extends LiveChannelsController {
       ),
     ),
     LiveChannel(
+      id: 'sport-local',
+      name: 'Deportes MX Local',
+      group: 'México · Deportes',
+      stream: StreamCandidate(
+        id: 'local-sport',
+        label: 'Deportes MX Local',
+        uri: Uri.parse('https://example.org/sports-local.m3u8'),
+      ),
+    ),
+    LiveChannel(
       id: 'film-local',
       name: 'Canal Cine',
       group: 'Películas',
@@ -46,7 +56,7 @@ class _Guide extends EpgProgramsController {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('TV grid merges partner sports, user M3U and on-air guide',
+  testWidgets('TV grid keeps local M3U sports and excludes sports-only feed',
       (tester) async {
     tester.view.physicalSize = const Size(1440, 1200);
     tester.view.devicePixelRatio = 1;
@@ -98,14 +108,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Noticias Uno'), findsOneWidget);
-    expect(find.text('POTV Sports Uno'), findsOneWidget);
+    expect(find.text('POTV Sports Uno'), findsNothing);
+    expect(find.text('Deportes MX Local'), findsOneWidget);
     expect(find.text('Canal Cine'), findsOneWidget);
     expect(find.text('AHORA · Resumen de hoy'), findsOneWidget);
     expect(find.textContaining('Después · Noticias mañana'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('live-tv-category-sports')));
     await tester.pump();
-    expect(find.text('POTV Sports Uno'), findsOneWidget);
+    expect(find.text('POTV Sports Uno'), findsNothing);
+    expect(find.text('Deportes MX Local'), findsOneWidget);
     expect(find.text('Noticias Uno'), findsNothing);
     expect(find.text('Canal Cine'), findsNothing);
 
