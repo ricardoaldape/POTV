@@ -8,6 +8,7 @@ import '../../data/live_tv/built_in_live_sources.dart';
 import '../../domain/services/live_tv_organizer.dart';
 import '../../data/live_tv/live_tv_favorites.dart';
 import '../../data/live_tv/live_tv_repository.dart';
+import '../../data/sources/stream_candidate_probe.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
@@ -85,41 +86,63 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
 
   Future<void> _playChannel(LiveChannel selected) async {
     if (_openingChannelId != null) return;
-    var channel = selected;
-    if (selected.id.startsWith('partner:')) {
-      setState(() => _openingChannelId = selected.id);
-      try {
+    setState(() => _openingChannelId = selected.id);
+    try {
+      var channel = selected;
+      if (selected.id.startsWith('partner:')) {
         // Signed partner URLs may expire while the user browses the grid.
         // Resolve the latest catalog immediately before opening a channel.
-        final snapshot = await ref.read(partnerContentRepositoryProvider)
+        final snapshot = await ref
+            .read(partnerContentRepositoryProvider)
             .load(forceRefresh: true);
         if (!mounted) return;
-        final candidates = [...snapshot.channels, ...snapshot.sportsChannels]
+        final matches = [...snapshot.channels, ...snapshot.sportsChannels]
             .where((item) => item.id == selected.id);
-        if (candidates.isEmpty) {
+        if (matches.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Este canal ya no está disponible en el catálogo.'),
+              content: Text(
+                'Este canal ya no está disponible en el catálogo.',
+              ),
             ),
           );
           ref.invalidate(partnerContentProvider);
           return;
         }
-        channel = candidates.first;
+        channel = matches.first;
         ref.invalidate(partnerContentProvider);
-      } finally {
-        if (mounted) setState(() => _openingChannelId = null);
       }
+
+      final playable = await ref
+          .read(streamCandidateProbeProvider)
+          .preferReachable(
+            channel.playbackCandidates,
+            dropDeadWhenCertain: true,
+          );
+      if (!mounted) return;
+
+      if (playable.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Esta señal no está respondiendo. Prueba otra opción.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      context.push(
+        '/player',
+        extra: PlaybackSession(
+          title: channel.name,
+          candidates: playable,
+          isLive: true,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _openingChannelId = null);
     }
-    if (!mounted) return;
-    context.push(
-      '/player',
-      extra: PlaybackSession(
-        title: channel.name,
-        candidates: channel.playbackCandidates,
-        isLive: true,
-      ),
-    );
   }
 
   @override
