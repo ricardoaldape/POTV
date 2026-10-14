@@ -37,6 +37,12 @@ final starterSportsChannelsProvider = Provider<List<LiveChannel>>((ref) {
   return ref.read(builtInLiveSourceRegistryProvider).starterSports();
 });
 
+/// A synchronous starter lineup: never hold the entire grid behind a
+/// third-party M3U download or an unavailable partner gateway.
+final starterMexicoChannelsProvider = Provider<List<LiveChannel>>((ref) {
+  return ref.read(builtInLiveSourceRegistryProvider).starterMexico();
+});
+
 class BuiltInLiveSourceRegistry {
   static const _dearbulutMexico =
       'https://dearbulut.github.io/iptv/playlists/country/mx.m3u';
@@ -114,6 +120,8 @@ class BuiltInLiveSourceRegistry {
     });
     return channels;
   }
+
+  List<LiveChannel> starterMexico() => _starterMexico();
 
   List<LiveChannel> _starterMexico() => [
     _channel(

@@ -147,6 +147,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
   @override
   Widget build(BuildContext context) {
     final channelsState = ref.watch(liveChannelsProvider);
+    final starterChannels = ref.watch(starterMexicoChannelsProvider);
     final partnerState = ref.watch(partnerContentProvider);
     final epgState = ref.watch(epgProgramsProvider);
     final favoritesState = ref.watch(liveTvFavoritesProvider);
@@ -159,7 +160,10 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
     final guide = LiveTvGuide(programs);
     final channels = _organizer.merge(
       partner: partner?.channels ?? const <LiveChannel>[],
-      local: channelsState.asData?.value ?? const <LiveChannel>[],
+      local: [
+        ...starterChannels,
+        ...channelsState.asData?.value ?? const <LiveChannel>[],
+      ],
       // Dedicated sports feeds belong in Sports Hub. Ordinary Mexico TV
       // channels that happen to be sports remain available through local or
       // partner general TV catalogs.

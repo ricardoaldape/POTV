@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,6 +50,11 @@ class _Channels extends LiveChannelsController {
   ];
 }
 
+class _PendingChannels extends LiveChannelsController {
+  @override
+  Future<List<LiveChannel>> build() => Completer<List<LiveChannel>>().future;
+}
+
 class _Guide extends EpgProgramsController {
   @override
   Future<List<EpgProgram>> build() async => const [];
@@ -56,8 +63,36 @@ class _Guide extends EpgProgramsController {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('TV grid keeps local M3U sports and excludes sports-only feed',
-      (tester) async {
+  testWidgets('starter TV channels render before slow playlists finish', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          partnerContentProvider.overrideWith(
+            (ref) => Completer<PartnerContentSnapshot>().future,
+          ),
+          liveChannelsProvider.overrideWith(_PendingChannels.new),
+          epgProgramsProvider.overrideWith(_Guide.new),
+        ],
+        child: const MaterialApp(home: LiveTvScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('ADN 40'), findsOneWidget);
+    expect(find.textContaining('3 canales'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('TV grid keeps local M3U sports and excludes sports-only feed', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1440, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
@@ -95,15 +130,17 @@ void main() {
         ),
       ],
     );
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        partnerContentProvider.overrideWith((ref) async => snapshot),
-        builtInSportsChannelsProvider.overrideWith((ref) async => []),
-        liveChannelsProvider.overrideWith(_Channels.new),
-        epgProgramsProvider.overrideWith(_Guide.new),
-      ],
-      child: const MaterialApp(home: LiveTvScreen()),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          partnerContentProvider.overrideWith((ref) async => snapshot),
+          builtInSportsChannelsProvider.overrideWith((ref) async => []),
+          liveChannelsProvider.overrideWith(_Channels.new),
+          epgProgramsProvider.overrideWith(_Guide.new),
+        ],
+        child: const MaterialApp(home: LiveTvScreen()),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -132,25 +169,28 @@ void main() {
     expect(find.text('Canal Cine'), findsNothing);
   });
 
-  testWidgets('favorite toggle and filter keep the selected local channel',
-      (tester) async {
+  testWidgets('favorite toggle and filter keep the selected local channel', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1280, 960);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        partnerContentProvider.overrideWith(
-          (ref) async => PartnerContentSnapshot.empty(),
-        ),
-        builtInSportsChannelsProvider.overrideWith((ref) async => []),
-        liveChannelsProvider.overrideWith(_Channels.new),
-        epgProgramsProvider.overrideWith(_Guide.new),
-      ],
-      child: const MaterialApp(home: LiveTvScreen()),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          partnerContentProvider.overrideWith(
+            (ref) async => PartnerContentSnapshot.empty(),
+          ),
+          builtInSportsChannelsProvider.overrideWith((ref) async => []),
+          liveChannelsProvider.overrideWith(_Channels.new),
+          epgProgramsProvider.overrideWith(_Guide.new),
+        ],
+        child: const MaterialApp(home: LiveTvScreen()),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
