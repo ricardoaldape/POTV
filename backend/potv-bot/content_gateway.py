@@ -1089,6 +1089,80 @@ class ContentGateway:
             payload["logo"] = logo
         return {key: value for key, value in payload.items() if value is not None}
 
+    def _clean_sports_display_name(self, value):
+        name = re.sub(
+            r"(?i)^\s*(?:deportes\s*[|:-]|sp\s*:\s*mx\s*:|mx\s*[|:-]|izmx\s*[|:-])\s*",
+            "",
+            str(value or "").strip(),
+        )
+        name = re.sub(
+            r"(?i)\s*\((?:mexico|méxico|usa|latin(?:o)?america)\)\s*$",
+            "",
+            name,
+        )
+        name = re.sub(
+            r"(?i)\s+(?:full\s*hd|fhd|uhd|hd|sd|4k|1080p|720p)\s*$",
+            "",
+            name,
+        )
+        name = re.sub(r"\s+", " ", name).strip()
+        replacements = (
+            (r"(?i)\bespn\b", "ESPN"),
+            (r"(?i)\btudn\b", "TUDN"),
+            (r"(?i)\bnba\s+tv\b", "NBA TV"),
+            (r"(?i)\bfox\s+sports\b", "Fox Sports"),
+            (r"(?i)\bf1\b", "F1"),
+            (r"(?i)\btennis\s+chanel\b", "Tennis Channel"),
+        )
+        for pattern, replacement in replacements:
+            name = re.sub(pattern, replacement, name)
+        return name or str(value or "").strip()
+
+    def _sports_variant_key(self, value):
+        name = self._clean_sports_display_name(value)
+        text = unicodedata.normalize("NFKD", name)
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        text = text.lower()
+        text = re.sub(r"(?i)\b(?:mexico|mexico|usa|latinoamerica|latin america)\b", " ", text)
+        text = re.sub(r"[^a-z0-9+]+", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _merge_sports_variants(self, channels):
+        merged = []
+        index = {}
+        for channel in channels:
+            key = self._sports_variant_key(channel.get("name"))
+            if not key:
+                continue
+            current_index = index.get(key)
+            if current_index is None:
+                row = dict(channel)
+                row["name"] = self._clean_sports_display_name(row.get("name"))
+                row["backup_urls"] = list(row.get("backup_urls") or [])
+                index[key] = len(merged)
+                merged.append(row)
+                continue
+
+            current = merged[current_index]
+            candidates = [
+                current.get("hls_url"),
+                *(current.get("backup_urls") or []),
+                channel.get("hls_url"),
+                *(channel.get("backup_urls") or []),
+            ]
+            unique = []
+            for url in candidates:
+                if url and url not in unique:
+                    unique.append(url)
+            if unique:
+                current["hls_url"] = unique[0]
+                current["backup_urls"] = unique[1:5]
+            if not current.get("logo") and channel.get("logo"):
+                current["logo"] = channel["logo"]
+            if not current.get("epg_id") and channel.get("epg_id"):
+                current["epg_id"] = channel["epg_id"]
+        return merged
+
     def _metadata(self):
         if not self.metadata_file:
             return {}
@@ -1224,13 +1298,13 @@ class ContentGateway:
             if parsed and self.source_mode == "failover":
                 break
 
-        sports = [
+        sports = self._merge_sports_variants([
             channel
             for channel in all_channels
             if _SPORTS.search(
                 f"{channel.get('name', '')} {channel.get('group', '')}"
             )
-        ]
+        ])
         metadata = self._metadata()
         guide = [
             *self._guide_payload(metadata),
