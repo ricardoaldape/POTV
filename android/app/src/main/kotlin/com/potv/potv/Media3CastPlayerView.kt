@@ -103,6 +103,15 @@ private class Media3CastPlayerView(
         val openedAt = android.os.SystemClock.elapsedRealtime()
         var startupReported = false
 
+        // Media3 can signal isPlaying for audio while video has not produced
+        // a single frame. Do not mark a live TV channel as healthy yet.
+        fun reportFirstVideoFrame() {
+            if (startupReported) return
+            startupReported = true
+            val startupMs = android.os.SystemClock.elapsedRealtime() - openedAt
+            channel.invokeMethod("playbackStarted", startupMs)
+        }
+
         castPlayer.addListener(
             object : Player.Listener {
                 override fun onTracksChanged(tracks: Tracks) {
@@ -114,12 +123,18 @@ private class Media3CastPlayerView(
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying && !startupReported) {
-                        startupReported = true
-                        val startupMs =
-                            android.os.SystemClock.elapsedRealtime() - openedAt
-                        channel.invokeMethod("playbackStarted", startupMs)
+                    // Remote Chromecast playback has no local first-frame callback.
+                    if (
+                        isPlaying &&
+                        castPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+                    ) {
+                        reportFirstVideoFrame()
                     }
+                }
+
+                override fun onRenderedFirstFrame() {
+                    // Only real decoded video cancels POTV's startup watchdog.
+                    reportFirstVideoFrame()
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
