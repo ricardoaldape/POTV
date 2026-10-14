@@ -29,10 +29,7 @@ import 'secure_webview_player.dart';
 class PlayerScreen extends ConsumerStatefulWidget {
   final PlaybackSession session;
 
-  const PlayerScreen({
-    super.key,
-    required this.session,
-  });
+  const PlayerScreen({super.key, required this.session});
 
   factory PlayerScreen.fromExtra(Object? extra) {
     if (extra is PlaybackSession) {
@@ -99,9 +96,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       widget.session.playbackContext?.historyKey ??
       'live:${widget.session.title}';
 
-
-  StreamCandidate get currentStream =>
-      widget.session.candidates[currentIndex];
+  StreamCandidate get currentStream => widget.session.candidates[currentIndex];
 
   @override
   void initState() {
@@ -150,10 +145,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     super.dispose();
   }
 
-  Future<void> _openCurrent({
-    bool notify = true,
-    Duration? resumeAt,
-  }) async {
+  Future<void> _openCurrent({bool notify = true, Duration? resumeAt}) async {
     final generation = ++_openGeneration;
     historyTimer?.cancel();
     startupTimer?.cancel();
@@ -199,7 +191,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     while (true) {
       try {
         final inputUrl = currentStream.uri.toString();
-        final inputLog = 'Resolver: URL de entrada -> ${safeMediaUrlForLog(currentStream.uri)}';
+        final inputLog =
+            'Resolver: URL de entrada -> ${safeMediaUrlForLog(currentStream.uri)}';
         debugPrint(inputLog);
         addDebugLog(inputLog);
 
@@ -257,9 +250,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
               );
               startupTimer?.cancel();
-              unawaited(serverHealthRepository.reportPlaying(
-                _serverMediaKey, currentStream,
-              ));
+              unawaited(
+                serverHealthRepository.reportPlaying(
+                  _serverMediaKey,
+                  currentStream,
+                ),
+              );
               _scheduleNextPreload();
             }
           });
@@ -281,10 +277,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           });
 
           await nextPlayer.open(
-            Media(
-              inputUrl,
-              httpHeaders: currentStream.headers,
-            ),
+            Media(inputUrl, httpHeaders: currentStream.headers),
             play: true,
           );
           final externalAudioUri = currentStream.externalAudioUri;
@@ -299,34 +292,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           if (!mounted || generation != _openGeneration) return;
           unawaited(_selectPreferredAudio(nextPlayer, generation));
           unawaited(_loadPreferredSubtitles(nextPlayer, generation));
-          if (effectiveResumeAt != null &&
-              effectiveResumeAt > Duration.zero) {
+          if (effectiveResumeAt != null && effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
           }
-          final finalStreamLog = 'Resolver: URL final del stream -> ${safeMediaUrlForLog(currentStream.uri)}';
+          final finalStreamLog =
+              'Resolver: URL final del stream -> ${safeMediaUrlForLog(currentStream.uri)}';
           debugPrint(finalStreamLog);
           addDebugLog(finalStreamLog);
           _armHistorySave();
         } else if (currentStream.backend == PlaybackBackend.external) {
-          final opened = await launchUrl(
-            currentStream.uri,
-            mode: LaunchMode.externalApplication,
-          );
-          if (!opened) {
-            throw StateError('No hay una aplicación disponible para abrirlo.');
-          }
-          final finalStreamLog = 'Resolver: URL final del stream -> ${safeMediaUrlForLog(currentStream.uri)}';
-          debugPrint(finalStreamLog);
-          addDebugLog(finalStreamLog);
+          // No automatic browser launch. The user must explicitly choose the
+          // external link on the fallback view, or select a native source.
+          addDebugLog('Player: fuente externa disponible como alternativa');
         }
-
         break;
       } catch (error, stack) {
         if (!mounted || generation != _openGeneration) return;
-        unawaited(serverHealthRepository.reportError(
-          _serverMediaKey, currentStream,
-        ));
-        final errorLog = 'Resolver error: ${safePlaybackErrorForLog(error.toString())}';
+        unawaited(
+          serverHealthRepository.reportError(_serverMediaKey, currentStream),
+        );
+        final errorLog =
+            'Resolver error: ${safePlaybackErrorForLog(error.toString())}';
         final stackLog = 'Resolver stack: $stack';
         debugPrint(errorLog);
         debugPrint(stackLog);
@@ -360,7 +346,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _scheduleNextPreload() {
     nextPreloadTimer?.cancel();
-    if (!playerPreferences.autoplayNext || widget.session.autoplayQueue.isEmpty) {
+    if (!playerPreferences.autoplayNext ||
+        widget.session.autoplayQueue.isEmpty) {
       return;
     }
     nextPreloadTimer = Timer(const Duration(seconds: 8), () {
@@ -391,10 +378,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
       final title = next.mediaType == 'tv'
           ? next.title +
-              ' · T' +
-              (next.season ?? 1).toString() +
-              ' E' +
-              (next.episode ?? 1).toString()
+                ' · T' +
+                (next.season ?? 1).toString() +
+                ' E' +
+                (next.episode ?? 1).toString()
           : next.title + ' · E' + (next.episode ?? 1).toString();
 
       context.pushReplacement(
@@ -404,8 +391,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           candidates: prepared.candidates,
           playbackContext: next,
           subtitles: prepared.subtitles,
-          autoplayQueue:
-              widget.session.autoplayQueue.skip(1).toList(growable: false),
+          autoplayQueue: widget.session.autoplayQueue
+              .skip(1)
+              .toList(growable: false),
         ),
       );
     } catch (_) {
@@ -447,10 +435,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         );
         unawaited(metricsRepository.recordStartup(_serverMediaKey, startupMs));
         unawaited(
-          serverHealthRepository.reportPlaying(
-            _serverMediaKey,
-            currentStream,
-          ),
+          serverHealthRepository.reportPlaying(_serverMediaKey, currentStream),
         );
         _scheduleNextPreload();
       },
@@ -468,9 +453,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           media3Controller != controller) {
         return;
       }
-      addDebugLog(
-        'Player: Media3 no inició a tiempo; usando respaldo nativo',
-      );
+      addDebugLog('Player: Media3 no inició a tiempo; usando respaldo nativo');
       unawaited(_switchToMediaKitFallback());
     });
 
@@ -517,34 +500,36 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted || failoverInProgress || _handlingPlaybackError) return;
     _handlingPlaybackError = true;
     try {
-    final error = message.toLowerCase();
-    if ((error.contains('subtitle') || error.contains('subtítulo')) &&
-        !error.contains('video') && !error.contains('demux')) {
-      addDebugLog('Player: problema aislado de subtítulos');
-      return;
-    }
-    final startedAt = _playbackStartedAt;
-    if (_startupPlaying &&
-        startedAt != null &&
-        DateTime.now().difference(startedAt) >=
-            const Duration(minutes: 1)) {
-      _consecutiveInterruptions = 0;
-    }
-    await serverHealthRepository.reportError(_serverMediaKey, currentStream);
-    if (!mounted || failoverInProgress) return;
-    if (_startupPlaying && _consecutiveInterruptions < 2) {
-      _consecutiveInterruptions++;
-      failoverInProgress = true;
-      final resumeAt = widget.session.isLive ? null : _currentPosition;
-      addDebugLog('Player: recuperando fuente ${_consecutiveInterruptions}/2');
-      try {
-        await _openCurrent(resumeAt: resumeAt);
-      } finally {
-        failoverInProgress = false;
+      final error = message.toLowerCase();
+      if ((error.contains('subtitle') || error.contains('subtítulo')) &&
+          !error.contains('video') &&
+          !error.contains('demux')) {
+        addDebugLog('Player: problema aislado de subtítulos');
+        return;
       }
-      return;
-    }
-    await _autoFailover(message, reportFailure: false);
+      final startedAt = _playbackStartedAt;
+      if (_startupPlaying &&
+          startedAt != null &&
+          DateTime.now().difference(startedAt) >= const Duration(minutes: 1)) {
+        _consecutiveInterruptions = 0;
+      }
+      await serverHealthRepository.reportError(_serverMediaKey, currentStream);
+      if (!mounted || failoverInProgress) return;
+      if (_startupPlaying && _consecutiveInterruptions < 2) {
+        _consecutiveInterruptions++;
+        failoverInProgress = true;
+        final resumeAt = widget.session.isLive ? null : _currentPosition;
+        addDebugLog(
+          'Player: recuperando fuente ${_consecutiveInterruptions}/2',
+        );
+        try {
+          await _openCurrent(resumeAt: resumeAt);
+        } finally {
+          failoverInProgress = false;
+        }
+        return;
+      }
+      await _autoFailover(message, reportFailure: false);
     } finally {
       _handlingPlaybackError = false;
     }
@@ -556,9 +541,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }) async {
     if (!mounted || failoverInProgress) return;
     if (reportFailure) {
-      unawaited(serverHealthRepository.reportError(
-        _serverMediaKey, currentStream,
-      ));
+      unawaited(
+        serverHealthRepository.reportError(_serverMediaKey, currentStream),
+      );
     }
     unawaited(metricsRepository.recordFailure(_serverMediaKey));
     if (currentIndex + 1 >= widget.session.candidates.length) {
@@ -571,15 +556,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final resumeAt = _currentPosition;
     final failed = currentStream.label;
     currentIndex += 1;
-    addDebugLog('Player: ${safePlaybackErrorForLog(failed)} falló; probando ${safePlaybackErrorForLog(currentStream.label)}');
+    addDebugLog(
+      'Player: ${safePlaybackErrorForLog(failed)} falló; probando ${safePlaybackErrorForLog(currentStream.label)}',
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 2),
-          content: Text(
-            'Problema con la señal. Probando otra opción…',
-          ),
+          content: Text('Problema con la señal. Probando otra opción…'),
         ),
       );
     }
@@ -606,11 +591,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     final p = player;
     final nativeState = media3State;
-    final position = p?.state.position ??
+    final position =
+        p?.state.position ??
         (nativeState == null
             ? Duration.zero
             : Duration(milliseconds: nativeState.positionMs));
-    final duration = p?.state.duration ??
+    final duration =
+        p?.state.duration ??
         (nativeState == null
             ? Duration.zero
             : Duration(milliseconds: nativeState.durationMs));
@@ -667,6 +654,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Future<void> _switchServer(int index) async {
     if (index == currentIndex) {
       if (mounted) Navigator.of(context).pop();
+      await _openCurrent();
+      _showControls();
       return;
     }
 
@@ -732,9 +721,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               for (final track in tracks.where((value) => value.supported))
                 ListTile(
                   leading: Icon(
-                    track.selected
-                        ? Icons.check_circle
-                        : Icons.circle_outlined,
+                    track.selected ? Icons.check_circle : Icons.circle_outlined,
                   ),
                   title: Text(track.displayName),
                   onTap: () {
@@ -787,7 +774,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (_audioAutoSelected ||
         !mounted ||
         generation != _openGeneration ||
-        currentStream.externalAudioUri != null) return;
+        currentStream.externalAudioUri != null)
+      return;
     final preferred = _languageSelector.preferredAudio(
       target.state.tracks.audio,
       preferredLanguage: playerPreferences.audioLanguage,
@@ -812,10 +800,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     try {
       available = await StremioSubtitleService(
         StremioAddonRepository(),
-        Dio(BaseOptions(
-          connectTimeout: const Duration(seconds: 5),
-          receiveTimeout: const Duration(seconds: 5),
-        )),
+        Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 5),
+            receiveTimeout: const Duration(seconds: 5),
+          ),
+        ),
       ).forPlayback(media);
     } catch (_) {
       return;
@@ -824,8 +814,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     setState(() => _externalSubtitleOptions = available);
     // Audio and embedded subtitle tracks may arrive after open().
     await Future<void>.delayed(const Duration(milliseconds: 650));
-    if (!mounted || generation != _openGeneration || _subtitleUserSelected ||
-        _subtitleAutoSelected) return;
+    if (!mounted ||
+        generation != _openGeneration ||
+        _subtitleUserSelected ||
+        _subtitleAutoSelected)
+      return;
     await _selectPreferredAudio(target, generation);
     final audio = target.state.track.audio;
     if (_languageSelector.isSpanishAudio(
@@ -845,11 +838,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       } else if (external.isNotEmpty) {
         _subtitleAutoSelected = true;
         final subtitle = external.first;
-        await target.setSubtitleTrack(SubtitleTrack.uri(
-          subtitle.url.toString(),
-          title: subtitle.label,
-          language: subtitle.language,
-        ));
+        await target.setSubtitleTrack(
+          SubtitleTrack.uri(
+            subtitle.url.toString(),
+            title: subtitle.label,
+            language: subtitle.language,
+          ),
+        );
       }
     } catch (_) {
       // Subtitle delivery should never interrupt video playback.
@@ -930,16 +925,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             for (final subtitle in _externalSubtitleOptions)
               ListTile(
                 leading: const Icon(Icons.closed_caption_rounded),
-                title: Text(subtitle.isSpanish
-                    ? 'Español · ${subtitle.label}'
-                    : subtitle.label),
+                title: Text(
+                  subtitle.isSpanish
+                      ? 'Español · ${subtitle.label}'
+                      : subtitle.label,
+                ),
                 onTap: () {
                   _subtitleUserSelected = true;
-                  p.setSubtitleTrack(SubtitleTrack.uri(
-                    subtitle.url.toString(),
-                    title: subtitle.label,
-                    language: subtitle.language,
-                  ));
+                  p.setSubtitleTrack(
+                    SubtitleTrack.uri(
+                      subtitle.url.toString(),
+                      title: subtitle.label,
+                      language: subtitle.language,
+                    ),
+                  );
                   Navigator.of(context).pop();
                 },
               ),
@@ -972,9 +971,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
                 title: Text(
                   track.title ??
-                      (track.h == null
-                          ? 'Pista ${track.id}'
-                          : '${track.h}p'),
+                      (track.h == null ? 'Pista ${track.id}' : '${track.h}p'),
                 ),
                 onTap: () {
                   p.setVideoTrack(track);
@@ -992,8 +989,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _showControls();
 
     final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.escape ||
-        key == LogicalKeyboardKey.goBack) {
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       _exitPlayer();
       return KeyEventResult.handled;
     }
@@ -1012,7 +1008,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     final native = media3Controller;
     final nativeState = media3State;
-    if (native != null && nativeState != null &&
+    if (native != null &&
+        nativeState != null &&
         key == LogicalKeyboardKey.arrowLeft) {
       final target =
           Duration(milliseconds: nativeState.positionMs) -
@@ -1020,12 +1017,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       unawaited(native.seekTo(target.isNegative ? Duration.zero : target));
       return KeyEventResult.handled;
     }
-    if (native != null && nativeState != null &&
+    if (native != null &&
+        nativeState != null &&
         key == LogicalKeyboardKey.arrowRight) {
       unawaited(
-        native.seekTo(
-          Duration(milliseconds: nativeState.positionMs + 10000),
-        ),
+        native.seekTo(Duration(milliseconds: nativeState.positionMs + 10000)),
       );
       return KeyEventResult.handled;
     }
@@ -1051,8 +1047,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final Widget content;
     if (playbackError != null) {
       content = _PlaybackFailureView(
-        message: 'Esta señal no respondió. Puedes reintentar o probar otra opción.',
-        hasAlternatives: widget.session.candidates.length > 1,
+        message:
+            'Esta señal no respondió. Puedes reintentar o probar otra opción.',
+        hasAlternatives: widget.session.candidates.isNotEmpty,
         onRetry: () {
           currentIndex = 0;
           unawaited(_openCurrent());
@@ -1061,38 +1058,40 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
     } else {
       content = switch (currentStream.backend) {
-        PlaybackBackend.native => Platform.isAndroid && !_preferMediaKitNative
-            ? (!preferencesLoaded || !media3Ready
-                ? const Center(child: CircularProgressIndicator())
-                : Media3PlayerSurface(
-                    key: ValueKey('media3-' + currentStream.id),
-                    stream: currentStream,
-                    title: widget.session.title,
-                    resumeAt: media3ResumeAt,
-                    audioPreference: playerPreferences.media3AudioPreference,
-                    subtitlePreference:
-                        playerPreferences.media3SubtitlePreference,
-                    subtitles: widget.session.subtitles,
-                    onController: _attachMedia3Controller,
-                  ))
-            : (videoController == null
-                ? const Center(child: CircularProgressIndicator())
-                : Video(
-                    controller: videoController!,
-                    controls: NoVideoControls,
-                    fit: BoxFit.contain,
-                  )),
+        PlaybackBackend.native =>
+          Platform.isAndroid && !_preferMediaKitNative
+              ? (!preferencesLoaded || !media3Ready
+                    ? const Center(child: CircularProgressIndicator())
+                    : Media3PlayerSurface(
+                        key: ValueKey('media3-' + currentStream.id),
+                        stream: currentStream,
+                        title: widget.session.title,
+                        resumeAt: media3ResumeAt,
+                        audioPreference:
+                            playerPreferences.media3AudioPreference,
+                        subtitlePreference:
+                            playerPreferences.media3SubtitlePreference,
+                        subtitles: widget.session.subtitles,
+                        onController: _attachMedia3Controller,
+                      ))
+              : (videoController == null
+                    ? const Center(child: CircularProgressIndicator())
+                    : Video(
+                        controller: videoController!,
+                        controls: NoVideoControls,
+                        fit: BoxFit.contain,
+                      )),
         PlaybackBackend.webView => SecureWebViewPlayer(
-            key: ValueKey(currentStream.id),
-            stream: currentStream,
-          ),
+          key: ValueKey(currentStream.id),
+          stream: currentStream,
+        ),
         PlaybackBackend.external => _ExternalPlaybackView(
-            stream: currentStream,
-            onOpen: () => launchUrl(
-              currentStream.uri,
-              mode: LaunchMode.externalApplication,
-            ),
+          stream: currentStream,
+          onOpen: () => launchUrl(
+            currentStream.uri,
+            mode: LaunchMode.externalApplication,
           ),
+        ),
       };
     }
 
@@ -1133,7 +1132,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     onMedia3Seek: media3Controller == null
                         ? null
                         : (position) =>
-                            unawaited(media3Controller!.seekTo(position)),
+                              unawaited(media3Controller!.seekTo(position)),
                     onCast: media3Controller == null
                         ? null
                         : () => unawaited(media3Controller!.toggleCast()),
@@ -1153,10 +1152,7 @@ class _ExternalPlaybackView extends StatelessWidget {
   final StreamCandidate stream;
   final Future<bool> Function() onOpen;
 
-  const _ExternalPlaybackView({
-    required this.stream,
-    required this.onOpen,
-  });
+  const _ExternalPlaybackView({required this.stream, required this.onOpen});
 
   @override
   Widget build(BuildContext context) {
@@ -1226,10 +1222,7 @@ class _PlaybackFailureView extends StatelessWidget {
               const Text(
                 'No se pudo reproducir el contenido',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 8),
               Text(
@@ -1303,11 +1296,7 @@ class _PlayerOverlay extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xCC000000),
-            Color(0x00000000),
-            Color(0xDD000000),
-          ],
+          colors: [Color(0xCC000000), Color(0x00000000), Color(0xDD000000)],
           stops: [0, 0.45, 1],
         ),
       ),
@@ -1481,12 +1470,15 @@ class _Timeline extends StatelessWidget {
                     value: value.clamp(0, max),
                     onChanged: durationMs <= 0
                         ? null
-                        : (next) => player.seek(
-                              Duration(milliseconds: next.round()),
-                            ),
+                        : (next) =>
+                              player.seek(Duration(milliseconds: next.round())),
                   ),
                 ),
-                Text(durationMs <= 0 ? (isLive ? 'EN VIVO' : '--:--') : _format(duration)),
+                Text(
+                  durationMs <= 0
+                      ? (isLive ? 'EN VIVO' : '--:--')
+                      : _format(duration),
+                ),
               ],
             );
           },
@@ -1532,8 +1524,7 @@ class _Media3Timeline extends StatelessWidget {
             value: value.clamp(0, max),
             onChanged: state.durationMs <= 0
                 ? null
-                : (next) =>
-                    onSeek(Duration(milliseconds: next.round())),
+                : (next) => onSeek(Duration(milliseconds: next.round())),
           ),
         ),
         Text(

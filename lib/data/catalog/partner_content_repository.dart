@@ -4,18 +4,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/app_config.dart';
 import '../../domain/models/partner_content_snapshot.dart';
 
-final partnerContentRepositoryProvider = Provider<PartnerContentRepository>((ref) {
+final partnerContentRepositoryProvider = Provider<PartnerContentRepository>((
+  ref,
+) {
   return PartnerContentRepository(
-    Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 7),
-      receiveTimeout: const Duration(seconds: 12),
-    )),
+    Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 7),
+        receiveTimeout: const Duration(seconds: 12),
+      ),
+    ),
     endpoint: Uri.tryParse(AppConfig.partnerCatalogUrl.trim()),
   );
 });
 
-final partnerContentProvider = FutureProvider<PartnerContentSnapshot>((ref) async {
-  return ref.read(partnerContentRepositoryProvider).load(forceRefresh: true);
+final partnerContentProvider = FutureProvider<PartnerContentSnapshot>((
+  ref,
+) async {
+  // Preserve the two-minute in-memory snapshot across provider invalidations.
+  return ref.read(partnerContentRepositoryProvider).load();
 });
 
 /// Dynamic HTTPS content snapshot, refreshed without installing a new APK.
@@ -35,7 +42,8 @@ class PartnerContentRepository {
     this.cacheTtl = const Duration(minutes: 2),
   });
 
-  bool get configured => endpoint != null &&
+  bool get configured =>
+      endpoint != null &&
       endpoint!.scheme == 'https' &&
       endpoint!.host.isNotEmpty &&
       endpoint!.userInfo.isEmpty;
