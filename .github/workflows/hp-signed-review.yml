@@ -98,9 +98,29 @@ jobs:
 
       - name: Build signed APK
         shell: powershell
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
+          POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
+          POTV_PARTNER_API_BASE_URL: ${{ vars.POTV_PARTNER_API_BASE_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
-          & 'C:\flutter\bin\flutter.bat' build apk --release
+          # A review build must have the same PUBLIC gateway and TMDB
+          # configuration as POTV releases. Partner credentials and private
+          # source URLs are deliberately NOT embedded in the APK.
+          $defines = @()
+          foreach ($name in @(
+            'TMDB_API_KEY',
+            'POTV_CONTROL_URL',
+            'POTV_PARTNER_CATALOG_URL',
+            'POTV_PARTNER_API_BASE_URL'
+          )) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if (![string]::IsNullOrWhiteSpace($value)) {
+              $defines += ('--dart-define=' + $name + '=' + $value)
+            }
+          }
+          & 'C:\flutter\bin\flutter.bat' build apk --release @defines
           if ($LASTEXITCODE -ne 0) { throw 'Signed APK build failed' }
 
       - name: Verify signing and preserve review APK locally
