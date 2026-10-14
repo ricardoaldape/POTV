@@ -297,6 +297,7 @@ class ContentGateway:
                 not name
                 or self._is_promotional_name(name)
                 or self._is_adult_entry(name, group)
+                or self._is_stale_scheduled_entry(name, group)
             ):
                 continue
             stream_id = str(row.get("stream_id") or "").strip()
@@ -828,6 +829,38 @@ class ContentGateway:
         compact = text.replace(" ", "")
         return "+18" in compact or "18+" in compact
 
+    def _is_stale_scheduled_entry(self, name, group=""):
+        """Hide provider event slots whose leading MM/DD or DD/MM date expired."""
+        text = str(name or "").strip()
+        if not _SPORTS.search(f"{text} {group or ''}"):
+            return False
+        match = re.match(r"^\s*(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", text)
+        if not match:
+            return False
+
+        first = int(match.group(1))
+        second = int(match.group(2))
+        explicit_year = match.group(3)
+        today = datetime.now(timezone.utc).date()
+        years = [today.year - 1, today.year, today.year + 1]
+        if explicit_year:
+            year = int(explicit_year)
+            if year < 100:
+                year += 2000
+            years = [year]
+
+        candidates = []
+        for year in years:
+            for month, day in ((first, second), (second, first)):
+                try:
+                    candidates.append(datetime(year, month, day).date())
+                except ValueError:
+                    pass
+        if not candidates:
+            return False
+        nearest = min(candidates, key=lambda value: abs((value - today).days))
+        return (today - nearest).days > 2
+
     def _is_promotional_name(self, name):
         text = re.sub(r"\s+", " ", str(name).lower()).strip()
         blocked = (
@@ -948,6 +981,7 @@ class ContentGateway:
                     not name
                     or self._is_promotional_name(name)
                     or self._is_adult_entry(name, group)
+                    or self._is_stale_scheduled_entry(name, group)
                     or not self._allowed_upstream(line)
                 ):
                     continue
