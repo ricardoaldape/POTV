@@ -446,16 +446,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
 
     startupTimer?.cancel();
-    startupTimer = Timer(const Duration(seconds: 8), () {
-      if (!mounted ||
-          failoverInProgress ||
-          _startupPlaying ||
-          media3Controller != controller) {
-        return;
-      }
-      addDebugLog('Player: Media3 no inició a tiempo; usando respaldo nativo');
-      unawaited(_switchToMediaKitFallback());
-    });
+    // Live HLS (especially sports) may need several segments before its
+    // first *video* frame. Audio playback alone is not video readiness.
+    // Give the decoder more time, then fall back to media_kit if no video
+    // frame arrives. This avoids premature "cannot play" banners.
+    startupTimer = Timer(
+      widget.session.isLive
+          ? const Duration(seconds: 22)
+          : const Duration(seconds: 12),
+      () {
+        if (!mounted ||
+            failoverInProgress ||
+            _startupPlaying ||
+            media3Controller != controller) {
+          return;
+        }
+        addDebugLog('Player: sin primer fotograma; probando motor alternativo');
+        unawaited(_switchToMediaKitFallback());
+      },
+    );
 
     media3StateTimer?.cancel();
     media3StateTimer = Timer.periodic(
