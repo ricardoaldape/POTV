@@ -11,16 +11,21 @@ permissions:
 
 concurrency:
   group: potv-hp-signed-review
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   signed-review:
     runs-on: [self-hosted, Windows, X64, potv]
     timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: potv-ci
 
     steps:
       - name: Checkout POTV
         uses: actions/checkout@v4
+        with:
+          path: potv-ci
 
       - name: Prepare committed Android project
         shell: powershell
