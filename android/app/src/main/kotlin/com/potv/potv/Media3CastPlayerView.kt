@@ -2,6 +2,8 @@ package com.potv.potv
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -56,6 +58,13 @@ private class Media3CastPlayerView(
     private val castPlayer: CastPlayer
     private val mediaSession: MediaSession
     private val channel = MethodChannel(messenger, "potv/media3_cast/$viewId")
+    private val stallHandler = Handler(Looper.getMainLooper())
+    private var stalledTask: Runnable? = null
+
+    private fun cancelStallWatchdog() {
+        stalledTask?.let { stallHandler.removeCallbacks(it) }
+        stalledTask = null
+    }
 
     private val audioPreference = params["audioPreference"]?.toString() ?: "spanish"
     private val subtitlePreference =
@@ -138,14 +147,42 @@ private class Media3CastPlayerView(
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    // Following the first real video frame, a live CDN can
+                    // enter BUFFERING forever without reporting an error.
+                    // Wait 18 seconds of *continuous* buffering, then let the
+                    // Flutter failover policy retry or switch sources.
+                    val isLocal = castPlayer.deviceInfo.playbackType !=
+                        DeviceInfo.PLAYBACK_TYPE_REMOTE
+                    if (
+                        playbackState == Player.STATE_BUFFERING &&
+                        startupReported &&
+                        isLocal
+                    ) {
+                        if (stalledTask == null) {
+                            val timeoutTask = Runnable {
+                                stalledTask = null
+                                if (castPlayer.playbackState == Player.STATE_BUFFERING) {
+                                    val reason = "[Player] Video detenido: buffering agotado"
+                                    emitLog(reason)
+                                    channel.invokeMethod("playerError", reason)
+                                }
+                            }
+                            stalledTask = timeoutTask
+                            stallHandler.postDelayed(timeoutTask, 18000L)
+                        }
+                    } else {
+                        cancelStallWatchdog()
+                    }
                     if (playbackState == Player.STATE_ENDED) {
                         channel.invokeMethod("playbackEnded", null)
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    val message =
-                        "[Player] Error Media3: ${error.errorCodeName} · ${error.message ?: ""}"
+                    cancelStallWatchdog()
+                    // Do not expose signed stream URLs or provider metadata
+                    // through exception messages into Flutter debug logs.
+                    val message = "[Player] Error Media3: ${error.errorCodeName}"
                     emitLog(message)
                     channel.invokeMethod("playerError", message)
                 }
@@ -514,6 +551,7 @@ private class Media3CastPlayerView(
     }
 
     override fun dispose() {
+        cancelStallWatchdog()
         channel.setMethodCallHandler(null)
         playerView.player = null
         mediaSession.release()
