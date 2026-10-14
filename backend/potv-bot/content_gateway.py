@@ -132,6 +132,7 @@ class ContentGateway:
         self._catalog = None
         self._catalog_at = 0.0
         self._catalog_refreshing = False
+        self._xtream_unreachable_until = {}
         self._xtream_cache = {}
         self._m3u_cache = {}
         self._sports_guide_cache = []
@@ -220,6 +221,9 @@ class ContentGateway:
         if cached and now - cached[0] < ttl:
             return cached[1]
 
+        # A temporarily unreachable partner must not stall every VOD request.
+        if now < self._xtream_unreachable_until.get(source, 0):
+            raise ContentGatewayError(503, "partner_temporarily_unreachable")
         query = {
             "username": config["username"],
             "password": config["password"],
@@ -227,7 +231,12 @@ class ContentGateway:
         }
         query.update(extra or {})
         url = config["base"] + "/player_api.php?" + urlencode(query)
-        data = self._fetch_json(url)
+        try:
+            data = self._fetch_json(url, timeout=6)
+        except (OSError, TimeoutError, HTTPError, URLError):
+            self._xtream_unreachable_until[source] = time.monotonic() + 90
+            raise
+        self._xtream_unreachable_until.pop(source, None)
         self._xtream_cache[cache_key] = (now, data)
         return data
 
@@ -561,6 +570,7 @@ class ContentGateway:
             upstream = None
             headers = {}
             quality = None
+            xtream_failed = False
 
             if self._xtream_config(source) is not None:
                 try:
@@ -595,8 +605,9 @@ class ContentGateway:
                         )
                 except Exception:
                     upstream = None
+                    xtream_failed = True
 
-            if upstream is None:
+            if upstream is None and not xtream_failed:
                 try:
                     fallback = self._fallback_movie_entry(
                         source,
@@ -643,6 +654,7 @@ class ContentGateway:
             upstream = None
             headers = {}
             quality = None
+            xtream_failed = False
 
             if self._xtream_config(source) is not None:
                 try:
@@ -709,8 +721,9 @@ class ContentGateway:
                                     )
                 except Exception:
                     upstream = None
+                    xtream_failed = True
 
-            if upstream is None:
+            if upstream is None and not xtream_failed:
                 try:
                     fallback = self._fallback_series_entry(
                         source,
@@ -946,7 +959,7 @@ class ContentGateway:
         headers = {}
         entries = 0
 
-        with self._fetch(source, timeout=35) as response:
+        with self._fetch(source, timeout=8) as response:
             for raw_line in response:
                 try:
                     line = raw_line.decode("utf-8", errors="replace").strip()
