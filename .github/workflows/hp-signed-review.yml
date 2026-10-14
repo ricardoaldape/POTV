@@ -3,7 +3,7 @@ name: POTV signed review APK on HP
 on:
   push:
     branches:
-      - feat/private-penguplay-plug-and-play
+      - fix/launch-rescue-20261013
   workflow_dispatch:
 
 permissions:
@@ -98,22 +98,9 @@ jobs:
           }
           $aapt = Join-Path $tools.FullName 'aapt.exe'
           $versionLine = Get-Content 'pubspec.yaml' | Where-Object { $_ -match '^version:\s*' } | Select-Object -First 1
-          if ($versionLine -notmatch '^version:\s*([^+]+)\+(\d+)\s*          Copy-Item $apk $target -Force
-          Write-Output ('POTV_SIGNED_REVIEW_APK=' + $target)
-          Write-Output ('POTV_SIGNED_REVIEW_SHA256=' + (Get-FileHash $target -Algorithm SHA256).Hash)
-          Write-Output ('POTV_SIGNING_CERT_SHA256=' + ($digestLine[0].ToString().Split(':')[-1].Trim()))
-          Write-Output ('POTV_SIGNED_REVIEW_SIZE_MB=' + [math]::Round((Get-Item $target).Length / 1MB, 2))
-          Write-Output 'SIGNED_REVIEW_BUILD_SUCCESS; no GitHub-hosted minutes or public release created.'
-
-      - name: Remove release signing secrets from runner workspace
-        if: always()
-        shell: powershell
-        run: |
-          foreach ($path in @('android\key.properties','android\app\potv-release.keystore')) {
-            if (Test-Path $path) { Remove-Item $path -Force }
+          if ($versionLine -notmatch '^version:\s*([^+]+)\+(\d+)\s*$') {
+            throw 'Invalid pubspec version'
           }
-          Write-Output 'Temporary signing files removed from working directory.'
-) { throw 'Invalid pubspec version' }
           $versionName = $Matches[1]
           $versionCode = $Matches[2]
           $package = (& $aapt dump badging $apk | Select-Object -First 1)
