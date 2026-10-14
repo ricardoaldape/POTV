@@ -42,15 +42,49 @@ object PotvMedia3Preload {
         manager = nextBuilder.build()
     }
 
+    // ExoPlayer selects HlsMediaSource by the MediaItem MIME or by the URL
+    // extension, not by the HTTP Content-Type it will receive later.
+    // POTV's signed proxy is extensionless even when its body is an M3U8
+    // master playlist. Without this declaration it is opened as progressive
+    // media, producing SOURCE/UNRECOGNIZED errors before video starts.
+    internal fun mimeForSource(uri: Uri): String? {
+        val path = uri.path.orEmpty().lowercase()
+        val format = uri.getQueryParameter("format")?.lowercase()
+        if (format == "ts" || format == "mp4" || format == "progressive") {
+            return null
+        }
+        if (format == "hls" || format == "m3u8" ||
+            path.endsWith(".m3u8")) {
+            return MimeTypes.APPLICATION_M3U8
+        }
+        if (format == "dash" || format == "mpd" ||
+            path.endsWith(".mpd")) {
+            return MimeTypes.APPLICATION_MPD
+        }
+        // Existing gateway catalogs already expose HLS through signed,
+        // extensionless stream URLs. An explicit format=ts overrides this
+        // default for future licensed Xtream transport-stream providers.
+        if (uri.scheme == "https" &&
+            uri.host.equals("potv.fxqubit.com", ignoreCase = true) &&
+            path.startsWith("/api/v1/content/stream/")) {
+            return MimeTypes.APPLICATION_M3U8
+        }
+        return null
+    }
+
     fun mediaItem(
         uri: String,
         title: String,
         subtitles: Any? = null,
     ): MediaItem {
+        val parsed = Uri.parse(uri)
         val mediaBuilder =
             MediaItem.Builder()
                 .setMediaId(uri)
-                .setUri(Uri.parse(uri))
+                .setUri(parsed)
+                .apply {
+                    mimeForSource(parsed)?.let { setMimeType(it) }
+                }
                 .setMediaMetadata(
                     androidx.media3.common.MediaMetadata.Builder()
                         .setTitle(title)
