@@ -782,10 +782,27 @@ class ContentGateway:
     def _proxy_url(self, target_id, *, lifetime=900):
         expires = int(time.time()) + int(lifetime)
         sig = self._signature(target_id, expires)
-        return (
+        url = (
             f"{self.public_base}/api/v1/content/stream/{quote(target_id)}"
             f"?e={expires}&s={sig}"
         )
+        # Signed endpoints hide the original extension. Media3 cannot infer
+        # whether to construct an HLS, DASH or progressive media source from
+        # the proxy path alone. Include a harmless transport hint, NEVER the
+        # upstream URL or credentials. The signature still validates target_id.
+        with self._lock:
+            target = self._targets.get(target_id)
+        if target is not None:
+            path = urlsplit(target[0]).path.lower()
+            if path.endswith(".m3u8"):
+                url += "&format=hls"
+            elif path.endswith(".mpd"):
+                url += "&format=mpd"
+            elif path.endswith(".ts"):
+                url += "&format=ts"
+            elif path.endswith((".mp4", ".mkv", ".webm", ".m4v")):
+                url += "&format=mp4"
+        return url
 
     def _validate_signature(self, target_id, query):
         values = parse_qs(query or "")
