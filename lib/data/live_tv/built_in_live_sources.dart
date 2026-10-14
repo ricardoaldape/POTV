@@ -228,7 +228,9 @@ class BuiltInLiveSourceRegistry {
       final raw = response.data ?? '';
       if (raw.trim().isEmpty) return const [];
 
-      final parsed = M3uParser.parse(raw);
+      final parsed = M3uParser.parse(raw)
+          .map(_cleanDisplayChannel)
+          .toList(growable: false);
       return parsed
           .where((channel) => !_isPromotionalEntry(channel))
           .where((channel) => !_isAdultEntry(channel))
@@ -262,6 +264,446 @@ class BuiltInLiveSourceRegistry {
     }
     final compact = text.replaceAll(' ', '');
     return compact.contains('+18') || compact.contains('18+');
+  }
+
+  LiveChannel _cleanDisplayChannel(LiveChannel channel) {
+    var name = channel.name.trim();
+    name = name.replaceAll(
+      RegExp(r'\b(?:https?://)?(?:www\.)?achoapps\.com\b',
+          caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'^\s*(?:mx|mexico|méxico)\s*[|·:\-]+\s*',
+          caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\s*[|·\-]\s*(?:sd|hd|fhd|uhd|4k|720p|1080p)\s*    final text = channel.name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    const blocked = <String>[
+      'mejor proveedor',
+      'proveedor de iptv',
+      'iptv premium',
+      'mas de 3000 canales',
+      'más de 3000 canales',
+      'suscripcion iptv',
+      'suscripción iptv',
+      'contrata iptv',
+      'whatsapp',
+      'telegram',
+      'visita nuestro',
+    ];
+    return blocked.any(text.contains);
+  }
+
+  bool _isAuthorizedLivSportzChannel(LiveChannel channel) {
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
+
+    // Do not re-license by channel name. If LivSportz supplied the source list,
+    // brands such as ESPN/TUDN/HBO/Disney/AXN/DAZN remain eligible here when
+    // delivered through a safe HTTPS source. Credential-bearing or cleartext
+    // partner feeds belong behind PartnerContentRepository's HTTPS gateway.
+    return true;
+  }
+
+  bool _containsSensitiveQuery(Uri uri) {
+    const sensitive = <String>{
+      'username', 'user', 'password', 'pass', 'token', 'auth',
+      'apikey', 'api_key', 'key', 'secret', 'signature', 'sig',
+      'hdnea', 'expires', 'session',
+    };
+    return uri.queryParameters.keys
+        .map((key) => key.toLowerCase())
+        .any(sensitive.contains);
+  }
+
+  bool _isBuiltInAllowed(LiveChannel channel) {
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
+
+    final name = channel.name.toLowerCase();
+    // This block applies only to anonymous/public built-in playlists.
+    // Licensed partner channels are delivered by PartnerContentRepository and
+    // are allowed regardless of brand when their entitlement comes from the
+    // authorized gateway.
+    const excluded = <String>[
+      'hbo',
+      'cinemax',
+      'disney channel',
+      'disney jr',
+      'espn',
+      'fox sports',
+      'fox deportes',
+      'bein sports',
+      'sky sports',
+      'dazn',
+      'tnt sports',
+      'movistar deportes',
+      'tudn',
+      'geo-blocked',
+      'geoblocked',
+      'geo blocked',
+      'national geographic',
+      'comedy central',
+      'axn',
+      'star channel',
+      'fx ',
+      'paramount',
+      'universal tv',
+      'warner',
+      'history channel',
+      'animal planet',
+      'amc',
+      'sony channel',
+    ];
+
+    return !excluded.any(name.contains);
+  }
+
+  int _mexicoPriority(LiveChannel channel) {
+    final name = channel.name.toLowerCase();
+    const preferred = <String, int>{
+      'azteca uno': 100,
+      'azteca 7': 98,
+      'canal 5': 96,
+      'las estrellas': 94,
+      'imagen tv': 92,
+      'adn 40': 90,
+      'milenio': 88,
+      'canal 22': 84,
+      'capital 21': 82,
+      'tv unam': 80,
+      'mexiquense': 78,
+      'jalisco tv': 76,
+    };
+
+    var score = 0;
+    for (final entry in preferred.entries) {
+      if (name.contains(entry.key)) score = entry.value;
+    }
+    return score;
+  }
+
+  int _sportsPriority(LiveChannel channel) {
+    final name = channel.name.toLowerCase();
+    const preferred = <String, int>{
+      'fifa+ hispanic': 110,
+      'fifa+': 106,
+      'red bull tv es': 104,
+      'red bull tv': 100,
+      'azteca deportes': 98,
+      'claro sports': 96,
+      'itv deportes': 92,
+      'pluto tv deportes': 90,
+      'tv cuatro 4.3': 86,
+      'onefootball': 84,
+    };
+
+    var score = 0;
+    for (final entry in preferred.entries) {
+      if (name.contains(entry.key)) score = entry.value;
+    }
+    if (name.contains('hispanic') || name.contains('españ')) score += 8;
+    return score;
+  }
+
+  bool _isSafePublicStream(Uri uri) {
+    if (uri.scheme != 'https') return false;
+    if (uri.userInfo.isNotEmpty) return false;
+
+    if (_containsSensitiveQuery(uri)) return false;
+
+    final host = uri.host.toLowerCase();
+    if (host.isEmpty ||
+        host == 'localhost' ||
+        host == '0.0.0.0' ||
+        host == '::1' ||
+        host == 'jmp2.uk') {
+      return false;
+    }
+
+    final ipv4 = host.split('.');
+    if (ipv4.length == 4 && ipv4.every((part) => int.tryParse(part) != null)) {
+      final octets = ipv4.map(int.parse).toList(growable: false);
+      if (octets[0] == 10 ||
+          octets[0] == 127 ||
+          (octets[0] == 169 && octets[1] == 254) ||
+          (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+          (octets[0] == 192 && octets[1] == 168)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  String _canonicalChannelName(String value) {
+    var name = value.toLowerCase();
+    name = name.replaceAll(
+      RegExp(r'\[(?:[^\]]*not\s*24\s*/?\s*7[^\]]*)\]', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\((?:2160|1440|1080|720|576|480|360)p\)', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\|\s*(?:uhd|fhd|hd|sd)\b', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'www\.achoapps\.com', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return name;
+  }
+
+  List<LiveChannel> _dedupe(List<LiveChannel> channels) {
+    final seen = <String>{};
+    final result = <LiveChannel>[];
+
+    for (final channel in channels) {
+      final rawEpg = channel.epgId?.trim().toLowerCase() ?? '';
+      final epg = rawEpg.split('@').first.trim();
+      final name = _canonicalChannelName(channel.name);
+      final key = epg.isNotEmpty ? 'epg:$epg' : 'name:$name';
+
+      if (seen.add(key)) result.add(channel);
+    }
+
+    result.sort((a, b) => a.name.compareTo(b.name));
+    return result;
+  }
+}
+,
+          caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\s*\((?:sd|hd|fhd|uhd|4k|720p|1080p)\)\s*    final text = channel.name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    const blocked = <String>[
+      'mejor proveedor',
+      'proveedor de iptv',
+      'iptv premium',
+      'mas de 3000 canales',
+      'más de 3000 canales',
+      'suscripcion iptv',
+      'suscripción iptv',
+      'contrata iptv',
+      'whatsapp',
+      'telegram',
+      'visita nuestro',
+    ];
+    return blocked.any(text.contains);
+  }
+
+  bool _isAuthorizedLivSportzChannel(LiveChannel channel) {
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
+
+    // Do not re-license by channel name. If LivSportz supplied the source list,
+    // brands such as ESPN/TUDN/HBO/Disney/AXN/DAZN remain eligible here when
+    // delivered through a safe HTTPS source. Credential-bearing or cleartext
+    // partner feeds belong behind PartnerContentRepository's HTTPS gateway.
+    return true;
+  }
+
+  bool _containsSensitiveQuery(Uri uri) {
+    const sensitive = <String>{
+      'username', 'user', 'password', 'pass', 'token', 'auth',
+      'apikey', 'api_key', 'key', 'secret', 'signature', 'sig',
+      'hdnea', 'expires', 'session',
+    };
+    return uri.queryParameters.keys
+        .map((key) => key.toLowerCase())
+        .any(sensitive.contains);
+  }
+
+  bool _isBuiltInAllowed(LiveChannel channel) {
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
+
+    final name = channel.name.toLowerCase();
+    // This block applies only to anonymous/public built-in playlists.
+    // Licensed partner channels are delivered by PartnerContentRepository and
+    // are allowed regardless of brand when their entitlement comes from the
+    // authorized gateway.
+    const excluded = <String>[
+      'hbo',
+      'cinemax',
+      'disney channel',
+      'disney jr',
+      'espn',
+      'fox sports',
+      'fox deportes',
+      'bein sports',
+      'sky sports',
+      'dazn',
+      'tnt sports',
+      'movistar deportes',
+      'tudn',
+      'geo-blocked',
+      'geoblocked',
+      'geo blocked',
+      'national geographic',
+      'comedy central',
+      'axn',
+      'star channel',
+      'fx ',
+      'paramount',
+      'universal tv',
+      'warner',
+      'history channel',
+      'animal planet',
+      'amc',
+      'sony channel',
+    ];
+
+    return !excluded.any(name.contains);
+  }
+
+  int _mexicoPriority(LiveChannel channel) {
+    final name = channel.name.toLowerCase();
+    const preferred = <String, int>{
+      'azteca uno': 100,
+      'azteca 7': 98,
+      'canal 5': 96,
+      'las estrellas': 94,
+      'imagen tv': 92,
+      'adn 40': 90,
+      'milenio': 88,
+      'canal 22': 84,
+      'capital 21': 82,
+      'tv unam': 80,
+      'mexiquense': 78,
+      'jalisco tv': 76,
+    };
+
+    var score = 0;
+    for (final entry in preferred.entries) {
+      if (name.contains(entry.key)) score = entry.value;
+    }
+    return score;
+  }
+
+  int _sportsPriority(LiveChannel channel) {
+    final name = channel.name.toLowerCase();
+    const preferred = <String, int>{
+      'fifa+ hispanic': 110,
+      'fifa+': 106,
+      'red bull tv es': 104,
+      'red bull tv': 100,
+      'azteca deportes': 98,
+      'claro sports': 96,
+      'itv deportes': 92,
+      'pluto tv deportes': 90,
+      'tv cuatro 4.3': 86,
+      'onefootball': 84,
+    };
+
+    var score = 0;
+    for (final entry in preferred.entries) {
+      if (name.contains(entry.key)) score = entry.value;
+    }
+    if (name.contains('hispanic') || name.contains('españ')) score += 8;
+    return score;
+  }
+
+  bool _isSafePublicStream(Uri uri) {
+    if (uri.scheme != 'https') return false;
+    if (uri.userInfo.isNotEmpty) return false;
+
+    if (_containsSensitiveQuery(uri)) return false;
+
+    final host = uri.host.toLowerCase();
+    if (host.isEmpty ||
+        host == 'localhost' ||
+        host == '0.0.0.0' ||
+        host == '::1' ||
+        host == 'jmp2.uk') {
+      return false;
+    }
+
+    final ipv4 = host.split('.');
+    if (ipv4.length == 4 && ipv4.every((part) => int.tryParse(part) != null)) {
+      final octets = ipv4.map(int.parse).toList(growable: false);
+      if (octets[0] == 10 ||
+          octets[0] == 127 ||
+          (octets[0] == 169 && octets[1] == 254) ||
+          (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+          (octets[0] == 192 && octets[1] == 168)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  String _canonicalChannelName(String value) {
+    var name = value.toLowerCase();
+    name = name.replaceAll(
+      RegExp(r'\[(?:[^\]]*not\s*24\s*/?\s*7[^\]]*)\]', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\((?:2160|1440|1080|720|576|480|360)p\)', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\|\s*(?:uhd|fhd|hd|sd)\b', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'www\.achoapps\.com', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return name;
+  }
+
+  List<LiveChannel> _dedupe(List<LiveChannel> channels) {
+    final seen = <String>{};
+    final result = <LiveChannel>[];
+
+    for (final channel in channels) {
+      final rawEpg = channel.epgId?.trim().toLowerCase() ?? '';
+      final epg = rawEpg.split('@').first.trim();
+      final name = _canonicalChannelName(channel.name);
+      final key = epg.isNotEmpty ? 'epg:$epg' : 'name:$name';
+
+      if (seen.add(key)) result.add(channel);
+    }
+
+    result.sort((a, b) => a.name.compareTo(b.name));
+    return result;
+  }
+}
+,
+          caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (name.isEmpty) name = channel.name.trim();
+
+    StreamCandidate relabel(StreamCandidate stream) => StreamCandidate(
+          id: stream.id,
+          label: name,
+          uri: stream.uri,
+          headers: stream.headers,
+          backend: stream.backend,
+          language: stream.language,
+          quality: stream.quality,
+        );
+
+    return LiveChannel(
+      id: channel.id,
+      name: name,
+      group: channel.group,
+      epgId: channel.epgId,
+      logo: channel.logo,
+      stream: relabel(channel.stream),
+      backupStreams: [
+        for (final stream in channel.backupStreams) relabel(stream),
+      ],
+    );
   }
 
   bool _isPromotionalEntry(LiveChannel channel) {
