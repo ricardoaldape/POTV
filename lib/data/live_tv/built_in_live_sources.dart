@@ -691,6 +691,9 @@ class BuiltInLiveSourceRegistry {
           backend: stream.backend,
           language: stream.language,
           quality: stream.quality,
+          externalAudioUri: stream.externalAudioUri,
+          allowedHosts: stream.allowedHosts,
+          directWebView: stream.directWebView,
         );
 
     return LiveChannel(
