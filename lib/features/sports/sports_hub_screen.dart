@@ -287,6 +287,12 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     );
     final addonItems =
         addonState.asData?.value ?? const <AddonSportsItem>[];
+    final liveAddonItems = addonItems
+        .where((item) => item.isLive)
+        .toList(growable: false);
+    final otherAddonItems = addonItems
+        .where((item) => !item.isLive)
+        .toList(growable: false);
     final playableEvents = organizer
         .eventsFor(
           partner?.sportsEvents ?? const <SportsEvent>[],
@@ -395,6 +401,8 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
           const SizedBox(height: 10),
           if (nowGuide.isNotEmpty)
             _SportsNowRail(items: nowGuide)
+          else if (liveAddonItems.isNotEmpty)
+            AddonSportsRail(items: liveAddonItems)
           else
             const _EmptySection(
               'No hay una transmisión deportiva en vivo confirmada ahora. '
@@ -553,14 +561,14 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
             ],
             if (addonState.isLoading)
               const LinearProgressIndicator(minHeight: 2),
-            if (addonItems.isNotEmpty) ...[
+            if (otherAddonItems.isNotEmpty) ...[
               _SectionHeading(
-                label: 'EVENTOS DE ADDONS',
+                label: 'MÁS EVENTOS',
                 description:
-                    '${addonItems.length} eventos; POTV verifica la señal al abrir.',
+                    '${otherAddonItems.length} eventos disponibles; POTV verifica la señal al abrir.',
               ),
               const SizedBox(height: 10),
-              AddonSportsRail(items: addonItems),
+              AddonSportsRail(items: otherAddonItems),
               const SizedBox(height: 20),
             ],
             if (playableEvents.isNotEmpty) ...[
@@ -574,7 +582,8 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
                 _SportsEventCard(event: event),
             ] else if (!scheduleState.isLoading &&
                 scheduleEvents.isEmpty &&
-                addonItems.isEmpty &&
+                liveAddonItems.isEmpty &&
+                otherAddonItems.isEmpty &&
                 activeChannels.isEmpty &&
                 generalChannels.isEmpty)
               _EmptySection(
