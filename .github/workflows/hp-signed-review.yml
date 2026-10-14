@@ -65,8 +65,28 @@ jobs:
           [System.IO.File]::WriteAllLines(
             (Join-Path (Get-Location).Path 'android\key.properties'),
             $properties,
-            [System.Text.Encoding]::UTF8
+            (New-Object System.Text.UTF8Encoding($false))
           )
+          # Windows PowerShell's default UTF-8 BOM is treated as part of
+          # the first properties key by java.util.Properties.load(InputStream).
+          # This caused Gradle to report a missing storePassword at packaging.
+          $bytes = [System.IO.File]::ReadAllBytes(
+            (Join-Path (Get-Location).Path 'android\key.properties')
+          )
+          if ($bytes.Length -lt 40 -or
+              ($bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191)) {
+            throw 'Invalid BOM or truncated Android signing properties'
+          }
+          $props = New-Object System.Collections.Specialized.NameValueCollection
+          foreach ($line in $properties) {
+            $split = $line.IndexOf('=')
+            if ($split -le 0) { throw 'Invalid Android signing property' }
+            $key = $line.Substring(0, $split)
+            $value = $line.Substring($split + 1)
+            if ([string]::IsNullOrWhiteSpace($value)) { throw ('Empty Android signing property: ' + $key) }
+            $props.Add($key, '[validated]')
+          }
+          if ($props.Count -ne 4) { throw 'Unexpected Android signing properties' }
           & 'python' 'tool\configure_android_release_signing.py'
           if ($LASTEXITCODE -ne 0) { throw 'Release Gradle signing configuration failed' }
           Write-Output 'Signing ready; keystore and passwords are not exposed.'
