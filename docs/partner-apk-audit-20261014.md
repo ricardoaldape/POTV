@@ -20,6 +20,19 @@ Se identificaron **14 archivos APK y 13 binarios distintos**. Las dos copias de 
 | LMHD-VIP | `net.lmhd.even` | 4.2 | 4 DEX | Clasificación de señales y eventos |
 | app-release.apk (referencia) | `com.example.lol` | 1.0.0 | Flutter, FFmpeg, mpv | Compatibilidad con player alternativo |
 
+## Protocolos e interfaces Android observados
+
+Se inspeccionaron los manifiestos Android de los **14 archivos**, sin instalar ni ejecutar las aplicaciones de terceros:
+
+- **Kino:** acepta `stremio://`, enlaces HTTPS hacia `manifest.json` y Android TV (`LEANBACK_LAUNCHER`). Expone un servicio Media3 de reproducción y un puente CloudStream con permiso `signature`; el puente **no es accesible entre firmas diferentes sin un contrato autorizado**.
+- **Astra:** declara filtros VIEW web/personalizados, soporte Android TV y varios componentes publicitarios. Un intent-filter es una pista de interoperabilidad, **no demuestra disponibilidad de una API de canales**.
+- **App Eventos** y **TOTAL TV:** declaran enlaces HTTPS y esquemas propios; ameritan análisis de las estructuras de eventos/catálogos antes de enlazar señales.
+- **Ibo, Puerta SporTV, AirTv, PlayTV, XD Player y LMHD:** no presentan filtros VIEW generales en el inventario, aunque varios sí tienen punto de entrada Android TV.
+- **Fútbol Libre TV:** sin punto de entrada Leanback detectado; no se debe asumir usabilidad de mando TV.
+- **Kino decompilación:** se generaron miles de clases, pero una descompilación total en JADX agotó la memoria alrededor del **82 %**. Continuar por clases y componentes para no agotar los recursos de la HP.
+
+**Implementación realizada:** el instalador universal de POTV ahora normaliza enlaces `stremio://host/manifest.json` hacia HTTPS y rechaza credenciales en `userinfo` o fragmentos. Cuatro pruebas de regresión locales aprobadas. El complemento sigue pasando por el flujo de inspección y almacenamiento cifrado, no se ejecuta automáticamente al recibir una URL.
+
 ## Hallazgos relevantes para POTV
 
 1. **Punto principal de falla actual:** el gateway premium responde pero el servidor de origen no acepta conexión desde la IP del VPS. El protocolo debe ser integrado mediante cuentas de servicio y permisos destinados a POTV; el cifrado por sí solo no restablece conectividad.
