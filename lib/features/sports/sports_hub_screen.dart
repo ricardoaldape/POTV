@@ -113,6 +113,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
     ref.invalidate(builtInSportsChannelsProvider);
     ref.invalidate(liveChannelsProvider);
     ref.invalidate(epgProgramsProvider);
+    ref.invalidate(addonSportsItemsProvider('networks'));
     if (!selectedCategory.isTelevision) {
       ref.invalidate(sportsEventsProvider(
         (day: selectedDay, sport: selectedCategory.apiSport),
@@ -251,6 +252,9 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
         : ref.watch(addonSportsItemsProvider(
             selectedCategory.apiSport ?? 'all',
           ));
+    final networkState = ref.watch(addonSportsItemsProvider('networks'));
+    final networkItems =
+        networkState.asData?.value ?? const <AddonSportsItem>[];
     final partner = ref.watch(partnerContentProvider).asData?.value;
     final starterSports = ref.watch(starterSportsChannelsProvider);
     final builtInState = ref.watch(builtInSportsChannelsProvider);
@@ -409,6 +413,24 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               'Consulta TV deportiva para ver las señales disponibles.',
             ),
           const SizedBox(height: 22),
+          if (networkItems.isNotEmpty) ...[
+            _SectionHeading(
+              label: 'CANALES 24/7',
+              description:
+                  '${networkItems.length} redes deportivas disponibles; POTV verifica la señal al abrir.',
+            ),
+            const SizedBox(height: 10),
+            AddonSportsRail(items: networkItems),
+            const SizedBox(height: 22),
+          ] else if (networkState.isLoading) ...[
+            const _SectionHeading(
+              label: 'CANALES 24/7',
+              description: 'Cargando redes deportivas…',
+            ),
+            const SizedBox(height: 9),
+            const LinearProgressIndicator(minHeight: 2),
+            const SizedBox(height: 22),
+          ],
           if (!isTv && allChannels.isNotEmpty) ...[
             _SectionHeading(
               label: 'CANALES DEPORTIVOS',
