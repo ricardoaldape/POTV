@@ -109,8 +109,16 @@ jobs:
           [IO.File]::WriteAllLines(
             (Join-Path (Get-Location).Path 'android\key.properties'),
             $properties,
-            [Text.Encoding]::UTF8
+            (New-Object System.Text.UTF8Encoding($false))
           )
+          # java.util.Properties interprets the UTF-8 BOM as part of the first
+          # key, making storePassword disappear at Android packaging time.
+          $keyFile = Join-Path (Get-Location).Path 'android\key.properties'
+          $keyBytes = [IO.File]::ReadAllBytes($keyFile)
+          if ($keyBytes.Length -lt 40 -or
+              ($keyBytes[0] -eq 239 -and $keyBytes[1] -eq 187 -and $keyBytes[2] -eq 191)) {
+            throw 'Signing properties contain BOM or are truncated'
+          }
           & 'python' 'tool\configure_android_release_signing.py'
           if ($LASTEXITCODE -ne 0) { throw 'Release signing configuration failed' }
 
