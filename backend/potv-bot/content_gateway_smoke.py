@@ -79,6 +79,18 @@ class FakeOpener:
                     "container_extension": "ts",
                 },
                 {
+                    "stream_id": 103,
+                    "name": "ESPN 2 MEXICO HD",
+                    "category_id": "1",
+                    "container_extension": "ts",
+                },
+                {
+                    "stream_id": 104,
+                    "name": "SP: MX: Espn 2 Full HD",
+                    "category_id": "1",
+                    "container_extension": "ts",
+                },
+                {
                     "stream_id": 999,
                     "name": "Canal XXX",
                     "category_id": "2",
@@ -209,8 +221,16 @@ def run():
         assert gateway._is_stale_scheduled_entry(old_slot, "Deportes")
         assert not gateway._is_stale_scheduled_entry(today_slot, "Deportes")
 
-        assert [channel["name"] for channel in data["channels"]] == ["ESPN", "HBO"]
-        assert [channel["name"] for channel in data["sports_channels"]] == ["ESPN"]
+        assert [channel["name"] for channel in data["channels"]] == [
+            "ESPN",
+            "HBO",
+            "ESPN 2 MEXICO HD",
+            "SP: MX: Espn 2 Full HD",
+        ]
+        sports_names = [channel["name"] for channel in data["sports_channels"]]
+        assert sports_names == ["ESPN", "ESPN 2 MEXICO"]
+        espn2 = data["sports_channels"][1]
+        assert len(espn2.get("backup_urls") or []) == 1
         assert len(data["now_next"]) >= 1
         # Catalog hydration is intentionally asynchronous. Test the deterministic
         # short-EPG normalizer directly instead of racing its background thread.
