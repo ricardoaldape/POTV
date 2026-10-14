@@ -1298,13 +1298,21 @@ class ContentGateway:
             if parsed and self.source_mode == "failover":
                 break
 
-        sports = self._merge_sports_variants([
+        raw_sports = [
             channel
             for channel in all_channels
             if _SPORTS.search(
                 f"{channel.get('name', '')} {channel.get('group', '')}"
             )
-        ])
+        ]
+        sports = self._merge_sports_variants(raw_sports)
+        # Replace noisy/duplicate sports rows in the general TV catalog too,
+        # otherwise Sports Hub can re-import them through partnerGeneral.
+        all_channels = [
+            channel
+            for channel in all_channels
+            if channel not in raw_sports
+        ] + sports
         metadata = self._metadata()
         guide = [
             *self._guide_payload(metadata),
