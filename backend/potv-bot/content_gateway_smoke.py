@@ -6,6 +6,7 @@ import tempfile
 import time
 import base64
 from urllib.parse import parse_qs, urlsplit
+from datetime import datetime, timedelta, timezone
 
 from content_gateway import ContentGateway
 
@@ -200,6 +201,13 @@ def run():
         )
         payload = gateway.catalog()
         data = payload["data"]
+
+        old_slot = (
+            datetime.now(timezone.utc).date() - timedelta(days=7)
+        ).strftime("%m/%d") + " NFL Example vs Example"
+        today_slot = datetime.now(timezone.utc).date().strftime("%m/%d") + " NFL Live"
+        assert gateway._is_stale_scheduled_entry(old_slot, "Deportes")
+        assert not gateway._is_stale_scheduled_entry(today_slot, "Deportes")
 
         assert [channel["name"] for channel in data["channels"]] == ["ESPN", "HBO"]
         assert [channel["name"] for channel in data["sports_channels"]] == ["ESPN"]
