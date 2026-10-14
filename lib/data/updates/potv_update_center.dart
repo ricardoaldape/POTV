@@ -100,7 +100,7 @@ class PotvUpdateCenter {
   }
 
   static PotvUpdateChannel defaultChannelForVersionName(String name) {
-    return RegExp(r'-beta\\.\\d+').hasMatch(name)
+    return RegExp(r'-beta\.\d+').hasMatch(name)
         ? PotvUpdateChannel.beta
         : PotvUpdateChannel.stable;
   }
