@@ -81,13 +81,22 @@ class _UpdateCenterScreenState extends State<UpdateCenterScreen> {
         channel: _channel,
         installed: installed,
       );
+      File? cached;
+      if (update != null) {
+        cached = await _updater.cachedVerifiedDownload(update);
+      } else {
+        await _updater.clearDownloadedUpdate();
+      }
       if (!mounted) return;
       setState(() {
         _installed = installed;
         _available = update;
+        _downloaded = cached;
         _message = update == null
             ? 'POTV está actualizado. No hay una versión más reciente publicada.'
-            : 'Hay una versión nueva disponible.';
+            : cached != null
+                ? 'La actualización ya está descargada y verificada.'
+                : 'Hay una versión nueva disponible.';
       });
     } catch (error) {
       if (!mounted) return;
@@ -178,28 +187,60 @@ class _UpdateCenterScreenState extends State<UpdateCenterScreen> {
 
   Future<void> _install() async {
     final apk = _downloaded;
-    if (apk == null || !mounted) return;
+    final release = _available;
+    if (apk == null || release == null || !mounted) return;
     try {
+      if (!await verifyPotvApk(apk, release)) {
+        await _updater.clearDownloadedUpdate();
+        if (!mounted) return;
+        setState(() {
+          _downloaded = null;
+          _failed = true;
+          _message = 'La APK cambió después de descargarse o está dañada. '
+              'POTV la eliminó; vuelve a descargarla.';
+        });
+        return;
+      }
+      final validation = await _updater.validateAndroidInstall(apk);
+      if (!mounted) return;
+      if (!validation.ok) {
+        setState(() {
+          _failed = true;
+          _message = switch (validation.code) {
+            'SIGNATURE_MISMATCH' =>
+              'Esta APK usa un certificado distinto al de la instalación actual. '
+                  'POTV no la instalará para evitar perder datos o romper futuras OTA.',
+            'VERSION_NOT_NEWER' =>
+              'La APK descargada no es más reciente que la versión instalada.',
+            'PACKAGE_MISMATCH' =>
+              'La APK descargada no pertenece a POTV.',
+            _ => validation.message,
+          };
+        });
+        return;
+      }
       if (!await _updater.canInstallApk()) {
         await _updater.openInstallPermissionSettings();
         if (!mounted) return;
         setState(() {
-          _message = 'Autoriza a POTV en los ajustes de Android y pulsa '
-              '«Instalar actualización» otra vez.';
+          _message = 'APK, versión y firma verificadas. Autoriza a POTV en '
+              'los ajustes de Android y pulsa «Instalar actualización» otra vez.';
         });
         return;
       }
       await _updater.requestAndroidInstall(apk);
       if (!mounted) return;
       setState(() {
-        _message = 'Android abrió su instalador. Confirma allí la actualización.';
+        _failed = false;
+        _message = 'APK, versión y firma verificadas. Android abrió su '
+            'instalador; confirma la actualización.';
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _failed = true;
-        _message = 'Android no pudo abrir el instalador. Verifica la firma '
-            'y que la versión sea más reciente.';
+        _message = 'Android no pudo abrir el instalador. POTV no modificó '
+            'la instalación actual.';
       });
     }
   }
@@ -247,7 +288,8 @@ class _UpdateCenterScreenState extends State<UpdateCenterScreen> {
                   title: Text('Actualizaciones verificadas'),
                   subtitle: Text(
                     'Sólo publicaciones oficiales de POTV. '
-                    'Descargas comprobadas con SHA-256 y firma Android.',
+                    'Se comprueban SHA-256, paquete, versión y certificado '
+                    'Android antes de abrir el instalador.',
                   ),
                 ),
               ],

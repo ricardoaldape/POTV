@@ -32,7 +32,7 @@ void main() {
   ) async {
     // Large TV-like viewport lets the fixture cards render within the
     // lazily built vertical list, independently of host test window size.
-    tester.view.physicalSize = const Size(1280, 1200);
+    tester.view.physicalSize = const Size(1280, 1700);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
       tester.view.resetPhysicalSize();
@@ -47,6 +47,13 @@ void main() {
         home: 'América',
         away: 'Pumas',
         startsAt: DateTime(day.year, day.month, day.day, 15),
+        streams: [
+          StreamCandidate(
+            id: 'soccer-stream',
+            label: 'Liga MX',
+            uri: Uri.parse('https://example.org/soccer.m3u8'),
+          ),
+        ],
       ),
       SportsEvent(
         id: 'nfl',
@@ -55,12 +62,28 @@ void main() {
         home: 'Chiefs',
         away: 'Bills',
         startsAt: DateTime(day.year, day.month, day.day, 18),
+        streams: [
+          StreamCandidate(
+            id: 'nfl-stream',
+            label: 'NFL',
+            uri: Uri.parse('https://example.org/nfl.m3u8'),
+          ),
+        ],
+      ),
+      SportsEvent(
+        id: 'no-signal',
+        sport: 'Soccer',
+        competition: 'Liga MX',
+        home: 'Sin',
+        away: 'Señal',
+        startsAt: DateTime(day.year, day.month, day.day, 19),
       ),
     ];
     final sportsChannel = LiveChannel(
       id: 'sports-news',
       name: 'POTV Deportes',
       group: 'TV Deportiva',
+      epgId: 'potv-deportes',
       stream: StreamCandidate(
         id: 'sports-news',
         label: 'TV Deportiva',
@@ -77,7 +100,32 @@ void main() {
               fetchedAt: DateTime.now(),
               sportsEvents: events,
               sportsChannels: [sportsChannel],
+              guidePrograms: [
+                EpgProgram(
+                  channelId: 'potv-deportes',
+                  title: 'Partido en vivo',
+                  startsAt: DateTime.now().subtract(
+                    const Duration(minutes: 10),
+                  ),
+                  endsAt: DateTime.now().add(
+                    const Duration(minutes: 50),
+                  ),
+                ),
+                EpgProgram(
+                  channelId: 'potv-deportes',
+                  title: 'Resumen deportivo',
+                  startsAt: DateTime.now().add(
+                    const Duration(minutes: 50),
+                  ),
+                  endsAt: DateTime.now().add(
+                    const Duration(minutes: 80),
+                  ),
+                ),
+              ],
             ),
+          ),
+          starterSportsChannelsProvider.overrideWith(
+            (ref) => <LiveChannel>[],
           ),
           builtInSportsChannelsProvider.overrideWith(
             (ref) async => <LiveChannel>[],
@@ -97,8 +145,21 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
+    expect(find.text('PARRILLA EN VIVO'), findsOneWidget);
+    expect(find.text('CANALES DEPORTIVOS'), findsOneWidget);
+    expect(find.text('Partido en vivo'), findsOneWidget);
+    expect(find.text('Después · Resumen deportivo'), findsOneWidget);
+    expect(find.text('América vs Pumas'), findsOneWidget);
+    expect(find.text('Sin vs Señal'), findsNothing);
+
+    await tester.tap(find.byKey(
+      const ValueKey('sports-category-soccer'),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('América vs Pumas'), findsOneWidget);
     expect(find.text('Chiefs vs Bills'), findsNothing);
+    expect(find.text('Sin vs Señal'), findsNothing);
 
     await tester.tap(find.byKey(
       const ValueKey('sports-category-americanFootball'),
@@ -117,7 +178,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('TV DEPORTIVA'), findsOneWidget);
-    expect(find.text('POTV Deportes'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sports-channel-sports-news')), findsOneWidget);
     expect(find.text('Chiefs vs Bills'), findsNothing);
     expect(find.byKey(const ValueKey('sports-language-spanish')), findsOneWidget);
     await tester.ensureVisible(find.byKey(const ValueKey('sports-language-english')));
@@ -126,7 +187,7 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(SportsChannelLanguage.preferenceKey), 'english');
     // The unlabeled fallback sports station is not discarded.
-    expect(find.text('POTV Deportes'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sports-channel-sports-news')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('sports-language-all')));
     await tester.pump();
     expect(prefs.getString(SportsChannelLanguage.preferenceKey), 'all');

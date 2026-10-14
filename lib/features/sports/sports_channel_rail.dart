@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/catalog/partner_content_repository.dart';
+import '../../data/sources/stream_candidate_probe.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/services/sports_channel_language.dart';
 import '../../domain/models/playback_session.dart';
 
 /// Horizontal directory shared by category pages and "TV deportiva".
 /// Uses a lazy list and deliberately does not truncate the first 18 channels.
-class SportsChannelRail extends StatelessWidget {
+class SportsChannelRail extends ConsumerWidget {
   final List<LiveChannel> channels;
   final SportsLanguagePreference preferredLanguage;
   static const _language = SportsChannelLanguage();
@@ -18,8 +21,74 @@ class SportsChannelRail extends StatelessWidget {
     this.preferredLanguage = SportsLanguagePreference.all,
   });
 
+  Future<void> _play(
+    BuildContext context,
+    WidgetRef ref,
+    LiveChannel selected,
+  ) async {
+    var channel = selected;
+    if (selected.id.startsWith('partner:')) {
+      final snapshot = await ref
+          .read(partnerContentRepositoryProvider)
+          .load(forceRefresh: true);
+      final matches = [...snapshot.sportsChannels, ...snapshot.channels]
+          .where((item) => item.id == selected.id);
+      if (matches.isNotEmpty) {
+        channel = matches.first;
+        ref.invalidate(partnerContentProvider);
+      }
+    }
+
+    final ordered = _language.orderedStreams(channel, preferredLanguage);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2.4),
+            ),
+            SizedBox(width: 16),
+            Expanded(child: Text('Verificando señal…')),
+          ],
+        ),
+      ),
+    );
+
+    final playable = await ref.read(streamCandidateProbeProvider).preferReachable(
+          ordered,
+          dropDeadWhenCertain: true,
+        );
+
+    if (!context.mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+
+    if (playable.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Esta señal no está respondiendo. Prueba otro canal o actualiza.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    context.push(
+      '/player',
+      extra: PlaybackSession(
+        title: channel.name,
+        candidates: playable,
+        isLive: true,
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (channels.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
@@ -42,14 +111,7 @@ class SportsChannelRail extends StatelessWidget {
               child: InkWell(
                 key: ValueKey('sports-channel-${channel.id}'),
                 autofocus: false,
-                onTap: () => context.push(
-                  '/player',
-                  extra: PlaybackSession(
-                    title: channel.name,
-                    candidates: ordered,
-                    isLive: true,
-                  ),
-                ),
+                onTap: () => _play(context, ref, channel),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Column(

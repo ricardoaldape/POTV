@@ -43,6 +43,34 @@ void main() {
     expect(snapshot.sportsChannels.single.stream.uri.path, endsWith('.mpd'));
   });
 
+  test('authorized partner catalog accepts licensed premium channel names', () {
+    final snapshot = PartnerContentSnapshot.parse({
+      'data': {
+        'revision': 'licensed-1',
+        'channels': [
+          {
+            'id': 'licensed-espn',
+            'name': 'ESPN',
+            'group': 'Deportes',
+            'hls_url': 'https://licensed.example/live/espn.m3u8',
+          },
+          {
+            'id': 'licensed-hbo',
+            'name': 'HBO',
+            'group': 'Cine y series',
+            'hls_url': 'https://licensed.example/live/hbo.m3u8',
+          },
+        ],
+      }
+    });
+
+    expect(snapshot.channels.map((item) => item.name), containsAll(['ESPN', 'HBO']));
+    expect(
+      snapshot.channels.every((item) => item.id.startsWith('partner:tv:')),
+      isTrue,
+    );
+  });
+
   test('sports event keeps only streams attached to that event', () {
     final snapshot = PartnerContentSnapshot.parse({
       'data': {

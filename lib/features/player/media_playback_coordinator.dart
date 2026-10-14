@@ -2,17 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/history/stream_server_health_repository.dart';
-import '../../data/sources/stream_candidate_probe.dart';
-import '../../data/sources/unified_source_resolver.dart';
+import '../../data/catalog/series_episode_repository.dart';
+import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
-import '../../domain/models/stream_candidate.dart';
-import '../../domain/services/stream_candidate_ranker.dart';
 
 class MediaPlaybackCoordinator {
-  static const _ranker = StreamCandidateRanker();
-
   const MediaPlaybackCoordinator._();
 
   static Future<void> play(
@@ -74,34 +69,15 @@ class MediaPlaybackCoordinator {
     );
 
     try {
-      final candidates = await ref.read(unifiedSourceResolverProvider).resolve(
-            mediaType: item.mediaTypeName,
-            mediaId: item.id.toString(),
-            externalId: item.externalId,
-            title: item.title,
-            year: item.year,
-            season: season,
-            episode: episode,
-          );
-
-      final inAppCandidates = candidates
-          .where((candidate) => candidate.backend != PlaybackBackend.external)
-          .toList(growable: false);
-      final ranked = _ranker.rank(inAppCandidates);
-      final probed = ranked.isEmpty
-          ? ranked
-          : await ref.read(streamCandidateProbeProvider).preferReachable(ranked);
-      final playbackContext = PlaybackContext(
-        mediaId: item.id,
-        mediaType: item.mediaTypeName,
-        title: item.title,
-        externalId: item.externalId,
+      final request = PlaybackPreparationRequest.fromMediaItem(
+        item,
         season: season,
         episode: episode,
-        poster: item.poster?.toString(),
       );
-      final playable = await const StreamServerHealthRepository()
-          .rankFor(playbackContext.historyKey, probed);
+      final prepared =
+          await ref.read(playbackPreparationServiceProvider).prepare(request);
+      final playbackContext = request.playbackContext;
+      final playable = prepared.candidates;
 
       if (!context.mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -112,6 +88,13 @@ class MediaPlaybackCoordinator {
         await _showNoSource(context, item);
         return;
       }
+
+      final autoplayQueue = await _autoplayQueue(
+        ref,
+        item,
+        season: season,
+        episode: episode,
+      );
 
       final title = switch (item.type) {
         MediaType.movie => item.title,
@@ -126,6 +109,8 @@ class MediaPlaybackCoordinator {
           title: title,
           candidates: playable,
           playbackContext: playbackContext,
+          subtitles: prepared.subtitles,
+          autoplayQueue: autoplayQueue,
         ),
       );
     } catch (error) {
@@ -141,6 +126,55 @@ class MediaPlaybackCoordinator {
           ),
         ),
       );
+    }
+  }
+
+  static Future<List<PlaybackContext>> _autoplayQueue(
+    WidgetRef ref,
+    MediaItem item, {
+    int? season,
+    int? episode,
+  }) async {
+    if (episode == null || item.type == MediaType.movie) return const [];
+
+    if (item.type == MediaType.anime) {
+      final count = item.episodeCount;
+      if (count == null || episode >= count) return const [];
+      final end = (episode + 20).clamp(episode + 1, count);
+      return [
+        for (var next = episode + 1; next <= end; next++)
+          PlaybackContext(
+            mediaId: item.id,
+            mediaType: item.mediaTypeName,
+            title: item.title,
+            externalId: item.externalId,
+            episode: next,
+            poster: item.poster?.toString(),
+          ),
+      ];
+    }
+
+    try {
+      final episodes =
+          await ref.read(seriesEpisodeRepositoryProvider).load(item);
+      final index = episodes.indexWhere(
+        (value) => value.season == season && value.episode == episode,
+      );
+      if (index < 0 || index + 1 >= episodes.length) return const [];
+      return [
+        for (final next in episodes.skip(index + 1).take(20))
+          PlaybackContext(
+            mediaId: item.id,
+            mediaType: item.mediaTypeName,
+            title: item.title,
+            externalId: item.externalId,
+            season: next.season,
+            episode: next.episode,
+            poster: item.poster?.toString(),
+          ),
+      ];
+    } catch (_) {
+      return const [];
     }
   }
 

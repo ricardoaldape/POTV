@@ -268,9 +268,11 @@ class LiveChannelsController extends AsyncNotifier<List<LiveChannel>> {
     List<LiveChannel> custom,
   ) => const LiveTvOrganizer().merge(
         partner: const [],
-        local: custom,
+        // Mexico/regional built-ins are ordinary TV channels. Sports-only
+        // sources are merged separately by Sports Hub / LiveTvScreen.
+        local: [...builtIn, ...custom],
         partnerSports: const [],
-        publicSports: builtIn,
+        publicSports: const [],
       );
 
 }
@@ -282,14 +284,22 @@ final epgProgramsProvider =
 
 class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
   static const _sourceKey = 'live_tv_xmltv_url';
-  final Dio _dio = Dio();
+  static const _defaultMexicoEpg =
+      'https://raw.githubusercontent.com/acidjesuz/EPGTalk/master/Latino_lite.xml.gz';
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 20),
+    ),
+  );
 
   @override
   Future<List<EpgProgram>> build() async {
     final prefs = await SharedPreferences.getInstance();
-    final url = prefs.getString(_sourceKey);
-    if (url == null || url.trim().isEmpty) return const [];
-    return _load(url);
+    final url = prefs.getString(_sourceKey)?.trim();
+    return _load(
+      url == null || url.isEmpty ? _defaultMexicoEpg : url,
+    );
   }
 
   Future<void> setSource(String url) async {
@@ -301,20 +311,41 @@ class EpgProgramsController extends AsyncNotifier<List<EpgProgram>> {
 
   Future<void> refresh() async {
     final prefs = await SharedPreferences.getInstance();
-    final url = prefs.getString(_sourceKey);
-    if (url == null || url.trim().isEmpty) {
-      state = const AsyncData([]);
-      return;
-    }
+    final url = prefs.getString(_sourceKey)?.trim();
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _load(url));
+    state = await AsyncValue.guard(
+      () => _load(url == null || url.isEmpty ? _defaultMexicoEpg : url),
+    );
   }
 
   Future<List<EpgProgram>> _load(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      return const [];
+    }
+
+    if (uri.path.toLowerCase().endsWith('.gz')) {
+      final response = await _dio.get<List<int>>(
+        uri.toString(),
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty || bytes.length > 15 * 1024 * 1024) {
+        return const [];
+      }
+      final decoded = utf8.decode(gzip.decode(bytes), allowMalformed: true);
+      return XmlTvParser.parse(decoded);
+    }
+
     final response = await _dio.get<String>(
-      url,
+      uri.toString(),
       options: Options(responseType: ResponseType.plain),
     );
-    return XmlTvParser.parse(response.data ?? '');
+    final raw = response.data ?? '';
+    if (raw.length > 40 * 1024 * 1024) return const [];
+    return XmlTvParser.parse(raw);
   }
 }

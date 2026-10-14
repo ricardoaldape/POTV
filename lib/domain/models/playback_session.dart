@@ -1,5 +1,17 @@
 import 'stream_candidate.dart';
 
+class PlaybackSubtitle {
+  final Uri uri;
+  final String language;
+  final String label;
+
+  const PlaybackSubtitle({
+    required this.uri,
+    required this.language,
+    required this.label,
+  });
+}
+
 class PlaybackContext {
   final int mediaId;
   final String mediaType;
@@ -35,6 +47,8 @@ class PlaybackSession {
   final List<StreamCandidate> candidates;
   final int initialIndex;
   final PlaybackContext? playbackContext;
+  final List<PlaybackSubtitle> subtitles;
+  final List<PlaybackContext> autoplayQueue;
   final bool isLive;
 
   const PlaybackSession({
@@ -42,6 +56,8 @@ class PlaybackSession {
     required this.candidates,
     this.initialIndex = 0,
     this.playbackContext,
+    this.subtitles = const [],
+    this.autoplayQueue = const [],
     this.isLive = false,
   });
 

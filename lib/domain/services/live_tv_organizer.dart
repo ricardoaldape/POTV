@@ -5,10 +5,11 @@ import 'sports_hub_organizer.dart';
 
 enum LiveTvCategory {
   all,
-  sports,
+  regional,
   news,
-  movies,
+  sports,
   entertainment,
+  movies,
   kids,
   music,
   documentary,
@@ -30,6 +31,7 @@ extension LiveTvCategoryInfo on LiveTvCategory {
         LiveTvCategory.documentary => 'Documentales',
         LiveTvCategory.culture => 'Cultura',
         LiveTvCategory.lifestyle => 'Estilo de vida',
+        LiveTvCategory.regional => 'Regional',
         LiveTvCategory.international => 'Internacional',
         LiveTvCategory.other => 'Otros',
       };
@@ -99,6 +101,25 @@ class LiveTvOrganizer {
     return terms.any((term) => value.contains(' $term '));
   }
 
+  bool isAllowedChannel(LiveChannel channel) {
+    final raw = '${channel.name} ${channel.group ?? ''}'.toLowerCase();
+    if (RegExp(r'(^|[^0-9])(?:18\+|\+18)([^0-9]|$)').hasMatch(raw)) {
+      return false;
+    }
+    final text = normalize(raw);
+    final padded = ' $text ';
+    const blocked = <String>[
+      'adultos', 'adulto', 'adult', 'xxx', 'porno', 'porn',
+      'pornografia', 'pornografico', 'pornografica',
+      'erotico', 'eroticos', 'erotica', 'eroticas', 'erotic',
+      'desnudos', 'desnudas', 'desnudo', 'nude', 'nudity',
+      'sex tv', 'sex channel', 'playboy', 'penthouse', 'hustler',
+      'brazzers', 'redlight',
+    ];
+    if (blocked.any((term) => padded.contains(' $term '))) return false;
+    return true;
+  }
+
   LiveTvCategory categoryFor(LiveChannel channel) {
     final group = normalize(channel.group ?? '');
     final name = normalize(channel.name);
@@ -109,18 +130,36 @@ class LiveTvOrganizer {
       return LiveTvCategory.sports;
     }
     if (_containsAny(text, const [
+      'regional', 'local', 'estatal', 'municipal',
+      'aguascalientes', 'baja california', 'campeche', 'chiapas',
+      'chihuahua', 'coahuila', 'colima', 'durango', 'guanajuato',
+      'guerrero', 'hidalgo', 'jalisco', 'michoacan', 'morelos',
+      'nayarit', 'nuevo leon', 'oaxaca', 'puebla', 'queretaro',
+      'quintana roo', 'san luis', 'sinaloa', 'sonora', 'tabasco',
+      'tamaulipas', 'tlaxcala', 'veracruz', 'yucatan', 'zacatecas',
+      'monterrey', 'saltillo', 'laguna', 'chetumal', 'guadalajara',
+      'mexiquense', 'edomex', 'capital 21', 'cdmx',
+      'cozumel', 'cancun', 'cancún', 'merida', 'merida yucatan',
+      'leon guanajuato', 'tepic', 'toluca', 'cuernavaca',
+      'acapulco', 'tuxtla', 'villahermosa', 'hermosillo',
+      'culiacan', 'culiacán', 'torreon', 'torreón', 'juarez', 'juárez',
+    ])) return LiveTvCategory.regional;
+    if (_containsAny(text, const [
       'news', 'noticias', 'informativo', 'informativos', 'noticiero',
       'cnn', 'adn 40', 'milenio', 'bbc news', 'dw espanol',
     ])) return LiveTvCategory.news;
 
     if (_containsAny(text, const [
       'kids', 'kids tv', 'infantil', 'infantiles', 'ninos', 'children',
-      'cartoon', 'nickelodeon', 'animacion', 'animados', 'baby tv',
+      'cartoon', 'nickelodeon', 'nick jr', 'disney channel', 'disney jr',
+      'disney xd', 'animacion', 'animados', 'baby tv', 'discovery kids',
     ])) return LiveTvCategory.kids;
 
     if (_containsAny(text, const [
       'cine', 'movies', 'movie', 'peliculas', 'series', 'cinema',
-      'film', 'filmes', 'filmoteca',
+      'film', 'filmes', 'filmoteca', 'axn', 'amc', 'hbo', 'cinemax',
+      'sony channel', 'warner channel', 'universal tv', 'star channel',
+      'fx', 'tnt', 'paramount channel',
     ])) return LiveTvCategory.movies;
 
     if (_containsAny(text, const [
@@ -131,7 +170,9 @@ class LiveTvOrganizer {
     if (_containsAny(text, const [
       'documentary', 'documentaries', 'documental', 'documentales',
       'nature', 'naturaleza', 'science', 'ciencia', 'historia',
-      'history', 'discovery',
+      'history', 'history channel', 'discovery', 'discovery channel',
+      'discovery science', 'natgeo', 'nat geo', 'national geographic',
+      'animal planet', 'investigation discovery', 'id discovery',
     ])) return LiveTvCategory.documentary;
 
     if (_containsAny(text, const [
@@ -148,6 +189,9 @@ class LiveTvOrganizer {
     if (_containsAny(text, const [
       'entertainment', 'entretenimiento', 'variedades',
       'humor', 'comedy', 'reality', 'show', 'shows',
+      'las estrellas', 'azteca uno', 'azteca 7', 'canal 5',
+      'fox', 'televisa', 'telemundo', 'unicable', 'distrito comedia',
+      'e entertainment', 'tlc',
     ])) return LiveTvCategory.entertainment;
 
     if (_containsAny(group, const [
@@ -194,6 +238,7 @@ class LiveTvOrganizer {
       ...partnerSports.map(_declaredSports),
       ...publicSports.map(_declaredSports),
     ]) {
+      if (!isAllowedChannel(channel)) continue;
       final name = normalize(channel.name);
       if (name.isEmpty) continue;
       final epg = normalize(channel.epgId ?? '');

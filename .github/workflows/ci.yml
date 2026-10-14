@@ -28,17 +28,11 @@ jobs:
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate Android platform
+      - name: Verify committed Android platform
         run: |
-          flutter create --platforms=android --org com.potv --project-name potv .
-          cp tool/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
-          cp tool/icons/mipmap-mdpi/ic_launcher.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
-          cp tool/icons/mipmap-hdpi/ic_launcher.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
-          cp tool/icons/mipmap-xhdpi/ic_launcher.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
-          cp tool/icons/mipmap-xxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-          cp tool/icons/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-          mkdir -p android/app/src/main/res/drawable
-          cp tool/tv_banner.png android/app/src/main/res/drawable/tv_banner.png
+          test -f android/app/src/main/AndroidManifest.xml
+          test -f android/app/src/main/kotlin/com/potv/potv/MainActivity.kt
+          test -f android/app/src/main/res/xml/potv_update_paths.xml
 
       - name: Dependencies
         run: flutter pub get
@@ -65,7 +59,7 @@ jobs:
               print(f'POTV resolver endpoints configured: {len(data)}')
           PY
 
-      - name: Build V6 APK
+      - name: Build QA APK (not OTA)
         env:
           POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
           POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
@@ -93,10 +87,10 @@ jobs:
           if [ -n "$TMDB_API_KEY" ]; then
             args+=("--dart-define=TMDB_API_KEY=$TMDB_API_KEY")
           fi
-          flutter build apk --release "${args[@]}"
+          flutter build apk --debug "${args[@]}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: POTV-V6-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: POTV-QA-DEBUG-APK
+          path: build/app/outputs/flutter-apk/app-debug.apk

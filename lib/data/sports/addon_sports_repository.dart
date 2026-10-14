@@ -141,6 +141,23 @@ class AddonSportsRepository {
     String genre,
   ) {
     final normalizedGenre = _normalize(genre);
+
+    if (normalizedGenre == 'networks') {
+      for (final catalog in catalogs) {
+        final type = _text(catalog['type'])?.toLowerCase();
+        if (type != 'tv' && type != 'channel' && type != 'series') continue;
+        final id = _normalize(_text(catalog['id']) ?? '');
+        final name = _normalize(_text(catalog['name']) ?? '');
+        final haystack = '$id $name';
+        if (haystack.contains('network') &&
+            !haystack.contains('replay') &&
+            !haystack.contains('upcoming')) {
+          return [catalog];
+        }
+      }
+      return const [];
+    }
+
     final live = <Map<String, dynamic>>[];
     final sportSpecific = <Map<String, dynamic>>[];
 

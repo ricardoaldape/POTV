@@ -13,7 +13,7 @@ class AppConfig {
   // Authorized provider API base, no tokens embedded.
   static const partnerApiBaseUrl = String.fromEnvironment(
     'POTV_PARTNER_API_BASE_URL',
-    defaultValue: '',
+    defaultValue: 'https://potv.fxqubit.com/api/v1/',
   );
 
   static const partnerSourcesUrl = String.fromEnvironment(
@@ -23,7 +23,7 @@ class AppConfig {
 
   static const partnerCatalogUrl = String.fromEnvironment(
     'POTV_PARTNER_CATALOG_URL',
-    defaultValue: '',
+    defaultValue: 'https://potv.fxqubit.com/api/v1/content/catalog',
   );
 
   static const resolverEndpointsJson = String.fromEnvironment(

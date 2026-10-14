@@ -29,6 +29,10 @@ final builtInSportsChannelsProvider =
   return ref.read(builtInLiveSourceRegistryProvider).sports();
 });
 
+final starterSportsChannelsProvider = Provider<List<LiveChannel>>((ref) {
+  return ref.read(builtInLiveSourceRegistryProvider).starterSports();
+});
+
 class BuiltInLiveSourceRegistry {
   static const _dearbulutMexico =
       'https://dearbulut.github.io/iptv/playlists/country/mx.m3u';
@@ -37,32 +41,67 @@ class BuiltInLiveSourceRegistry {
 
   static const _iptvOrgMexico =
       'https://iptv-org.github.io/iptv/countries/mx.m3u';
+  static const _achoMexico =
+      'https://www.achoapps.com/listas/mexico3.m3u';
+
+  // Source documents supplied to POTV by the authorized LivSportz partner.
+  // The partner has already scoped/cleared these catalogs for POTV, so channel
+  // entitlement is inherited from the source list instead of inferred from
+  // each brand/name. Credentials/tokens are still never embedded in the APK.
+  static const _livSportzAuthorizedSources = <String>[
+    _achoMexico,
+    'https://bit.ly/_TVMEX',
+    'https://tvplayerlatino.com/lista.m3u',
+    'https://bit.ly/Lat1N0s',
+    'https://bit.ly/_Latinotv',
+    'https://bit.ly/_latinovariado',
+    'https://bit.ly/VIP-LIST4',
+    'https://bit.ly/ListaFluxs',
+    'https://bit.ly/ListAlterna',
+  ];
+
   static const _iptvOrgSports =
       'https://iptv-org.github.io/iptv/categories/sports.m3u';
 
   final Dio _dio;
+  List<LiveChannel>? _mexicoCache;
+  DateTime? _mexicoCacheAt;
 
   BuiltInLiveSourceRegistry(this._dio);
 
   Future<List<LiveChannel>> mexico() async {
+    final cached = _mexicoCache;
+    final cachedAt = _mexicoCacheAt;
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(minutes: 15)) {
+      return cached;
+    }
+
+    final publicChannels = await _loadMerged([
+      _dearbulutMexico,
+      _iptvOrgMexico,
+    ]);
+    final partnerChannels =
+        await _loadAuthorizedPartner(_livSportzAuthorizedSources);
     final channels = _dedupe([
       ..._starterMexico(),
-      ...await _loadMerged([
-        _dearbulutMexico,
-        _iptvOrgMexico,
-      ]),
+      ...publicChannels,
+      ...partnerChannels,
     ]);
     channels.sort((a, b) {
       final score = _mexicoPriority(b).compareTo(_mexicoPriority(a));
       if (score != 0) return score;
       return a.name.compareTo(b.name);
     });
-    return channels;
+    _mexicoCache = List.unmodifiable(channels);
+    _mexicoCacheAt = DateTime.now();
+    return _mexicoCache!;
   }
 
   Future<List<LiveChannel>> sports() async {
     final channels = _dedupe([
-      ..._starterSports(),
+      ...starterSports(),
       ...await _loadMerged([
         _dearbulutSports,
         _iptvOrgSports,
@@ -103,7 +142,7 @@ class BuiltInLiveSourceRegistry {
         ),
       ];
 
-  List<LiveChannel> _starterSports() => [
+  List<LiveChannel> starterSports() => [
         _channel(
           id: 'potv-sport-fifa-hispanic',
           name: 'FIFA+ Hispanic America',
@@ -160,7 +199,27 @@ class BuiltInLiveSourceRegistry {
     ]);
   }
 
-  Future<List<LiveChannel>> _tryLoad(String url) async {
+  Future<List<LiveChannel>> _loadAuthorizedPartner(List<String> urls) async {
+    final results = await Future.wait([
+      for (final url in urls) _tryLoad(url, authorizedLivSportz: true),
+    ]);
+    return _dedupe([
+      for (final channels in results) ...channels,
+    ]);
+  }
+
+  Future<List<LiveChannel>> _tryLoad(
+    String url, {
+    bool authorizedLivSportz = false,
+  }) async {
+    final sourceUri = Uri.tryParse(url);
+    if (sourceUri == null ||
+        sourceUri.scheme != 'https' ||
+        sourceUri.host.isEmpty ||
+        sourceUri.userInfo.isNotEmpty ||
+        _containsSensitiveQuery(sourceUri)) {
+      return const [];
+    }
     try {
       final response = await _dio.get<String>(
         url,
@@ -169,18 +228,161 @@ class BuiltInLiveSourceRegistry {
       final raw = response.data ?? '';
       if (raw.trim().isEmpty) return const [];
 
-      return M3uParser.parse(raw)
-          .where(_isBuiltInAllowed)
+      final parsed = M3uParser.parse(raw)
+          .map(_cleanDisplayChannel)
           .toList(growable: false);
-    } on DioException {
+      return parsed
+          .where((channel) => !_isPromotionalEntry(channel))
+          .where((channel) => !_isAdultEntry(channel))
+          .where(
+            authorizedLivSportz
+                ? _isAuthorizedLivSportzChannel
+                : _isBuiltInAllowed,
+          )
+          .toList(growable: false);
+    } on Object {
+      // One malformed, redirected or temporarily unavailable partner list
+      // must never take down the rest of the Mexico catalog.
       return const [];
     }
+  }
+
+  bool _isAdultEntry(LiveChannel channel) {
+    final text = '${channel.name} ${channel.group ?? ''}'
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9+]+'), ' ');
+    const blocked = <String>[
+      'adultos', 'adulto', 'adult', 'xxx', 'porno', 'porn',
+      'pornografia', 'pornografico', 'erotico', 'erotica', 'erotic',
+      'desnudos', 'desnudas', 'desnudo', 'nude', 'nudity',
+      'sex tv', 'sex channel', 'playboy', 'penthouse', 'hustler',
+      'brazzers', 'redlight',
+    ];
+    if (blocked.any((term) => RegExp('(^| )' + RegExp.escape(term) + r'( |$)')
+        .hasMatch(text))) {
+      return true;
+    }
+    final compact = text.replaceAll(' ', '');
+    return compact.contains('+18') || compact.contains('18+');
+  }
+
+  LiveChannel _cleanDisplayChannel(LiveChannel channel) {
+    var name = channel.name.trim();
+
+    name = name.replaceAll(
+      RegExp(
+        '(?:https?://)?(?:www[.])?achoapps[.]com',
+        caseSensitive: false,
+      ),
+      '',
+    );
+
+    final lower = name.toLowerCase().trimLeft();
+    for (final prefix in const [
+      'mx | ',
+      'mx - ',
+      'mexico | ',
+      'mexico - ',
+      'méxico | ',
+      'méxico - ',
+    ]) {
+      if (lower.startsWith(prefix)) {
+        name = name.trimLeft().substring(prefix.length);
+        break;
+      }
+    }
+
+    const qualities = ['sd', 'hd', 'fhd', 'uhd', '4k', '720p', '1080p'];
+    for (final quality in qualities) {
+      for (final separator in const [' | ', ' - ', ' · ']) {
+        final suffix = '$separator$quality';
+        if (name.toLowerCase().endsWith(suffix)) {
+          name = name.substring(0, name.length - suffix.length);
+          break;
+        }
+      }
+      final wrapped = '($quality)';
+      if (name.toLowerCase().endsWith(wrapped)) {
+        name = name.substring(0, name.length - wrapped.length);
+      }
+    }
+
+    name = name.replaceAll(RegExp(' +'), ' ').trim();
+    if (name.isEmpty) name = channel.name.trim();
+
+    StreamCandidate relabel(StreamCandidate stream) => StreamCandidate(
+          id: stream.id,
+          label: name,
+          uri: stream.uri,
+          headers: stream.headers,
+          backend: stream.backend,
+          language: stream.language,
+          quality: stream.quality,
+          externalAudioUri: stream.externalAudioUri,
+          allowedHosts: stream.allowedHosts,
+          directWebView: stream.directWebView,
+        );
+
+    return LiveChannel(
+      id: channel.id,
+      name: name,
+      group: channel.group,
+      epgId: channel.epgId,
+      logo: channel.logo,
+      stream: relabel(channel.stream),
+      backupStreams: [
+        for (final stream in channel.backupStreams) relabel(stream),
+      ],
+    );
+  }
+
+  bool _isPromotionalEntry(LiveChannel channel) {
+    final text = channel.name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    const blocked = <String>[
+      'mejor proveedor',
+      'proveedor de iptv',
+      'iptv premium',
+      'mas de 3000 canales',
+      'más de 3000 canales',
+      'suscripcion iptv',
+      'suscripción iptv',
+      'contrata iptv',
+      'whatsapp',
+      'telegram',
+      'visita nuestro',
+    ];
+    return blocked.any(text.contains);
+  }
+
+  bool _isAuthorizedLivSportzChannel(LiveChannel channel) {
+    if (!_isSafePublicStream(channel.stream.uri)) return false;
+
+    // Do not re-license by channel name. If LivSportz supplied the source list,
+    // brands such as ESPN/TUDN/HBO/Disney/AXN/DAZN remain eligible here when
+    // delivered through a safe HTTPS source. Credential-bearing or cleartext
+    // partner feeds belong behind PartnerContentRepository's HTTPS gateway.
+    return true;
+  }
+
+  bool _containsSensitiveQuery(Uri uri) {
+    const sensitive = <String>{
+      'username', 'user', 'password', 'pass', 'token', 'auth',
+      'apikey', 'api_key', 'key', 'secret', 'signature', 'sig',
+      'hdnea', 'expires', 'session',
+    };
+    return uri.queryParameters.keys
+        .map((key) => key.toLowerCase())
+        .any(sensitive.contains);
   }
 
   bool _isBuiltInAllowed(LiveChannel channel) {
     if (!_isSafePublicStream(channel.stream.uri)) return false;
 
     final name = channel.name.toLowerCase();
+    // This block applies only to anonymous/public built-in playlists.
+    // Licensed partner channels are delivered by PartnerContentRepository and
+    // are allowed regardless of brand when their entitlement comes from the
+    // authorized gateway.
     const excluded = <String>[
       'hbo',
       'cinemax',
@@ -201,6 +403,15 @@ class BuiltInLiveSourceRegistry {
       'national geographic',
       'comedy central',
       'axn',
+      'star channel',
+      'fx ',
+      'paramount',
+      'universal tv',
+      'warner',
+      'history channel',
+      'animal planet',
+      'amc',
+      'sony channel',
     ];
 
     return !excluded.any(name.contains);
@@ -255,6 +466,9 @@ class BuiltInLiveSourceRegistry {
 
   bool _isSafePublicStream(Uri uri) {
     if (uri.scheme != 'https') return false;
+    if (uri.userInfo.isNotEmpty) return false;
+
+    if (_containsSensitiveQuery(uri)) return false;
 
     final host = uri.host.toLowerCase();
     if (host.isEmpty ||
@@ -280,13 +494,36 @@ class BuiltInLiveSourceRegistry {
     return true;
   }
 
+  String _canonicalChannelName(String value) {
+    var name = value.toLowerCase();
+    name = name.replaceAll(
+      RegExp(r'\[(?:[^\]]*not\s*24\s*/?\s*7[^\]]*)\]', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\((?:2160|1440|1080|720|576|480|360)p\)', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'\|\s*(?:uhd|fhd|hd|sd)\b', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(r'www\.achoapps\.com', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return name;
+  }
+
   List<LiveChannel> _dedupe(List<LiveChannel> channels) {
     final seen = <String>{};
     final result = <LiveChannel>[];
 
     for (final channel in channels) {
-      final epg = channel.epgId?.trim().toLowerCase() ?? '';
-      final name = channel.name.trim().toLowerCase();
+      final rawEpg = channel.epgId?.trim().toLowerCase() ?? '';
+      final epg = rawEpg.split('@').first.trim();
+      final name = _canonicalChannelName(channel.name);
       final key = epg.isNotEmpty ? 'epg:$epg' : 'name:$name';
 
       if (seen.add(key)) result.add(channel);

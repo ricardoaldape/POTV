@@ -29,6 +29,7 @@ class PotvShell extends StatefulWidget {
 class _PotvShellState extends State<PotvShell>
     with WidgetsBindingObserver {
   static const _lastCheckKey = 'potv_update_last_check_ms';
+  static const _lastAttemptKey = 'potv_update_last_attempt_ms';
   static const _lastAlertedKey = 'potv_update_last_alerted_tag';
   bool _checkingUpdate = false;
 
@@ -55,13 +56,24 @@ class _PotvShellState extends State<PotvShell>
     _checkingUpdate = true;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final previous = prefs.getInt(_lastCheckKey) ?? 0;
+      final previousSuccess = prefs.getInt(_lastCheckKey) ?? 0;
+      final previousAttempt = prefs.getInt(_lastAttemptKey) ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - previous < const Duration(hours: 12).inMilliseconds &&
-          now >= previous) {
+      if (now >= previousSuccess &&
+          now - previousSuccess < const Duration(hours: 12).inMilliseconds) {
         return;
       }
-      final updater = PotvUpdateCenter(Dio());
+      if (now >= previousAttempt &&
+          now - previousAttempt < const Duration(hours: 1).inMilliseconds) {
+        return;
+      }
+      await prefs.setInt(_lastAttemptKey, now);
+      final updater = PotvUpdateCenter(
+        Dio(BaseOptions(
+          connectTimeout: const Duration(seconds: 8),
+          receiveTimeout: const Duration(seconds: 12),
+        )),
+      );
       final installed = await updater.installedVersion();
       final channel = await updater.selectedChannel();
       final release = await updater.check(

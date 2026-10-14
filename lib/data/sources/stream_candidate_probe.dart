@@ -24,11 +24,9 @@ class StreamCandidateProbe {
   Future<List<StreamCandidate>> preferReachable(
     List<StreamCandidate> ranked, {
     int maxProbe = 6,
+    bool dropDeadWhenCertain = false,
   }) async {
-    if (ranked.isEmpty ||
-        (ranked.length == 1 && ranked.first.backend != PlaybackBackend.webView)) {
-      return ranked;
-    }
+    if (ranked.isEmpty) return ranked;
 
     final toProbe = ranked.take(maxProbe).toList(growable: false);
     final results = await Future.wait([
@@ -55,9 +53,12 @@ class StreamCandidateProbe {
     final remaining = ranked.skip(toProbe.length).toList(growable: false);
 
     if (healthy.isEmpty) {
+      if (dropDeadWhenCertain && unknown.isEmpty && remaining.isEmpty) {
+        return const [];
+      }
       // A probe can be blocked while the native player is still accepted.
       // Keep the original order instead of turning a false negative into
-      // "no source".
+      // "no source" unless every probed candidate is conclusively dead.
       return ranked;
     }
 
@@ -113,9 +114,38 @@ class StreamCandidateProbe {
       return _ProbeAssessment(_ProbeResult.unknown, candidate);
     }
 
-    if (candidate.backend != PlaybackBackend.native ||
-        !_looksLikeHls(candidate.uri)) {
+    if (candidate.backend != PlaybackBackend.native) {
       return _ProbeAssessment(_ProbeResult.unknown, candidate);
+    }
+
+    if (!_looksLikeHls(candidate.uri)) {
+      try {
+        final response = await _dio.headUri<Object?>(
+          candidate.uri,
+          options: Options(headers: candidate.headers),
+        );
+        final type =
+            response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
+                '';
+        final looksMedia = type.startsWith('video/') ||
+            type.startsWith('audio/') ||
+            type.contains('mpegurl') ||
+            type.contains('octet-stream') ||
+            type.contains('mp2t');
+        return _ProbeAssessment(
+          looksMedia ? _ProbeResult.healthy : _ProbeResult.unknown,
+          candidate,
+        );
+      } on DioException catch (error) {
+        final status = error.response?.statusCode;
+        if (status == 401 ||
+            status == 403 ||
+            status == 404 ||
+            status == 410) {
+          return _ProbeAssessment(_ProbeResult.dead, candidate);
+        }
+        return _ProbeAssessment(_ProbeResult.unknown, candidate);
+      }
     }
 
     try {

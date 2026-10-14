@@ -8,6 +8,9 @@ Esta rama parte de Task 1 y conserva el trabajo previo de TV/Sports/reproductor.
 - La interfaz comercial ya no muestra configuración M3U/XMLTV ni nombres técnicos de addons/servidores.
 - El motor interno conserva soporte M3U y XMLTV/EPG para fuentes administradas.
 - El catálogo autorizado acepta aliases normalizados de Xtream entregados por el gateway POTV; las credenciales Xtream no se incorporan en la APK.
+- Las listas públicas integradas por POTV excluyen señales premium/restringidas cuando no existe una procedencia licenciada verificable.
+- El gateway autorizado del socio sí puede entregar canales licenciados (por ejemplo deportes, cine o entretenimiento de paga). POTV no los bloquea por nombre: la autorización se determina por la procedencia del catálogo, no por la marca del canal.
+- Tokens, usuarios, contraseñas y credenciales del proveedor permanecen fuera del APK/GitHub. Si el gateway necesita URLs firmadas de corta duración, se resuelven dinámicamente al reproducir.
 - Los canales aceptan transportes HTTPS HLS (.m3u8) y DASH (.mpd), primarios o de respaldo.
 - Sports Hub conserva agenda por fecha/deporte, idioma preferido y TV deportiva.
 - Un evento sólo se habilita cuando tiene streams explícitamente asociados al evento o una coincidencia EPG verificada; nunca se enlaza a un canal genérico por categoría.

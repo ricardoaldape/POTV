@@ -22,20 +22,17 @@ jobs:
       - name: Checkout POTV
         uses: actions/checkout@v4
 
-      - name: Prepare Android and icons
+      - name: Prepare committed Android project
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          & 'C:\flutter\bin\flutter.bat' create --platforms=android --org com.potv --project-name potv .
-          if ($LASTEXITCODE -ne 0) { throw 'Flutter Android platform generation failed' }
-          Copy-Item 'tool\AndroidManifest.xml' 'android\app\src\main\AndroidManifest.xml' -Force
-          foreach ($density in @('mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi')) {
-            $from = 'tool\icons\mipmap-' + $density + '\ic_launcher.png'
-            $to = 'android\app\src\main\res\mipmap-' + $density + '\ic_launcher.png'
-            Copy-Item $from $to -Force
+          foreach ($required in @(
+            'android\app\src\main\AndroidManifest.xml',
+            'android\app\src\main\kotlin\com\potv\potv\MainActivity.kt',
+            'android\app\src\main\res\xml\potv_update_paths.xml'
+          )) {
+            if (!(Test-Path $required)) { throw ('Committed Android file missing: ' + $required) }
           }
-          New-Item -ItemType Directory -Force -Path 'android\app\src\main\res\drawable' | Out-Null
-          Copy-Item 'tool\tv_banner.png' 'android\app\src\main\res\drawable\tv_banner.png' -Force
           & 'C:\flutter\bin\flutter.bat' pub get
           if ($LASTEXITCODE -ne 0) { throw 'Pub dependencies failed' }
 
@@ -100,14 +97,33 @@ jobs:
             throw 'Signed review release uses Android Debug certificate; refuse packaging'
           }
           $aapt = Join-Path $tools.FullName 'aapt.exe'
+          $versionLine = Get-Content 'pubspec.yaml' | Where-Object { $_ -match '^version:\s*' } | Select-Object -First 1
+          if ($versionLine -notmatch '^version:\s*([^+]+)\+(\d+)\s*          Copy-Item $apk $target -Force
+          Write-Output ('POTV_SIGNED_REVIEW_APK=' + $target)
+          Write-Output ('POTV_SIGNED_REVIEW_SHA256=' + (Get-FileHash $target -Algorithm SHA256).Hash)
+          Write-Output ('POTV_SIGNING_CERT_SHA256=' + ($digestLine[0].ToString().Split(':')[-1].Trim()))
+          Write-Output ('POTV_SIGNED_REVIEW_SIZE_MB=' + [math]::Round((Get-Item $target).Length / 1MB, 2))
+          Write-Output 'SIGNED_REVIEW_BUILD_SUCCESS; no GitHub-hosted minutes or public release created.'
+
+      - name: Remove release signing secrets from runner workspace
+        if: always()
+        shell: powershell
+        run: |
+          foreach ($path in @('android\key.properties','android\app\potv-release.keystore')) {
+            if (Test-Path $path) { Remove-Item $path -Force }
+          }
+          Write-Output 'Temporary signing files removed from working directory.'
+) { throw 'Invalid pubspec version' }
+          $versionName = $Matches[1]
+          $versionCode = $Matches[2]
           $package = (& $aapt dump badging $apk | Select-Object -First 1)
           if ($package -notmatch "name='com\.potv\.potv'" -or
-              $package -notmatch "versionCode='13'") {
+              $package -notmatch ("versionCode='" + [regex]::Escape($versionCode) + "'")) {
             throw 'Unexpected package identifier or Android versionCode'
           }
           $targetDir = 'C:\POTV-ReleaseCandidates'
           New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-          $target = Join-Path $targetDir 'POTV-0.8.0-13-signed-review.apk'
+          $target = Join-Path $targetDir ('POTV-' + $versionName + '-' + $versionCode + '-signed-review.apk')
           Copy-Item $apk $target -Force
           Write-Output ('POTV_SIGNED_REVIEW_APK=' + $target)
           Write-Output ('POTV_SIGNED_REVIEW_SHA256=' + (Get-FileHash $target -Algorithm SHA256).Hash)
