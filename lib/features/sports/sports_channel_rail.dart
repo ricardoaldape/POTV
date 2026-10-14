@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/catalog/partner_content_repository.dart';
 import '../../data/sources/stream_candidate_probe.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/services/sports_channel_language.dart';
@@ -23,8 +24,21 @@ class SportsChannelRail extends ConsumerWidget {
   Future<void> _play(
     BuildContext context,
     WidgetRef ref,
-    LiveChannel channel,
+    LiveChannel selected,
   ) async {
+    var channel = selected;
+    if (selected.id.startsWith('partner:')) {
+      final snapshot = await ref
+          .read(partnerContentRepositoryProvider)
+          .load(forceRefresh: true);
+      final matches = [...snapshot.sportsChannels, ...snapshot.channels]
+          .where((item) => item.id == selected.id);
+      if (matches.isNotEmpty) {
+        channel = matches.first;
+        ref.invalidate(partnerContentProvider);
+      }
+    }
+
     final ordered = _language.orderedStreams(channel, preferredLanguage);
     showDialog<void>(
       context: context,
