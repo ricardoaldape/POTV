@@ -33,6 +33,28 @@ void main() {
     expect(streams.first.quality, '1080p');
   });
 
+  test('filters promotional donation links from addon streams', () {
+    final streams = StremioProtocol.parseStreams(
+      addon: addon,
+      raw: {
+        'streams': [
+          {
+            'name': 'Support Us',
+            'url': 'https://addon.example/donate',
+          },
+          {
+            'name': 'Direct Stream',
+            'url': 'https://addon.example/api/manifest?id=live',
+          },
+        ],
+      },
+    );
+
+    expect(streams, hasLength(1));
+    expect(streams.single.label, contains('Direct Stream'));
+    expect(streams.single.uri.path, '/api/manifest');
+  });
+
   test('parses external provider links as fallback candidates', () {
     final streams = StremioProtocol.parseStreams(
       addon: addon,
