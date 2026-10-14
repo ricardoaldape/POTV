@@ -268,35 +268,46 @@ class BuiltInLiveSourceRegistry {
 
   LiveChannel _cleanDisplayChannel(LiveChannel channel) {
     var name = channel.name.trim();
+
     name = name.replaceAll(
       RegExp(
-        r'\\b(?:https?://)?(?:www\\.)?achoapps\\.com\\b',
+        '(?:https?://)?(?:www[.])?achoapps[.]com',
         caseSensitive: false,
       ),
       '',
     );
-    name = name.replaceAll(
-      RegExp(
-        r'^\\s*(?:mx|mexico|méxico)\\s*[|·:\\-]+\\s*',
-        caseSensitive: false,
-      ),
-      '',
-    );
-    name = name.replaceAll(
-      RegExp(
-        r'\\s*[|·\\-]\\s*(?:sd|hd|fhd|uhd|4k|720p|1080p)\\s*' + r'$',
-        caseSensitive: false,
-      ),
-      '',
-    );
-    name = name.replaceAll(
-      RegExp(
-        r'\\s*\\((?:sd|hd|fhd|uhd|4k|720p|1080p)\\)\\s*' + r'$',
-        caseSensitive: false,
-      ),
-      '',
-    );
-    name = name.replaceAll(RegExp(r'\\s+'), ' ').trim();
+
+    final lower = name.toLowerCase().trimLeft();
+    for (final prefix in const [
+      'mx | ',
+      'mx - ',
+      'mexico | ',
+      'mexico - ',
+      'méxico | ',
+      'méxico - ',
+    ]) {
+      if (lower.startsWith(prefix)) {
+        name = name.trimLeft().substring(prefix.length);
+        break;
+      }
+    }
+
+    const qualities = ['sd', 'hd', 'fhd', 'uhd', '4k', '720p', '1080p'];
+    for (final quality in qualities) {
+      for (final separator in const [' | ', ' - ', ' · ']) {
+        final suffix = '$separator$quality';
+        if (name.toLowerCase().endsWith(suffix)) {
+          name = name.substring(0, name.length - suffix.length);
+          break;
+        }
+      }
+      final wrapped = '($quality)';
+      if (name.toLowerCase().endsWith(wrapped)) {
+        name = name.substring(0, name.length - wrapped.length);
+      }
+    }
+
+    name = name.replaceAll(RegExp(' +'), ' ').trim();
     if (name.isEmpty) name = channel.name.trim();
 
     StreamCandidate relabel(StreamCandidate stream) => StreamCandidate(
