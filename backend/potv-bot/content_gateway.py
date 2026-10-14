@@ -6,6 +6,7 @@ configuration. The Flutter client receives opaque, short-lived HTTPS proxy
 URLs and never receives the upstream credentials.
 """
 import base64
+import copy
 import hashlib
 import hmac
 import ipaddress
@@ -19,7 +20,7 @@ import unicodedata
 from datetime import datetime, timezone
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import (
     HTTPCookieProcessor,
     Request,
@@ -130,6 +131,7 @@ class ContentGateway:
         self._targets = {}
         self._catalog = None
         self._catalog_at = 0.0
+        self._catalog_refreshing = False
         self._xtream_cache = {}
         self._m3u_cache = {}
         self._sports_guide_cache = []
@@ -1333,23 +1335,86 @@ class ContentGateway:
             }
         }
 
+    def _resign_cached_catalog(self, payload):
+        # Cached URLs have a 15-minute TTL. Refresh their signatures without
+        # contacting a provider, so a temporary upstream outage never makes
+        # the previously published channel guide unusable.
+        result = copy.deepcopy(payload)
+        prefix = "/api/v1/content/stream/"
+
+        def resign(url):
+            if not isinstance(url, str):
+                return url
+            parsed = urlsplit(url)
+            if not parsed.path.startswith(prefix):
+                return url
+            target_id = unquote(parsed.path[len(prefix):])
+            if target_id not in self._targets:
+                return url
+            return self._proxy_url(target_id)
+
+        for group in ("channels", "sports_channels"):
+            for channel in result.get("data", {}).get(group, []):
+                if "hls_url" in channel:
+                    channel["hls_url"] = resign(channel["hls_url"])
+                if "backup_urls" in channel:
+                    channel["backup_urls"] = [
+                        resign(url) for url in channel["backup_urls"]
+                    ]
+        for event in result.get("data", {}).get("sports_events", []):
+            for stream in event.get("streams", []):
+                if isinstance(stream, dict) and "url" in stream:
+                    stream["url"] = resign(stream["url"])
+        return result
+
+    def _refresh_catalog_background(self):
+        try:
+            payload = self._build_catalog()
+            with self._lock:
+                # Do not erase a useful cached catalog when the upstream
+                # momentarily stops responding during a refresh.
+                if payload["data"].get("channels") or self._catalog is None:
+                    self._catalog = payload
+                self._catalog_at = time.monotonic()
+        except Exception:
+            with self._lock:
+                # Brief backoff prevents a dead upstream from spawning
+                # another blocking refresh on every client request.
+                self._catalog_at = time.monotonic() - self.refresh_seconds + 30
+        finally:
+            with self._lock:
+                self._catalog_refreshing = False
+
     def catalog(self, *, force=False):
         if not self.configured:
             raise ContentGatewayError(503, "content_gateway_unconfigured")
         now = time.monotonic()
+        refresh_in_background = False
         with self._lock:
-            if (
-                not force
-                and self._catalog is not None
-                and now - self._catalog_at < self.refresh_seconds
-            ):
-                return self._catalog
+            if not force and self._catalog is not None:
+                if (
+                    now - self._catalog_at >= self.refresh_seconds
+                    and not self._catalog_refreshing
+                ):
+                    self._catalog_refreshing = True
+                    refresh_in_background = True
+                snapshot = self._resign_cached_catalog(self._catalog)
+            else:
+                snapshot = None
+        if snapshot is not None:
+            if refresh_in_background:
+                threading.Thread(
+                    target=self._refresh_catalog_background,
+                    name="potv-catalog-refresh",
+                    daemon=True,
+                ).start()
+            return snapshot
+
+        # The initial cold start and force=True still hydrate synchronously.
+        # A subsequent request is served from memory even when the provider
+        # becomes unreachable.
         payload = self._build_catalog()
         with self._lock:
-            # The async short-EPG worker can finish between _build_catalog()
-            # taking its cache snapshot and this assignment. Reconcile the
-            # newest cache here so the first catalog response cannot lose a
-            # completed guide refresh due to that race.
             latest_guide = list(self._sports_guide_cache)
             if latest_guide:
                 existing = payload["data"].get("now_next") or []
@@ -1359,8 +1424,7 @@ class ContentGateway:
                         str((row.get("current") or {}).get("title") or ""),
                         str((row.get("next") or {}).get("title") or ""),
                     )
-                    for row in existing
-                    if isinstance(row, dict)
+                    for row in existing if isinstance(row, dict)
                 }
                 for row in latest_guide:
                     key = (
