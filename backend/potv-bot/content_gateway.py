@@ -800,11 +800,24 @@ class ContentGateway:
         return bool(signature) and hmac.compare_digest(signature, expected)
 
     def _parse_extinf(self, line):
+        # EXTINF often includes a quoted User-Agent such as
+        # "Mozilla/5.0 (KHTML, like Gecko)". Splitting at the FIRST comma
+        # leaks "like Gecko) ..." into the public channel name.
+        quoted = False
+        separator = -1
+        for index, char in enumerate(line):
+            if char == '"' and (index == 0 or line[index - 1] != "\\"):
+                quoted = not quoted
+            elif char == "," and not quoted:
+                separator = index
+                break
+
+        header = line[:separator] if separator >= 0 else line
         attrs = {
             key.lower(): value.strip()
-            for key, value in _EXTINF_ATTR.findall(line)
+            for key, value in _EXTINF_ATTR.findall(header)
         }
-        name = line.split(",", 1)[1].strip() if "," in line else ""
+        name = line[separator + 1 :].strip() if separator >= 0 else ""
         return attrs, name
 
     def _normalized_label(self, value):
