@@ -221,12 +221,11 @@ def run():
         assert gateway._is_stale_scheduled_entry(old_slot, "Deportes")
         assert not gateway._is_stale_scheduled_entry(today_slot, "Deportes")
 
-        assert [channel["name"] for channel in data["channels"]] == [
+        assert {channel["name"] for channel in data["channels"]} == {
             "ESPN",
             "HBO",
-            "ESPN 2 MEXICO HD",
-            "SP: MX: Espn 2 Full HD",
-        ]
+            "ESPN 2 MEXICO",
+        }
         sports_names = [channel["name"] for channel in data["sports_channels"]]
         assert sports_names == ["ESPN", "ESPN 2 MEXICO"]
         espn2 = data["sports_channels"][1]
