@@ -86,7 +86,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('ADN 40'), findsOneWidget);
-    expect(find.textContaining('3 canales'), findsOneWidget);
+    expect(find.textContaining('1 canal'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
   });
 

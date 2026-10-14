@@ -78,48 +78,14 @@ class BuiltInLiveSourceRegistry {
 
   BuiltInLiveSourceRegistry(this._dio);
 
-  Future<List<LiveChannel>> mexico() async {
-    final cached = _mexicoCache;
-    final cachedAt = _mexicoCacheAt;
-    if (cached != null &&
-        cachedAt != null &&
-        DateTime.now().difference(cachedAt) < const Duration(minutes: 15)) {
-      return cached;
-    }
+  // Built-ins must be individually tested before inclusion. TV and sports
+  // catalogs with working streams come from the POTV remote gateway; never
+  // block a screen by downloading giant, unverified public playlists.
+  Future<List<LiveChannel>> mexico() async =>
+      List<LiveChannel>.unmodifiable(_starterMexico());
 
-    // Both groups are independent: awaiting them sequentially used to
-    // double the stall when one of the provider domains was unreachable.
-    final fetched = await Future.wait<List<LiveChannel>>([
-      _loadMerged([_dearbulutMexico, _iptvOrgMexico]),
-      _loadAuthorizedPartner(_livSportzAuthorizedSources),
-    ]);
-    final channels = _dedupe([
-      ..._starterMexico(),
-      ...fetched[0],
-      ...fetched[1],
-    ]);
-    channels.sort((a, b) {
-      final score = _mexicoPriority(b).compareTo(_mexicoPriority(a));
-      if (score != 0) return score;
-      return a.name.compareTo(b.name);
-    });
-    _mexicoCache = List.unmodifiable(channels);
-    _mexicoCacheAt = DateTime.now();
-    return _mexicoCache!;
-  }
-
-  Future<List<LiveChannel>> sports() async {
-    final channels = _dedupe([
-      ...starterSports(),
-      ...await _loadMerged([_dearbulutSports, _iptvOrgSports]),
-    ]);
-    channels.sort((a, b) {
-      final score = _sportsPriority(b).compareTo(_sportsPriority(a));
-      if (score != 0) return score;
-      return a.name.compareTo(b.name);
-    });
-    return channels;
-  }
+  Future<List<LiveChannel>> sports() async =>
+      List<LiveChannel>.unmodifiable(starterSports());
 
   List<LiveChannel> starterMexico() => _starterMexico();
 
@@ -131,21 +97,6 @@ class BuiltInLiveSourceRegistry {
       epgId: 'ADN40.mx',
       url:
           'https://mdstrm.com/live-stream-playlist/60b578b060947317de7b57ac.m3u8',
-    ),
-    _channel(
-      id: 'potv-mx-canal22',
-      name: 'Canal 22',
-      group: 'México · Cultura',
-      epgId: 'Canal22.mx',
-      url:
-          'https://5e50264bd6766.streamlock.net/canal22/smil:canal22.smil/playlist.m3u8',
-    ),
-    _channel(
-      id: 'potv-mx-tv4-43',
-      name: 'TV Cuatro 4.3',
-      group: 'México · Deportes',
-      epgId: 'TV4.3.mx',
-      url: 'https://5ca3e84a76d30.streamlock.net/tv43gto/tv43gto.smil/.m3u8',
     ),
   ];
 
@@ -163,13 +114,6 @@ class BuiltInLiveSourceRegistry {
       group: 'Deportes',
       url:
           'https://886bd3fbc782459f8de7555d32d7e9ce.mediatailor.us-west-2.amazonaws.com/v1/master/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-957-WORBLATAMESFAST-WHALETVPLUS/957/whaletvplus/hls/master/playlist.m3u8',
-    ),
-    _channel(
-      id: 'potv-sport-tv4-43',
-      name: 'TV Cuatro 4.3',
-      group: 'México · Deportes',
-      epgId: 'TV4.3.mx',
-      url: 'https://5ca3e84a76d30.streamlock.net/tv43gto/tv43gto.smil/.m3u8',
     ),
   ];
 
