@@ -25,7 +25,7 @@ assert kept in gateway._targets
 assert kept in gateway._target_last_signed
 
 # Periodic pruning during registration, not on every HLS request.
-with patch('content_gateway.time.monotonic',return_value=3000.0):
+with patch('content_gateway.time.monotonic',return_value=3400.0):
     for i in range(1024):
         gateway._register_target(f'https://media.example/part/seg-{i}.m4s')
 assert kept not in gateway._targets
