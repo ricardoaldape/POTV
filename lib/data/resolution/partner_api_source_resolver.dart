@@ -120,6 +120,11 @@ class PartnerApiSourceResolver extends ProviderResolver {
           endpoint.replace(queryParameters: query),
           options: Options(
             responseType: ResponseType.json,
+            // POTV customer bearer tokens must NEVER be forwarded to a
+            // redirected origin. All authorized content URLs are resolved
+            // separately by the signed POTV gateway.
+            followRedirects: false,
+            maxRedirects: 0,
             headers: {
               'Accept': 'application/json',
               ...headers,
