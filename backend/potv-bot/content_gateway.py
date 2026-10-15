@@ -1596,16 +1596,16 @@ class ContentGateway:
                 continue
             if line.startswith("#"):
                 def repl(match):
-                    try:
-                        return 'URI="' + proxied(match.group(1)) + '"'
-                    except ContentGatewayError:
-                        return match.group(0)
+                    # Never return an original upstream URI to an Android
+                    # client. Rejected DRM key / rendition references must
+                    # fail the manifest as a whole, not leak credentials.
+                    return 'URI="' + proxied(match.group(1)) + '"'
                 output.append(_HLS_URI_ATTR.sub(repl, raw_line))
             else:
-                try:
-                    output.append(proxied(line))
-                except ContentGatewayError:
-                    output.append(line)
+                # Every HLS segment must stay inside POTV's signed proxy.
+                # Forwarding the raw line on upstream validation failure
+                # could expose private Xtream credentials to clients.
+                output.append(proxied(line))
         return "\n".join(output) + "\n"
 
     def _json_error(self, handler, status, code):
