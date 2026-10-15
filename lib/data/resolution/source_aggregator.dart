@@ -12,7 +12,9 @@ import 'provider_registry.dart';
 
 final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
   return SourceAggregator(
-    ref.read(providerRegistryProvider),
+    // Watch registry changes so cached playback candidates cannot survive
+    // a POTV account switch or logout.
+    ref.watch(providerRegistryProvider),
     resolverManager: ref.read(resolverManagerProvider),
   );
 });
