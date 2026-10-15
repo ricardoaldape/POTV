@@ -47,6 +47,7 @@ class StremioSourceResolver implements SourceResolver {
         await _findExternalId(
           mediaType: mediaType,
           title: title,
+          year: year,
         );
 
     final itemId = StremioProtocol.streamId(
@@ -108,6 +109,7 @@ class StremioSourceResolver implements SourceResolver {
         await _findExternalId(
           mediaType: mediaType,
           title: title,
+          year: year,
         );
 
     final itemId = StremioProtocol.streamId(
@@ -216,6 +218,7 @@ class StremioSourceResolver implements SourceResolver {
   Future<String?> _findExternalId({
     required String mediaType,
     required String? title,
+    String? year,
   }) async {
     if (title == null || title.trim().isEmpty) return null;
     if (mediaType != 'movie' && mediaType != 'tv' && mediaType != 'anime') {
@@ -238,23 +241,71 @@ class StremioSourceResolver implements SourceResolver {
       final metas = raw['metas'];
       if (metas is! List) return null;
 
-      final target = title.trim().toLowerCase();
-      Map<String, dynamic>? first;
-      for (final value in metas) {
-        if (value is! Map<String, dynamic>) continue;
-        first ??= value;
-        final name = _text(value['name'])?.toLowerCase();
-        if (name == target) {
-          return _text(value['imdb_id']) ?? _text(value['id']);
-        }
-      }
-
-      if (first == null) return null;
-      return _text(first['imdb_id']) ?? _text(first['id']);
+      return exactCinemetaId(
+        metas: metas,
+        title: title,
+        year: year,
+      );
     } catch (error, stackTrace) {
       _logError('Stremio Cinemeta mapping', error, stackTrace);
       return null;
     }
+  }
+
+  /// Never take Cinemeta's first search result when a title doesn't match:
+  /// an unrelated film or remake must not be sent to our player.
+  @visibleForTesting
+  static String? exactCinemetaId({
+    required List metas,
+    required String title,
+    String? year,
+  }) {
+    final requestedTitle = title.trim().toLowerCase();
+    if (requestedTitle.isEmpty) return null;
+    final requestedYear = year?.trim() ?? '';
+    final ids = <String>{};
+
+    for (final entry in metas) {
+      if (entry is! Map) continue;
+      final candidateTitle = entry['name']?.toString().trim().toLowerCase();
+      if (candidateTitle != requestedTitle) continue;
+
+      final rawId = entry['imdb_id']?.toString().trim() ??
+          entry['id']?.toString().trim();
+      if (rawId == null || !RegExp(r'^tt[0-9]{5,10}
+    debugPrint(message);
+    addDebugLog(message);
+  }
+
+  void _logError(String scope, Object error, StackTrace stackTrace) {
+    final errorLog = '$scope ERROR ${error.runtimeType}: '
+        '${safePlaybackErrorForLog(error.toString())}';
+    final stackLog = '$scope STACK: ${safePlaybackErrorForLog(stackTrace.toString())}';
+    debugPrint(errorLog);
+    debugPrint(stackLog);
+    addDebugLog(errorLog);
+    addDebugLog(stackLog);
+  }
+
+  String? _text(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+}
+).hasMatch(rawId)) {
+        continue;
+      }
+
+      if (requestedYear.isNotEmpty) {
+        final release = (entry['year'] ?? entry['releaseInfo'])?.toString() ?? '';
+        final match = RegExp(r'(?:19|20)[0-9]{2}').firstMatch(release);
+        if (match == null || match.group(0) != requestedYear) continue;
+      }
+
+      ids.add(rawId);
+    }
+
+    return ids.length == 1 ? ids.single : null;
   }
 
   void _log(String message) {
