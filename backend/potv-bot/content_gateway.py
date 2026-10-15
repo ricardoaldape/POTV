@@ -158,7 +158,7 @@ class ContentGateway:
 
     @property
     def configured(self):
-        return bool(self.sources)
+        return bool(self.sources) or self.lmhd is not None
 
     def _allowed_upstream(self, raw):
         try:
