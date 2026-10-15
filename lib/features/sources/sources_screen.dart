@@ -14,6 +14,7 @@ import '../../data/sources/universal_source_installer.dart';
 import '../../domain/models/http_source_config.dart';
 import '../../domain/models/nuvio_plugin_config.dart';
 import '../../domain/models/stremio_addon_config.dart';
+import 'partner_catalog_explorer_screen.dart';
 
 class SourcesScreen extends ConsumerWidget {
   const SourcesScreen({super.key});
@@ -378,6 +379,15 @@ class SourcesScreen extends ConsumerWidget {
                     for (final entry in items)
                       ListTile(
                         key: Key('verified-addon-${entry.id}'),
+                        onTap: entry.offersCatalog
+                            ? () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => PartnerCatalogExplorerScreen(
+                                      addon: entry,
+                                    ),
+                                  ),
+                                )
+                            : null,
                         leading: Icon(
                           entry.offersStreams
                               ? Icons.play_circle_outline_rounded
@@ -388,7 +398,8 @@ class SourcesScreen extends ConsumerWidget {
                         title: Text(entry.name),
                         subtitle: Text(
                           '${entry.capabilityLabel} · '
-                          '${entry.types.join(', ')}',
+                          '${entry.types.join(', ')}'
+                          '${entry.offersCatalog ? ' · Toca para explorar' : ''}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
