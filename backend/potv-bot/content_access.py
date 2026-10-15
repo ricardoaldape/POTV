@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 def has_active_subscription(account, *, now=None):
     if not isinstance(account, dict):
         return False
-    if str(account.get("subscription_status") or "").lower() != "active":
+    if str(account.get("subscription_status") or "").lower() not in {"active", "trial"}:
         return False
     expiry = account.get("subscription_expires_at")
     if not isinstance(expiry, str) or not expiry.strip():
