@@ -5,6 +5,7 @@ import '../../core/security/media_url_logging.dart';
 
 import '../../data/addons/stremio_addon_client.dart';
 import '../../data/addons/stremio_addon_repository.dart';
+import '../../data/addons/verified_partner_catalog.dart';
 import '../../data/live_tv/live_tv_repository.dart';
 import '../../data/plugins/nuvio_plugin_repository.dart';
 import '../../data/resolution/resolver_status.dart';
@@ -87,6 +88,56 @@ class SourcesScreen extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: const Text('No se pudo agregar la fuente. Revisa su configuración.')),
+      );
+    }
+  }
+
+  Future<void> _installVerifiedPartnerAddon(
+    BuildContext context,
+    WidgetRef ref,
+    VerifiedPartnerAddon addon,
+  ) async {
+    try {
+      // Re-check the live manifest at install time; the bundled inventory is
+      // a discovery list, not an authorization token or a guarantee of video.
+      final info = await ref
+          .read(stremioAddonClientProvider)
+          .inspect(addon.manifestUri);
+      final current = await ref.read(stremioAddonRepositoryProvider).load();
+      final alreadyInstalled = current.any(
+        (entry) => entry.manifestUri == info.manifestUri,
+      );
+      if (!alreadyInstalled) {
+        await ref.read(stremioAddonRepositoryProvider).add(
+          name: info.name,
+          manifestUri: info.manifestUri,
+        );
+      }
+      ref.invalidate(stremioAddonsProvider);
+      ref.invalidate(resolverStatusProvider);
+      if (!context.mounted) return;
+      final capabilities = info.supportsStreams
+          ? 'Podrá consultar fuentes que entregue el proveedor.'
+          : info.resources.contains('subtitles')
+              ? 'Podrá buscar subtítulos compatibles.'
+              : 'Este complemento entrega catálogos, no videos.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            alreadyInstalled
+                ? '${info.name} ya estaba instalado.'
+                : '${info.name} agregado. $capabilities',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'El complemento no respondió o no tiene un manifiesto válido.',
+          ),
+        ),
       );
     }
   }
@@ -207,6 +258,7 @@ class SourcesScreen extends ConsumerWidget {
     final httpSources = ref.watch(httpSourcesProvider);
     final addons = ref.watch(stremioAddonsProvider);
     final plugins = ref.watch(nuvioPluginsProvider);
+    final verifiedAddons = ref.watch(verifiedPartnerAddonsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Fuentes')),
@@ -253,6 +305,75 @@ class SourcesScreen extends ConsumerWidget {
                         ),
                     ],
                   ),
+          ),
+          const SizedBox(height: 22),
+          ExpansionTile(
+            key: const Key('verified-partner-addons'),
+            tilePadding: EdgeInsets.zero,
+            initiallyExpanded: false,
+            leading: const Icon(Icons.verified_outlined),
+            title: const Text(
+              'Complementos compatibles',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: const Text(
+              'Catálogos, subtítulos y reproductores de proveedores externos. '
+              'Ningún complemento se activa sin tu confirmación.',
+            ),
+            children: [
+              verifiedAddons.when(
+                loading: () => const LinearProgressIndicator(minHeight: 2),
+                error: (_, _) => const _EmptySection(
+                  text: 'No fue posible cargar el catálogo de complementos.',
+                ),
+                data: (items) => Column(
+                  children: [
+                    for (final entry in items)
+                      ListTile(
+                        key: Key('verified-addon-${entry.id}'),
+                        leading: Icon(
+                          entry.offersStreams
+                              ? Icons.play_circle_outline_rounded
+                              : entry.offersSubtitles
+                                  ? Icons.subtitles_outlined
+                                  : Icons.movie_filter_outlined,
+                        ),
+                        title: Text(entry.name),
+                        subtitle: Text(
+                          '${entry.capabilityLabel} · '
+                          '${entry.types.join(', ')}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: OutlinedButton(
+                          onPressed: addons.asData?.value.any(
+                                    (existing) =>
+                                        existing.manifestUri ==
+                                        entry.manifestUri,
+                                  ) ==
+                                  true
+                              ? null
+                              : () => _installVerifiedPartnerAddon(
+                                    context,
+                                    ref,
+                                    entry,
+                                  ),
+                          child: Text(
+                            addons.asData?.value.any(
+                                      (existing) =>
+                                          existing.manifestUri ==
+                                          entry.manifestUri,
+                                    ) ==
+                                    true
+                                ? 'Agregado'
+                                : 'Añadir',
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 22),
           ExpansionTile(
