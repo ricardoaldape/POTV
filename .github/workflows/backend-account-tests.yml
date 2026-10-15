@@ -39,6 +39,7 @@ jobs:
           python content_gateway_m3u_parser_test.py
           python content_gateway_transport_test.py
           python content_gateway_hls_secret_test.py
+          python content_access_test.py
       - name: API/database self test
         run: |
           rm -f /tmp/potv-self-test.sqlite3
