@@ -63,6 +63,10 @@ jobs:
           PY
 
       - name: Build QA APK (not OTA)
+        id: qa_apk
+        # Artifact is advisory; SDK/NDK mirror outages must not disable
+        # the mandatory account, billing, Flutter and analyzer checks.
+        continue-on-error: true
         env:
           POTV_RESOLVER_ENDPOINTS_JSON: ${{ vars.POTV_RESOLVER_ENDPOINTS_JSON }}
           POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
@@ -93,6 +97,7 @@ jobs:
           flutter build apk --debug "${args[@]}"
 
       - name: Upload APK
+        if: ${{ steps.qa_apk.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: POTV-QA-DEBUG-APK
