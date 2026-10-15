@@ -11,6 +11,8 @@ void main() {
     final dio = Dio();
     dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
       requested.add(options.uri);
+      expect(options.followRedirects, isFalse);
+      expect(options.maxRedirects, 0);
       expect(options.headers['Authorization'], 'Bearer authorized-test-only');
       handler.resolve(Response<Object?>(
         requestOptions: options,

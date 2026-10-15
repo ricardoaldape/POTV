@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from account_store import AccountStore, AccountError
 from content_gateway import ContentGateway, ContentGatewayError
+from content_access import has_active_subscription, requires_vod_subscription
 
 BASE=os.path.dirname(os.path.abspath(__file__))
 DB=os.getenv("POTV_DB",os.path.join(BASE,"potv.sqlite3"))
@@ -456,6 +457,26 @@ class ApiHandler(BaseHTTPRequestHandler):
         token=auth[7:].strip()
         return token or None
 
+    def _allow_vod_resolution(self):
+        # POTV app accounts are independent of providers. Only the POTV
+        # subscription may authorize paid media resolution; provider access
+        # is maintained separately on the server. Public-domain VOD remains
+        # available unless the operator enables the policy explicitly.
+        if not requires_vod_subscription(CONTENT_GATEWAY, os.environ):
+            return True
+        token = self._bearer()
+        if not token:
+            self.out(401, {"ok": False, "error": "potv_session_required"})
+            return False
+        account = ACCOUNT_STORE.session(token)
+        if account is None:
+            self.out(401, {"ok": False, "error": "potv_invalid_session"})
+            return False
+        if not has_active_subscription(account):
+            self.out(403, {"ok": False, "error": "potv_subscription_required"})
+            return False
+        return True
+
     def do_GET(self):
         parsed=urlsplit(self.path)
         path=parsed.path
@@ -470,6 +491,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         )
         movie_prefix=next((prefix for prefix in movie_prefixes if path.startswith(prefix)),None)
         if movie_prefix:
+            if not self._allow_vod_resolution():
+                return
             tmdb_id=path[len(movie_prefix):].strip("/")
             try:
                 self.out(200,CONTENT_GATEWAY.resolve_movie(
@@ -488,6 +511,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         )
         tv_prefix=next((prefix for prefix in tv_prefixes if path.startswith(prefix)),None)
         if tv_prefix:
+            if not self._allow_vod_resolution():
+                return
             tail=path[len(tv_prefix):].strip("/").split("/")
             if len(tail)!=3:
                 self.out(400,{"ok":False,"error":"tv_route_requires_id_season_episode"}); return

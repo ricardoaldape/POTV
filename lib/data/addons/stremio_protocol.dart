@@ -67,7 +67,8 @@ class StremioProtocol {
       } else if (externalUrl != null &&
           (externalUrl.scheme == 'http' || externalUrl.scheme == 'https')) {
         url = externalUrl;
-        backend = PlaybackBackend.external;
+        // Web fallback stays inside POTV; block unexpected app switching.
+        backend = PlaybackBackend.webView;
       } else if (ytId != null) {
         url = Uri.parse('https://www.youtube.com/watch?v=$ytId');
         backend = PlaybackBackend.external;

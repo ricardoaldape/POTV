@@ -69,7 +69,7 @@ void main() {
     );
 
     expect(streams, hasLength(1));
-    expect(streams.first.backend, PlaybackBackend.external);
+    expect(streams.first.backend, PlaybackBackend.webView);
     expect(
       streams.first.uri.toString(),
       'https://example.com/watch/title',

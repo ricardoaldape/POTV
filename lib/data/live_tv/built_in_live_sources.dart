@@ -5,32 +5,42 @@ import '../../domain/models/live_channel.dart';
 import '../../domain/models/stream_candidate.dart';
 import 'm3u_parser.dart';
 
-final builtInLiveSourceRegistryProvider =
-    Provider<BuiltInLiveSourceRegistry>((ref) {
-  return BuiltInLiveSourceRegistry(Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 18),
-      headers: const {
-        'User-Agent': 'POTV/0.1 (Android)',
-        'Accept': 'application/x-mpegURL,text/plain,*/*',
-      },
+final builtInLiveSourceRegistryProvider = Provider<BuiltInLiveSourceRegistry>((
+  ref,
+) {
+  return BuiltInLiveSourceRegistry(
+    Dio(
+      BaseOptions(
+        // A dead partner list must not block TV navigation for 18 seconds.
+        connectTimeout: const Duration(seconds: 4),
+        receiveTimeout: const Duration(seconds: 8),
+        headers: const {
+          'User-Agent': 'POTV/0.1 (Android)',
+          'Accept': 'application/x-mpegURL,text/plain,*/*',
+        },
+      ),
     ),
-  ));
+  );
 });
 
 final builtInMexicoChannelsProvider =
     FutureProvider.autoDispose<List<LiveChannel>>((ref) {
-  return ref.read(builtInLiveSourceRegistryProvider).mexico();
-});
+      return ref.read(builtInLiveSourceRegistryProvider).mexico();
+    });
 
 final builtInSportsChannelsProvider =
     FutureProvider.autoDispose<List<LiveChannel>>((ref) {
-  return ref.read(builtInLiveSourceRegistryProvider).sports();
-});
+      return ref.read(builtInLiveSourceRegistryProvider).sports();
+    });
 
 final starterSportsChannelsProvider = Provider<List<LiveChannel>>((ref) {
   return ref.read(builtInLiveSourceRegistryProvider).starterSports();
+});
+
+/// A synchronous starter lineup: never hold the entire grid behind a
+/// third-party M3U download or an unavailable partner gateway.
+final starterMexicoChannelsProvider = Provider<List<LiveChannel>>((ref) {
+  return ref.read(builtInLiveSourceRegistryProvider).starterMexico();
 });
 
 class BuiltInLiveSourceRegistry {
@@ -41,8 +51,7 @@ class BuiltInLiveSourceRegistry {
 
   static const _iptvOrgMexico =
       'https://iptv-org.github.io/iptv/countries/mx.m3u';
-  static const _achoMexico =
-      'https://www.achoapps.com/listas/mexico3.m3u';
+  static const _achoMexico = 'https://www.achoapps.com/listas/mexico3.m3u';
 
   // Source documents supplied to POTV by the authorized LivSportz partner.
   // The partner has already scoped/cleared these catalogs for POTV, so channel
@@ -69,103 +78,44 @@ class BuiltInLiveSourceRegistry {
 
   BuiltInLiveSourceRegistry(this._dio);
 
-  Future<List<LiveChannel>> mexico() async {
-    final cached = _mexicoCache;
-    final cachedAt = _mexicoCacheAt;
-    if (cached != null &&
-        cachedAt != null &&
-        DateTime.now().difference(cachedAt) < const Duration(minutes: 15)) {
-      return cached;
-    }
+  // Built-ins must be individually tested before inclusion. TV and sports
+  // catalogs with working streams come from the POTV remote gateway; never
+  // block a screen by downloading giant, unverified public playlists.
+  Future<List<LiveChannel>> mexico() async =>
+      List<LiveChannel>.unmodifiable(_starterMexico());
 
-    final publicChannels = await _loadMerged([
-      _dearbulutMexico,
-      _iptvOrgMexico,
-    ]);
-    final partnerChannels =
-        await _loadAuthorizedPartner(_livSportzAuthorizedSources);
-    final channels = _dedupe([
-      ..._starterMexico(),
-      ...publicChannels,
-      ...partnerChannels,
-    ]);
-    channels.sort((a, b) {
-      final score = _mexicoPriority(b).compareTo(_mexicoPriority(a));
-      if (score != 0) return score;
-      return a.name.compareTo(b.name);
-    });
-    _mexicoCache = List.unmodifiable(channels);
-    _mexicoCacheAt = DateTime.now();
-    return _mexicoCache!;
-  }
+  Future<List<LiveChannel>> sports() async =>
+      List<LiveChannel>.unmodifiable(starterSports());
 
-  Future<List<LiveChannel>> sports() async {
-    final channels = _dedupe([
-      ...starterSports(),
-      ...await _loadMerged([
-        _dearbulutSports,
-        _iptvOrgSports,
-      ]),
-    ]);
-    channels.sort((a, b) {
-      final score = _sportsPriority(b).compareTo(_sportsPriority(a));
-      if (score != 0) return score;
-      return a.name.compareTo(b.name);
-    });
-    return channels;
-  }
+  List<LiveChannel> starterMexico() => _starterMexico();
 
   List<LiveChannel> _starterMexico() => [
-        _channel(
-          id: 'potv-mx-adn40',
-          name: 'ADN 40',
-          group: 'México · Noticias',
-          epgId: 'ADN40.mx',
-          url:
-              'https://mdstrm.com/live-stream-playlist/60b578b060947317de7b57ac.m3u8',
-        ),
-        _channel(
-          id: 'potv-mx-canal22',
-          name: 'Canal 22',
-          group: 'México · Cultura',
-          epgId: 'Canal22.mx',
-          url:
-              'https://5e50264bd6766.streamlock.net/canal22/smil:canal22.smil/playlist.m3u8',
-        ),
-        _channel(
-          id: 'potv-mx-tv4-43',
-          name: 'TV Cuatro 4.3',
-          group: 'México · Deportes',
-          epgId: 'TV4.3.mx',
-          url:
-              'https://5ca3e84a76d30.streamlock.net/tv43gto/tv43gto.smil/.m3u8',
-        ),
-      ];
+    _channel(
+      id: 'potv-mx-adn40',
+      name: 'ADN 40',
+      group: 'México · Noticias',
+      epgId: 'ADN40.mx',
+      url:
+          'https://mdstrm.com/live-stream-playlist/60b578b060947317de7b57ac.m3u8',
+    ),
+  ];
 
   List<LiveChannel> starterSports() => [
-        _channel(
-          id: 'potv-sport-fifa-hispanic',
-          name: 'FIFA+ Hispanic America',
-          group: 'Deportes · Fútbol',
-          url:
-              'https://6c849fb3.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctbXhfRklGQVBsdXNTcGFuaXNoLTFfSExT/playlist.m3u8',
-        ),
-        _channel(
-          id: 'potv-sport-redbull-es',
-          name: 'Red Bull TV ES',
-          group: 'Deportes',
-          url:
-              'https://886bd3fbc782459f8de7555d32d7e9ce.mediatailor.us-west-2.amazonaws.com/v1/master/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-957-WORBLATAMESFAST-WHALETVPLUS/957/whaletvplus/hls/master/playlist.m3u8',
-        ),
-        _channel(
-          id: 'potv-sport-tv4-43',
-          name: 'TV Cuatro 4.3',
-          group: 'México · Deportes',
-          epgId: 'TV4.3.mx',
-          url:
-              'https://5ca3e84a76d30.streamlock.net/tv43gto/tv43gto.smil/.m3u8',
-        ),
-      ];
+    _channel(
+      id: 'potv-sport-fifa-hispanic',
+      name: 'FIFA+ Hispanic America',
+      group: 'Deportes · Fútbol',
+      url:
+          'https://6c849fb3.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctbXhfRklGQVBsdXNTcGFuaXNoLTFfSExT/playlist.m3u8',
+    ),
+    _channel(
+      id: 'potv-sport-redbull-es',
+      name: 'Red Bull TV ES',
+      group: 'Deportes',
+      url:
+          'https://886bd3fbc782459f8de7555d32d7e9ce.mediatailor.us-west-2.amazonaws.com/v1/master/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-957-WORBLATAMESFAST-WHALETVPLUS/957/whaletvplus/hls/master/playlist.m3u8',
+    ),
+  ];
 
   LiveChannel _channel({
     required String id,
@@ -190,22 +140,16 @@ class BuiltInLiveSourceRegistry {
   }
 
   Future<List<LiveChannel>> _loadMerged(List<String> urls) async {
-    final results = await Future.wait([
-      for (final url in urls) _tryLoad(url),
-    ]);
+    final results = await Future.wait([for (final url in urls) _tryLoad(url)]);
 
-    return _dedupe([
-      for (final channels in results) ...channels,
-    ]);
+    return _dedupe([for (final channels in results) ...channels]);
   }
 
   Future<List<LiveChannel>> _loadAuthorizedPartner(List<String> urls) async {
     final results = await Future.wait([
       for (final url in urls) _tryLoad(url, authorizedLivSportz: true),
     ]);
-    return _dedupe([
-      for (final channels in results) ...channels,
-    ]);
+    return _dedupe([for (final channels in results) ...channels]);
   }
 
   Future<List<LiveChannel>> _tryLoad(
@@ -228,9 +172,9 @@ class BuiltInLiveSourceRegistry {
       final raw = response.data ?? '';
       if (raw.trim().isEmpty) return const [];
 
-      final parsed = M3uParser.parse(raw)
-          .map(_cleanDisplayChannel)
-          .toList(growable: false);
+      final parsed = M3uParser.parse(
+        raw,
+      ).map(_cleanDisplayChannel).toList(growable: false);
       return parsed
           .where((channel) => !_isPromotionalEntry(channel))
           .where((channel) => !_isAdultEntry(channel))
@@ -252,14 +196,33 @@ class BuiltInLiveSourceRegistry {
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9+]+'), ' ');
     const blocked = <String>[
-      'adultos', 'adulto', 'adult', 'xxx', 'porno', 'porn',
-      'pornografia', 'pornografico', 'erotico', 'erotica', 'erotic',
-      'desnudos', 'desnudas', 'desnudo', 'nude', 'nudity',
-      'sex tv', 'sex channel', 'playboy', 'penthouse', 'hustler',
-      'brazzers', 'redlight',
+      'adultos',
+      'adulto',
+      'adult',
+      'xxx',
+      'porno',
+      'porn',
+      'pornografia',
+      'pornografico',
+      'erotico',
+      'erotica',
+      'erotic',
+      'desnudos',
+      'desnudas',
+      'desnudo',
+      'nude',
+      'nudity',
+      'sex tv',
+      'sex channel',
+      'playboy',
+      'penthouse',
+      'hustler',
+      'brazzers',
+      'redlight',
     ];
-    if (blocked.any((term) => RegExp('(^| )' + RegExp.escape(term) + r'( |$)')
-        .hasMatch(text))) {
+    if (blocked.any(
+      (term) => RegExp('(^| )' + RegExp.escape(term) + r'( |$)').hasMatch(text),
+    )) {
       return true;
     }
     final compact = text.replaceAll(' ', '');
@@ -270,10 +233,7 @@ class BuiltInLiveSourceRegistry {
     var name = channel.name.trim();
 
     name = name.replaceAll(
-      RegExp(
-        '(?:https?://)?(?:www[.])?achoapps[.]com',
-        caseSensitive: false,
-      ),
+      RegExp('(?:https?://)?(?:www[.])?achoapps[.]com', caseSensitive: false),
       '',
     );
 
@@ -311,17 +271,17 @@ class BuiltInLiveSourceRegistry {
     if (name.isEmpty) name = channel.name.trim();
 
     StreamCandidate relabel(StreamCandidate stream) => StreamCandidate(
-          id: stream.id,
-          label: name,
-          uri: stream.uri,
-          headers: stream.headers,
-          backend: stream.backend,
-          language: stream.language,
-          quality: stream.quality,
-          externalAudioUri: stream.externalAudioUri,
-          allowedHosts: stream.allowedHosts,
-          directWebView: stream.directWebView,
-        );
+      id: stream.id,
+      label: name,
+      uri: stream.uri,
+      headers: stream.headers,
+      backend: stream.backend,
+      language: stream.language,
+      quality: stream.quality,
+      externalAudioUri: stream.externalAudioUri,
+      allowedHosts: stream.allowedHosts,
+      directWebView: stream.directWebView,
+    );
 
     return LiveChannel(
       id: channel.id,
@@ -366,9 +326,21 @@ class BuiltInLiveSourceRegistry {
 
   bool _containsSensitiveQuery(Uri uri) {
     const sensitive = <String>{
-      'username', 'user', 'password', 'pass', 'token', 'auth',
-      'apikey', 'api_key', 'key', 'secret', 'signature', 'sig',
-      'hdnea', 'expires', 'session',
+      'username',
+      'user',
+      'password',
+      'pass',
+      'token',
+      'auth',
+      'apikey',
+      'api_key',
+      'key',
+      'secret',
+      'signature',
+      'sig',
+      'hdnea',
+      'expires',
+      'session',
     };
     return uri.queryParameters.keys
         .map((key) => key.toLowerCase())

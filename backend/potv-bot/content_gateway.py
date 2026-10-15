@@ -6,6 +6,7 @@ configuration. The Flutter client receives opaque, short-lived HTTPS proxy
 URLs and never receives the upstream credentials.
 """
 import base64
+import copy
 import hashlib
 import hmac
 import ipaddress
@@ -19,12 +20,14 @@ import unicodedata
 from datetime import datetime, timezone
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import (
     HTTPCookieProcessor,
     Request,
     build_opener,
 )
+
+from lmhd_partner import LmhdPartner, PartnerApiError
 
 _EXTINF_ATTR = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
 _HLS_URI_ATTR = re.compile(r'URI="([^"]+)"')
@@ -125,11 +128,37 @@ class ContentGateway:
             if metadata_file is not None
             else os.getenv("POTV_CONTENT_METADATA_FILE", "").strip()
         )
+        # Optional authorized provider service config, stored ONLY on the VPS
+        # (or supplied as a test fixture). Never load APK-embedded sessions.
+        # Keep existing Xtream/M3U streams working if a partner configuration
+        # is absent or temporarily invalid.
+        self.lmhd = None
+        lmhd_file = os.getenv("POTV_LMHD_SERVICE_FILE", "").strip()
+        if lmhd_file:
+            try:
+                self.lmhd = LmhdPartner.from_file(lmhd_file)
+            except (OSError, ValueError, KeyError, TypeError):
+                self.lmhd = None
+        self.lmhd_live_catalog_enabled = (
+            os.getenv("POTV_LMHD_INCLUDE_LIVE_CATALOG", "").strip().lower()
+            == "true"
+        )
+        # Both paid catalog and paid VOD remain explicitly disabled until
+        # POTV's entitlement checks authorize the requesting customer.
+        self.lmhd_vod_enabled = (
+            os.getenv("POTV_LMHD_VOD_ENABLED", "").strip().lower() == "true"
+        )
         self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
         self._lock = threading.RLock()
         self._targets = {}
+        # Every signed live HLS segment registers a new target. Without
+        # expiry a continuously playing TV channel grows this map forever.
+        self._target_last_signed = {}
+        self._new_target_counter = 0
         self._catalog = None
         self._catalog_at = 0.0
+        self._catalog_refreshing = False
+        self._xtream_unreachable_until = {}
         self._xtream_cache = {}
         self._m3u_cache = {}
         self._sports_guide_cache = []
@@ -138,7 +167,7 @@ class ContentGateway:
 
     @property
     def configured(self):
-        return bool(self.sources)
+        return bool(self.sources) or self.lmhd is not None
 
     def _allowed_upstream(self, raw):
         try:
@@ -218,6 +247,9 @@ class ContentGateway:
         if cached and now - cached[0] < ttl:
             return cached[1]
 
+        # A temporarily unreachable partner must not stall every VOD request.
+        if now < self._xtream_unreachable_until.get(source, 0):
+            raise ContentGatewayError(503, "partner_temporarily_unreachable")
         query = {
             "username": config["username"],
             "password": config["password"],
@@ -225,7 +257,12 @@ class ContentGateway:
         }
         query.update(extra or {})
         url = config["base"] + "/player_api.php?" + urlencode(query)
-        data = self._fetch_json(url)
+        try:
+            data = self._fetch_json(url, timeout=6)
+        except (OSError, TimeoutError, HTTPError, URLError):
+            self._xtream_unreachable_until[source] = time.monotonic() + 90
+            raise
+        self._xtream_unreachable_until.pop(source, None)
         self._xtream_cache[cache_key] = (now, data)
         return data
 
@@ -552,6 +589,49 @@ class ContentGateway:
                     return row
         return exact_title[0] if len(exact_title) == 1 else None
 
+    def _lmhd_candidates(self, media_type, *, title, year=None,
+                         season=1, episode=1):
+        # Provider IDs are not TMDB IDs. Require an exact title/year match
+        # before requesting a stream; do not cross-link unrelated content.
+        if self.lmhd is None or not self.lmhd_vod_enabled or not title:
+            return []
+        try:
+            if media_type == "movie":
+                rows = self.lmhd.movie_sources(title=title, year=year)
+            else:
+                rows = self.lmhd.episode_sources(
+                    title=title, year=year, season=season, episode=episode
+                )
+        except (PartnerApiError, OSError, ValueError, TypeError):
+            return []
+
+        sources = []
+        seen = set()
+        for row in rows[:8]:
+            upstream = str(row.get("url") or "").strip()
+            try:
+                target_id = self._register_target(upstream)
+            except ContentGatewayError:
+                continue
+            if target_id in seen:
+                continue
+            seen.add(target_id)
+            # Sign and proxy URLs; source auth tokens never reach Android.
+            # The media MIME hint disambiguates extensionless HLS sources.
+            hint = str(row.get("format") or "").strip().lower()
+            url = self._proxy_url(target_id)
+            if hint in ("hls", "m3u8") and "format=" not in url:
+                url += "&format=hls"
+            elif hint in ("dash", "mpd") and "format=" not in url:
+                url += "&format=mpd"
+            sources.append({
+                "provider": "POTV",
+                "real_url": url,
+                "language": row.get("language") or None,
+                "quality": row.get("quality") or None,
+            })
+        return sources
+
     def resolve_movie(self, *, tmdb_id=None, title=None, year=None):
         sources = []
         seen_targets = set()
@@ -559,6 +639,7 @@ class ContentGateway:
             upstream = None
             headers = {}
             quality = None
+            xtream_failed = False
 
             if self._xtream_config(source) is not None:
                 try:
@@ -593,8 +674,9 @@ class ContentGateway:
                         )
                 except Exception:
                     upstream = None
+                    xtream_failed = True
 
-            if upstream is None:
+            if upstream is None and not xtream_failed:
                 try:
                     fallback = self._fallback_movie_entry(
                         source,
@@ -624,6 +706,10 @@ class ContentGateway:
             })
             if self.source_mode == "failover":
                 break
+        if not sources:
+            sources.extend(self._lmhd_candidates(
+                "movie", title=title, year=year
+            ))
         return {"sources": sources}
 
     def resolve_series_episode(
@@ -641,6 +727,7 @@ class ContentGateway:
             upstream = None
             headers = {}
             quality = None
+            xtream_failed = False
 
             if self._xtream_config(source) is not None:
                 try:
@@ -707,8 +794,9 @@ class ContentGateway:
                                     )
                 except Exception:
                     upstream = None
+                    xtream_failed = True
 
-            if upstream is None:
+            if upstream is None and not xtream_failed:
                 try:
                     fallback = self._fallback_series_entry(
                         source,
@@ -739,6 +827,10 @@ class ContentGateway:
             })
             if self.source_mode == "failover":
                 break
+        if not sources:
+            sources.extend(self._lmhd_candidates(
+                "tv", title=title, year=year, season=season, episode=episode
+            ))
         return {"sources": sources}
 
     def _target_id(self, url, headers):
@@ -758,7 +850,28 @@ class ContentGateway:
         target_id = self._target_id(url, safe_headers)
         with self._lock:
             self._targets[target_id] = (url, safe_headers)
+            self._target_last_signed[target_id] = time.monotonic()
+            self._new_target_counter += 1
+            if self._new_target_counter >= 512:
+                self._prune_expired_targets_locked(time.monotonic())
+                self._new_target_counter = 0
         return target_id
+
+    def _prune_expired_targets_locked(self, now):
+        """Drop unused HLS targets only after their 15-minute signatures expire.
+
+        Caller must hold self._lock. Playback requests already in progress
+        retain their local URL/headers; pruning never interrupts their socket.
+        """
+        cutoff = now - 1200.0
+        expired = [
+            key
+            for key, signed_at in self._target_last_signed.items()
+            if signed_at < cutoff
+        ]
+        for key in expired:
+            self._target_last_signed.pop(key, None)
+            self._targets.pop(key, None)
 
     def _signature(self, target_id, expires):
         raw = f"{target_id}|{expires}".encode("utf-8")
@@ -767,10 +880,29 @@ class ContentGateway:
     def _proxy_url(self, target_id, *, lifetime=900):
         expires = int(time.time()) + int(lifetime)
         sig = self._signature(target_id, expires)
-        return (
+        url = (
             f"{self.public_base}/api/v1/content/stream/{quote(target_id)}"
             f"?e={expires}&s={sig}"
         )
+        # Signed endpoints hide the original extension. Media3 cannot infer
+        # whether to construct an HLS, DASH or progressive media source from
+        # the proxy path alone. Include a harmless transport hint, NEVER the
+        # upstream URL or credentials. The signature still validates target_id.
+        with self._lock:
+            target = self._targets.get(target_id)
+            if target is not None:
+                self._target_last_signed[target_id] = time.monotonic()
+        if target is not None:
+            path = urlsplit(target[0]).path.lower()
+            if path.endswith(".m3u8"):
+                url += "&format=hls"
+            elif path.endswith(".mpd"):
+                url += "&format=mpd"
+            elif path.endswith(".ts"):
+                url += "&format=ts"
+            elif path.endswith((".mp4", ".mkv", ".webm", ".m4v")):
+                url += "&format=mp4"
+        return url
 
     def _validate_signature(self, target_id, query):
         values = parse_qs(query or "")
@@ -785,11 +917,24 @@ class ContentGateway:
         return bool(signature) and hmac.compare_digest(signature, expected)
 
     def _parse_extinf(self, line):
+        # EXTINF often includes a quoted User-Agent such as
+        # "Mozilla/5.0 (KHTML, like Gecko)". Splitting at the FIRST comma
+        # leaks "like Gecko) ..." into the public channel name.
+        quoted = False
+        separator = -1
+        for index, char in enumerate(line):
+            if char == '"' and (index == 0 or line[index - 1] != "\\"):
+                quoted = not quoted
+            elif char == "," and not quoted:
+                separator = index
+                break
+
+        header = line[:separator] if separator >= 0 else line
         attrs = {
             key.lower(): value.strip()
-            for key, value in _EXTINF_ATTR.findall(line)
+            for key, value in _EXTINF_ATTR.findall(header)
         }
-        name = line.split(",", 1)[1].strip() if "," in line else ""
+        name = line[separator + 1 :].strip() if separator >= 0 else ""
         return attrs, name
 
     def _normalized_label(self, value):
@@ -944,7 +1089,7 @@ class ContentGateway:
         headers = {}
         entries = 0
 
-        with self._fetch(source, timeout=35) as response:
+        with self._fetch(source, timeout=8) as response:
             for raw_line in response:
                 try:
                     line = raw_line.decode("utf-8", errors="replace").strip()
@@ -1298,6 +1443,28 @@ class ContentGateway:
             if parsed and self.source_mode == "failover":
                 break
 
+        lmhd_events = []
+        if self.lmhd is not None and self.lmhd_live_catalog_enabled:
+            # Opt-in only: do not publish licensed TV to a public catalog
+            # before the POTV subscription/entitlement gateway is in place.
+            try:
+                for row in self.lmhd.tv_channels()[:600]:
+                    name = str(row.get("name") or "").strip()
+                    group = str(row.get("group") or "").strip()
+                    if not name or self._is_adult_entry(name, group):
+                        continue
+                    try:
+                        channel = self._channel_payload(row)
+                    except ContentGatewayError:
+                        continue
+                    key = (name.lower(), str(row.get("epg_id") or "").lower())
+                    if key not in seen:
+                        seen.add(key)
+                        all_channels.append(channel)
+                lmhd_events = self.lmhd.sports_events()
+            except (PartnerApiError, OSError, ValueError, TypeError):
+                lmhd_events = []
+
         raw_sports = [
             channel
             for channel in all_channels
@@ -1319,6 +1486,10 @@ class ContentGateway:
             *xtream_guide,
         ]
         events = self._events_payload(metadata)
+        if lmhd_events:
+            events.extend(self._events_payload({
+                "sports_events": lmhd_events
+            }))
         revision_material = "|".join(sorted(channel["id"] for channel in all_channels))
         revision_material += f"|{len(guide)}|{len(events)}"
         revision = hashlib.sha256(revision_material.encode("utf-8")).hexdigest()[:20]
@@ -1333,23 +1504,86 @@ class ContentGateway:
             }
         }
 
+    def _resign_cached_catalog(self, payload):
+        # Cached URLs have a 15-minute TTL. Refresh their signatures without
+        # contacting a provider, so a temporary upstream outage never makes
+        # the previously published channel guide unusable.
+        result = copy.deepcopy(payload)
+        prefix = "/api/v1/content/stream/"
+
+        def resign(url):
+            if not isinstance(url, str):
+                return url
+            parsed = urlsplit(url)
+            if not parsed.path.startswith(prefix):
+                return url
+            target_id = unquote(parsed.path[len(prefix):])
+            if target_id not in self._targets:
+                return url
+            return self._proxy_url(target_id)
+
+        for group in ("channels", "sports_channels"):
+            for channel in result.get("data", {}).get(group, []):
+                if "hls_url" in channel:
+                    channel["hls_url"] = resign(channel["hls_url"])
+                if "backup_urls" in channel:
+                    channel["backup_urls"] = [
+                        resign(url) for url in channel["backup_urls"]
+                    ]
+        for event in result.get("data", {}).get("sports_events", []):
+            for stream in event.get("streams", []):
+                if isinstance(stream, dict) and "url" in stream:
+                    stream["url"] = resign(stream["url"])
+        return result
+
+    def _refresh_catalog_background(self):
+        try:
+            payload = self._build_catalog()
+            with self._lock:
+                # Do not erase a useful cached catalog when the upstream
+                # momentarily stops responding during a refresh.
+                if payload["data"].get("channels") or self._catalog is None:
+                    self._catalog = payload
+                self._catalog_at = time.monotonic()
+        except Exception:
+            with self._lock:
+                # Brief backoff prevents a dead upstream from spawning
+                # another blocking refresh on every client request.
+                self._catalog_at = time.monotonic() - self.refresh_seconds + 30
+        finally:
+            with self._lock:
+                self._catalog_refreshing = False
+
     def catalog(self, *, force=False):
         if not self.configured:
             raise ContentGatewayError(503, "content_gateway_unconfigured")
         now = time.monotonic()
+        refresh_in_background = False
         with self._lock:
-            if (
-                not force
-                and self._catalog is not None
-                and now - self._catalog_at < self.refresh_seconds
-            ):
-                return self._catalog
+            if not force and self._catalog is not None:
+                if (
+                    now - self._catalog_at >= self.refresh_seconds
+                    and not self._catalog_refreshing
+                ):
+                    self._catalog_refreshing = True
+                    refresh_in_background = True
+                snapshot = self._resign_cached_catalog(self._catalog)
+            else:
+                snapshot = None
+        if snapshot is not None:
+            if refresh_in_background:
+                threading.Thread(
+                    target=self._refresh_catalog_background,
+                    name="potv-catalog-refresh",
+                    daemon=True,
+                ).start()
+            return snapshot
+
+        # The initial cold start and force=True still hydrate synchronously.
+        # A subsequent request is served from memory even when the provider
+        # becomes unreachable.
         payload = self._build_catalog()
         with self._lock:
-            # The async short-EPG worker can finish between _build_catalog()
-            # taking its cache snapshot and this assignment. Reconcile the
-            # newest cache here so the first catalog response cannot lose a
-            # completed guide refresh due to that race.
             latest_guide = list(self._sports_guide_cache)
             if latest_guide:
                 existing = payload["data"].get("now_next") or []
@@ -1359,8 +1593,7 @@ class ContentGateway:
                         str((row.get("current") or {}).get("title") or ""),
                         str((row.get("next") or {}).get("title") or ""),
                     )
-                    for row in existing
-                    if isinstance(row, dict)
+                    for row in existing if isinstance(row, dict)
                 }
                 for row in latest_guide:
                     key = (
@@ -1390,16 +1623,16 @@ class ContentGateway:
                 continue
             if line.startswith("#"):
                 def repl(match):
-                    try:
-                        return 'URI="' + proxied(match.group(1)) + '"'
-                    except ContentGatewayError:
-                        return match.group(0)
+                    # Never return an original upstream URI to an Android
+                    # client. Rejected DRM key / rendition references must
+                    # fail the manifest as a whole, not leak credentials.
+                    return 'URI="' + proxied(match.group(1)) + '"'
                 output.append(_HLS_URI_ATTR.sub(repl, raw_line))
             else:
-                try:
-                    output.append(proxied(line))
-                except ContentGatewayError:
-                    output.append(line)
+                # Every HLS segment must stay inside POTV's signed proxy.
+                # Forwarding the raw line on upstream validation failure
+                # could expose private Xtream credentials to clients.
+                output.append(proxied(line))
         return "\n".join(output) + "\n"
 
     def _json_error(self, handler, status, code):

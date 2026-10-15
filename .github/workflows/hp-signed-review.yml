@@ -3,7 +3,7 @@ name: POTV signed review APK on HP
 on:
   push:
     branches:
-      - feat/private-penguplay-plug-and-play
+      - fix/launch-rescue-20261013
   workflow_dispatch:
 
 permissions:
@@ -11,16 +11,21 @@ permissions:
 
 concurrency:
   group: potv-hp-signed-review
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   signed-review:
     runs-on: [self-hosted, Windows, X64, potv]
     timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: potv-ci
 
     steps:
       - name: Checkout POTV
         uses: actions/checkout@v4
+        with:
+          path: potv-ci
 
       - name: Prepare committed Android project
         shell: powershell
@@ -65,17 +70,57 @@ jobs:
           [System.IO.File]::WriteAllLines(
             (Join-Path (Get-Location).Path 'android\key.properties'),
             $properties,
-            [System.Text.Encoding]::UTF8
+            (New-Object System.Text.UTF8Encoding($false))
           )
+          # Windows PowerShell's default UTF-8 BOM is treated as part of
+          # the first properties key by java.util.Properties.load(InputStream).
+          # This caused Gradle to report a missing storePassword at packaging.
+          $bytes = [System.IO.File]::ReadAllBytes(
+            (Join-Path (Get-Location).Path 'android\key.properties')
+          )
+          if ($bytes.Length -lt 40 -or
+              ($bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191)) {
+            throw 'Invalid BOM or truncated Android signing properties'
+          }
+          $props = New-Object System.Collections.Specialized.NameValueCollection
+          foreach ($line in $properties) {
+            $split = $line.IndexOf('=')
+            if ($split -le 0) { throw 'Invalid Android signing property' }
+            $key = $line.Substring(0, $split)
+            $value = $line.Substring($split + 1)
+            if ([string]::IsNullOrWhiteSpace($value)) { throw ('Empty Android signing property: ' + $key) }
+            $props.Add($key, '[validated]')
+          }
+          if ($props.Count -ne 4) { throw 'Unexpected Android signing properties' }
           & 'python' 'tool\configure_android_release_signing.py'
           if ($LASTEXITCODE -ne 0) { throw 'Release Gradle signing configuration failed' }
           Write-Output 'Signing ready; keystore and passwords are not exposed.'
 
       - name: Build signed APK
         shell: powershell
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          POTV_CONTROL_URL: ${{ vars.POTV_CONTROL_URL }}
+          POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
+          POTV_PARTNER_API_BASE_URL: ${{ vars.POTV_PARTNER_API_BASE_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
-          & 'C:\flutter\bin\flutter.bat' build apk --release
+          # A review build must have the same PUBLIC gateway and TMDB
+          # configuration as POTV releases. Partner credentials and private
+          # source URLs are deliberately NOT embedded in the APK.
+          $defines = @()
+          foreach ($name in @(
+            'TMDB_API_KEY',
+            'POTV_CONTROL_URL',
+            'POTV_PARTNER_CATALOG_URL',
+            'POTV_PARTNER_API_BASE_URL'
+          )) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if (![string]::IsNullOrWhiteSpace($value)) {
+              $defines += ('--dart-define=' + $name + '=' + $value)
+            }
+          }
+          & 'C:\flutter\bin\flutter.bat' build apk --release @defines
           if ($LASTEXITCODE -ne 0) { throw 'Signed APK build failed' }
 
       - name: Verify signing and preserve review APK locally
@@ -98,22 +143,9 @@ jobs:
           }
           $aapt = Join-Path $tools.FullName 'aapt.exe'
           $versionLine = Get-Content 'pubspec.yaml' | Where-Object { $_ -match '^version:\s*' } | Select-Object -First 1
-          if ($versionLine -notmatch '^version:\s*([^+]+)\+(\d+)\s*          Copy-Item $apk $target -Force
-          Write-Output ('POTV_SIGNED_REVIEW_APK=' + $target)
-          Write-Output ('POTV_SIGNED_REVIEW_SHA256=' + (Get-FileHash $target -Algorithm SHA256).Hash)
-          Write-Output ('POTV_SIGNING_CERT_SHA256=' + ($digestLine[0].ToString().Split(':')[-1].Trim()))
-          Write-Output ('POTV_SIGNED_REVIEW_SIZE_MB=' + [math]::Round((Get-Item $target).Length / 1MB, 2))
-          Write-Output 'SIGNED_REVIEW_BUILD_SUCCESS; no GitHub-hosted minutes or public release created.'
-
-      - name: Remove release signing secrets from runner workspace
-        if: always()
-        shell: powershell
-        run: |
-          foreach ($path in @('android\key.properties','android\app\potv-release.keystore')) {
-            if (Test-Path $path) { Remove-Item $path -Force }
+          if ($versionLine -notmatch '^version:\s*([^+]+)\+(\d+)\s*$') {
+            throw 'Invalid pubspec version'
           }
-          Write-Output 'Temporary signing files removed from working directory.'
-) { throw 'Invalid pubspec version' }
           $versionName = $Matches[1]
           $versionCode = $Matches[2]
           $package = (& $aapt dump badging $apk | Select-Object -First 1)

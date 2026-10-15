@@ -47,6 +47,11 @@ android {
     }
 
     buildTypes {
+        // Debug/QA builds coexist with a signed commercial POTV installation.
+        // Never let an unrelated debug certificate replace customer data.
+        debug {
+            applicationIdSuffix = ".qa"
+        }
         release {
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")

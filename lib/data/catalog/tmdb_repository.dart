@@ -5,7 +5,10 @@ import '../../core/config/app_config.dart';
 import '../../domain/models/media_item.dart';
 
 final tmdbRepositoryProvider = Provider<TmdbRepository>((ref) {
-  return TmdbRepository(Dio());
+  return TmdbRepository(Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 5),
+    receiveTimeout: const Duration(seconds: 8),
+  )));
 });
 
 final mediaSearchProvider =
@@ -46,58 +49,70 @@ class TmdbRepository {
   Future<List<MediaItem>> search(String query) async {
     if (!_hasTmdbKey) return _cinemetaSearch(query);
 
-    final response = await _dio.get<Map<String, dynamic>>(
-      '$_apiBase/search/multi',
-      queryParameters: {
-        'api_key': AppConfig.tmdbApiKey.trim(),
-        'query': query.trim(),
-        'language': 'es-MX',
-        'include_adult': false,
-      },
-    );
-
-    return _mapTmdbList(
-      response.data?['results'],
-      allowMixed: true,
-    );
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '$_apiBase/search/multi',
+        queryParameters: {
+          'api_key': AppConfig.tmdbApiKey.trim(),
+          'query': query.trim(),
+          'language': 'es-MX',
+          'include_adult': false,
+        },
+      );
+  
+      return _mapTmdbList(
+        response.data?['results'],
+        allowMixed: true,
+      );
+    } on DioException {
+      return _cinemetaSearch(query);
+    }
   }
 
   Future<List<MediaItem>> trending(MediaType type) async {
     if (!_hasTmdbKey) return _cinemetaCatalog(type);
 
     final endpoint = _endpoint(type);
-    final response = await _dio.get<Map<String, dynamic>>(
-      '$_apiBase/trending/$endpoint/week',
-      queryParameters: {
-        'api_key': AppConfig.tmdbApiKey.trim(),
-        'language': 'es-MX',
-      },
-    );
-
-    return _mapTmdbList(
-      response.data?['results'],
-      forcedType: type,
-    );
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '$_apiBase/trending/$endpoint/week',
+        queryParameters: {
+          'api_key': AppConfig.tmdbApiKey.trim(),
+          'language': 'es-MX',
+        },
+      );
+  
+      return _mapTmdbList(
+        response.data?['results'],
+        forcedType: type,
+      );
+    } on DioException {
+      return _cinemetaCatalog(type);
+    }
   }
 
   Future<List<MediaItem>> popular(MediaType type) async {
     if (!_hasTmdbKey) return _cinemetaCatalog(type);
 
     final endpoint = _endpoint(type);
-    final response = await _dio.get<Map<String, dynamic>>(
-      '$_apiBase/$endpoint/popular',
-      queryParameters: {
-        'api_key': AppConfig.tmdbApiKey.trim(),
-        'language': 'es-MX',
-        'region': 'MX',
-        'page': 1,
-      },
-    );
-
-    return _mapTmdbList(
-      response.data?['results'],
-      forcedType: type,
-    );
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '$_apiBase/$endpoint/popular',
+        queryParameters: {
+          'api_key': AppConfig.tmdbApiKey.trim(),
+          'language': 'es-MX',
+          'region': 'MX',
+          'page': 1,
+        },
+      );
+  
+      return _mapTmdbList(
+        response.data?['results'],
+        forcedType: type,
+      );
+    } on DioException {
+      return _cinemetaCatalog(type);
+    }
   }
 
   Future<List<MediaItem>> discoverByGenre(

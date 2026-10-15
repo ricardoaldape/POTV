@@ -79,7 +79,12 @@ class StremioSubtitleService {
         ? externalId
         : '$externalId:${context.season ?? 1}:${context.episode ?? 1}';
     final addons = await repository.load();
-    final enabled = addons.where((a) => a.enabled).take(6).toList();
+    // Catalog-only addons are common in the partner discovery list. A
+    // six-addon cap could silently exclude real subtitle providers that
+    // appear later (e.g. OpenSubtitles installed after six catalogs).
+    // Keep a bounded number of HTTPS probes, then inspect each manifest's
+    // declared resources before requesting subtitle files.
+    final enabled = addons.where((a) => a.enabled).take(24).toList();
     final batches = await Future.wait([
       for (final addon in enabled)
         () async {

@@ -109,8 +109,16 @@ jobs:
           [IO.File]::WriteAllLines(
             (Join-Path (Get-Location).Path 'android\key.properties'),
             $properties,
-            [Text.Encoding]::UTF8
+            (New-Object System.Text.UTF8Encoding($false))
           )
+          # java.util.Properties interprets the UTF-8 BOM as part of the first
+          # key, making storePassword disappear at Android packaging time.
+          $keyFile = Join-Path (Get-Location).Path 'android\key.properties'
+          $keyBytes = [IO.File]::ReadAllBytes($keyFile)
+          if ($keyBytes.Length -lt 40 -or
+              ($keyBytes[0] -eq 239 -and $keyBytes[1] -eq 187 -and $keyBytes[2] -eq 191)) {
+            throw 'Signing properties contain BOM or are truncated'
+          }
           & 'python' 'tool\configure_android_release_signing.py'
           if ($LASTEXITCODE -ne 0) { throw 'Release signing configuration failed' }
 
@@ -175,7 +183,11 @@ jobs:
             throw 'Production signing certificate changed. Refusing OTA.'
           }
 
-          $package = (& $aapt dump badging $apk | Select-Object -First 1)
+          # Avoid prematurely closing aapt's native stdout pipe. That can
+          # leave LASTEXITCODE=1 even when package/version/signature match.
+          $badging = & $aapt dump badging $apk
+          if ($LASTEXITCODE -ne 0) { throw 'Android aapt badging inspection failed' }
+          $package = $badging | Select-Object -First 1
           if ($package -notmatch "name='com\.potv\.potv'") {
             throw 'Unexpected Android package name'
           }
@@ -194,6 +206,7 @@ jobs:
           Write-Output ('OTA_SHA256=' + $sha)
           Write-Output ('OTA_SIGNING_CERT_SHA256=' + $digest)
           Write-Output ('OTA_SIZE_BYTES=' + $size)
+          exit 0
 
       - name: Create release notes
         shell: powershell
@@ -224,6 +237,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          # GitHub Release source tag must refer to this tested build commit.
+          target_commitish: ${{ github.sha }}
           name: POTV ${{ steps.meta.outputs.version_name }}
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           body_path: ota-out/release-notes.txt

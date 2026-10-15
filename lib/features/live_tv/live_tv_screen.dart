@@ -32,18 +32,12 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
   }
 
   void _startTimers() {
-    _partnerRefreshTimer ??= Timer.periodic(
-      const Duration(minutes: 2),
-      (_) {
-        if (mounted) ref.invalidate(partnerContentProvider);
-      },
-    );
-    _guideClock ??= Timer.periodic(
-      const Duration(minutes: 1),
-      (_) {
-        if (mounted) setState(() => _guideNow = DateTime.now());
-      },
-    );
+    _partnerRefreshTimer ??= Timer.periodic(const Duration(minutes: 2), (_) {
+      if (mounted) ref.invalidate(partnerContentProvider);
+    });
+    _guideClock ??= Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() => _guideNow = DateTime.now());
+    });
   }
 
   @override
@@ -94,16 +88,16 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
         // Resolve the latest catalog immediately before opening a channel.
         final snapshot = await ref
             .read(partnerContentRepositoryProvider)
-            .load(forceRefresh: true);
+            .load();
         if (!mounted) return;
-        final matches = [...snapshot.channels, ...snapshot.sportsChannels]
-            .where((item) => item.id == selected.id);
+        final matches = [
+          ...snapshot.channels,
+          ...snapshot.sportsChannels,
+        ].where((item) => item.id == selected.id);
         if (matches.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text(
-                'Este canal ya no está disponible en el catálogo.',
-              ),
+              content: Text('Este canal ya no está disponible en el catálogo.'),
             ),
           );
           ref.invalidate(partnerContentProvider);
@@ -113,12 +107,17 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
         ref.invalidate(partnerContentProvider);
       }
 
-      final playable = await ref
-          .read(streamCandidateProbeProvider)
-          .preferReachable(
-            channel.playbackCandidates,
-            dropDeadWhenCertain: true,
-          );
+      // The signed gateway stream is an open-ended transport stream.
+      // A HEAD probe cannot certify playback and may hang unnecessarily.
+      // Open the player promptly; let Media3 report decoder/network errors.
+      final playable = channel.id.startsWith('partner:')
+          ? channel.playbackCandidates
+          : await ref
+                .read(streamCandidateProbeProvider)
+                .preferReachable(
+                  channel.playbackCandidates,
+                  dropDeadWhenCertain: true,
+                );
       if (!mounted) return;
 
       if (playable.isEmpty) {
@@ -148,6 +147,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
   @override
   Widget build(BuildContext context) {
     final channelsState = ref.watch(liveChannelsProvider);
+    final starterChannels = ref.watch(starterMexicoChannelsProvider);
     final partnerState = ref.watch(partnerContentProvider);
     final epgState = ref.watch(epgProgramsProvider);
     final favoritesState = ref.watch(liveTvFavoritesProvider);
@@ -160,7 +160,10 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
     final guide = LiveTvGuide(programs);
     final channels = _organizer.merge(
       partner: partner?.channels ?? const <LiveChannel>[],
-      local: channelsState.asData?.value ?? const <LiveChannel>[],
+      local: [
+        ...starterChannels,
+        ...channelsState.asData?.value ?? const <LiveChannel>[],
+      ],
       // Dedicated sports feeds belong in Sports Hub. Ordinary Mexico TV
       // channels that happen to be sports remain available through local or
       // partner general TV catalogs.
@@ -201,7 +204,10 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
         children: [
           Padding(
             padding: EdgeInsets.fromLTRB(
-              compact ? 16 : 24, 12, compact ? 16 : 24, 8,
+              compact ? 16 : 24,
+              12,
+              compact ? 16 : 24,
+              8,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,7 +256,8 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
                     label: const Text('Favoritos'),
                     avatar: const Icon(Icons.star_rounded, size: 17),
                     selected: favoritesOnly,
-                    onSelected: (value) => setState(() => favoritesOnly = value),
+                    onSelected: (value) =>
+                        setState(() => favoritesOnly = value),
                   ),
                 ),
                 for (final category in LiveTvCategory.values)
@@ -285,42 +292,41 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
             child: channels.isEmpty && loading
                 ? const Center(child: CircularProgressIndicator())
                 : channels.isEmpty
-                    ? const _EmptyTv()
-                    : onlyFavorites.isEmpty
-                        ? const Center(
-                            child: Text('No hay canales con ese filtro.'),
-                          )
-                        : GridView.builder(
-                            key: const ValueKey('live-tv-channel-grid'),
-                            padding: EdgeInsets.fromLTRB(
-                              compact ? 12 : 20, 12,
-                              compact ? 12 : 20, 24,
-                            ),
-                            gridDelegate:
-                                SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: compact ? 360 : 340,
-                              mainAxisExtent: 192,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                            ),
-                            itemCount: onlyFavorites.length,
-                            itemBuilder: (context, index) {
-                              final channel = onlyFavorites[index];
-                              return _LiveChannelCard(
-                                channel: channel,
-                                category: _organizer.categoryFor(channel),
-                                current: guide.onAir(channel, _guideNow),
-                                next: guide.upNext(channel, _guideNow),
-                                now: _guideNow,
-                                favorite: _isFavorite(channel, favorites),
-                                opening: _openingChannelId == channel.id,
-                                onOpen: () => _playChannel(channel),
-                                onFavorite: () => ref
-                                    .read(liveTvFavoritesProvider.notifier)
-                                    .toggle(channel),
-                              );
-                            },
-                          ),
+                ? const _EmptyTv()
+                : onlyFavorites.isEmpty
+                ? const Center(child: Text('No hay canales con ese filtro.'))
+                : GridView.builder(
+                    key: const ValueKey('live-tv-channel-grid'),
+                    padding: EdgeInsets.fromLTRB(
+                      compact ? 12 : 20,
+                      12,
+                      compact ? 12 : 20,
+                      24,
+                    ),
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: compact ? 360 : 340,
+                      mainAxisExtent: 192,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: onlyFavorites.length,
+                    itemBuilder: (context, index) {
+                      final channel = onlyFavorites[index];
+                      return _LiveChannelCard(
+                        channel: channel,
+                        category: _organizer.categoryFor(channel),
+                        current: guide.onAir(channel, _guideNow),
+                        next: guide.upNext(channel, _guideNow),
+                        now: _guideNow,
+                        favorite: _isFavorite(channel, favorites),
+                        opening: _openingChannelId == channel.id,
+                        onOpen: () => _playChannel(channel),
+                        onFavorite: () => ref
+                            .read(liveTvFavoritesProvider.notifier)
+                            .toggle(channel),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -329,8 +335,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
 
   bool _isFavorite(LiveChannel channel, Set<String> favorites) {
     final epg = channel.epgId?.trim();
-    return (epg != null && epg.isNotEmpty &&
-            favorites.contains('epg:$epg')) ||
+    return (epg != null && epg.isNotEmpty && favorites.contains('epg:$epg')) ||
         favorites.contains('name:${channel.name.trim().toLowerCase()}');
   }
 }
@@ -360,13 +365,13 @@ class _LiveChannelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = current == null ||
-            !current!.endsAt.isAfter(current!.startsAt)
+    final progress =
+        current == null || !current!.endsAt.isAfter(current!.startsAt)
         ? null
         : (now.difference(current!.startsAt).inMilliseconds /
-                current!.endsAt.difference(current!.startsAt).inMilliseconds)
-            .clamp(0.0, 1.0)
-            .toDouble();
+                  current!.endsAt.difference(current!.startsAt).inMilliseconds)
+              .clamp(0.0, 1.0)
+              .toDouble();
     final backups = channel.playbackCandidates.length - 1;
 
     return Card(
@@ -409,21 +414,20 @@ class _LiveChannelCard extends StatelessWidget {
                   ),
                   IconButton(
                     key: ValueKey('live-tv-star-${channel.id}'),
-                    tooltip: favorite ? 'Quitar de favoritos' : 'Guardar favorito',
-                    icon: Icon(favorite
-                        ? Icons.star_rounded : Icons.star_border_rounded),
+                    tooltip: favorite
+                        ? 'Quitar de favoritos'
+                        : 'Guardar favorito',
+                    icon: Icon(
+                      favorite ? Icons.star_rounded : Icons.star_border_rounded,
+                    ),
                     onPressed: onFavorite,
                   ),
                 ],
               ),
               const SizedBox(height: 5),
               Text(
-                category.label +
-                    (backups > 0 ? ' · $backups respaldos' : ''),
-                style: const TextStyle(
-                  color: Colors.white60,
-                  fontSize: 11,
-                ),
+                category.label + (backups > 0 ? ' · $backups respaldos' : ''),
+                style: const TextStyle(color: Colors.white60, fontSize: 11),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -451,8 +455,9 @@ class _LiveChannelCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      next == null ? 'Toca para reproducir' :
-                          'Después · ${next!.title}',
+                      next == null
+                          ? 'Toca para reproducir'
+                          : 'Después · ${next!.title}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 11),
@@ -486,10 +491,7 @@ class _EmptyTv extends StatelessWidget {
               SizedBox(height: 20),
               Text(
                 'Sin canales disponibles',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
               ),
               SizedBox(height: 10),
               Text(

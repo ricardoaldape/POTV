@@ -55,7 +55,7 @@ class UniversalSourceInstaller {
   });
 
   Future<UniversalSourceInstallResult> install(String input) async {
-    final uri = _normalize(input);
+    final uri = normalizeUrl(input);
     Object? lastError;
     for (final candidate in _candidates(uri)) {
       try {
@@ -137,12 +137,24 @@ class UniversalSourceInstaller {
     });
   }
 
-  Uri _normalize(String input) {
+  /// Kino and Stremio share addon manifests with the stremio:// scheme.
+  /// Normalize that *public app-link format* to HTTPS before the existing
+  /// inspect-and-confirm installation flow. Tokens embedded in paths remain
+  /// protected by the encrypted addon repository, never by plain preferences.
+  static Uri normalizeUrl(String input) {
     var value = input.trim();
     if (value.isEmpty) throw const FormatException('Pega una URL.');
-    if (!value.contains('://')) value = 'https://$value';
+    if (value.toLowerCase().startsWith('stremio://')) {
+      value = 'https://${value.substring('stremio://'.length)}';
+    } else if (!value.contains('://')) {
+      value = 'https://$value';
+    }
     final uri = Uri.tryParse(value);
-    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) {
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasFragment) {
       throw const FormatException('La URL no es válida.');
     }
     return uri;

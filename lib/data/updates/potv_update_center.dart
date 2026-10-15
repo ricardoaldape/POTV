@@ -57,7 +57,14 @@ class PotvUpdateCenter {
   PotvUpdateCenter(this.dio) : catalog = PotvUpdateCatalog(dio);
 
   Future<Directory> _updatesDirectory() async {
-    final dir = await _updatesDirectory();
+    // Android's getTemporaryDirectory maps to cacheDir. The installer
+    // accepts only cacheDir/potv-updates/potv-update.apk.
+    // Do NOT call this method recursively: it previously overflowed.
+    final root = await getTemporaryDirectory();
+    final dir = Directory(
+      '${root.path}${Platform.pathSeparator}potv-updates',
+    );
+    await dir.create(recursive: true);
     return dir;
   }
 
@@ -92,11 +99,26 @@ class PotvUpdateCenter {
     );
   }
 
-  Future<PotvUpdateChannel> selectedChannel() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_preference) == 'beta'
+  static PotvUpdateChannel defaultChannelForVersionName(String name) {
+    return RegExp(r'-beta\.\d+').hasMatch(name)
         ? PotvUpdateChannel.beta
         : PotvUpdateChannel.stable;
+  }
+
+  Future<PotvUpdateChannel> selectedChannel() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_preference);
+    if (saved == 'beta') return PotvUpdateChannel.beta;
+    if (saved == 'stable') return PotvUpdateChannel.stable;
+
+    // First-time beta users should receive future beta updates without
+    // having to discover the hidden update-channel preference.
+    try {
+      final installed = await installedVersion();
+      return defaultChannelForVersionName(installed.name);
+    } catch (_) {
+      return PotvUpdateChannel.stable;
+    }
   }
 
   Future<void> changeChannel(PotvUpdateChannel value) async {
@@ -114,10 +136,7 @@ class PotvUpdateCenter {
     PotvDownloadProgress? onProgress,
     CancelToken? cancelToken,
   }) async {
-    final dir = Directory(
-      '${(await getTemporaryDirectory()).path}${Platform.pathSeparator}potv-updates',
-    );
-    await dir.create(recursive: true);
+    final dir = await _updatesDirectory();
     final temp = File('${dir.path}${Platform.pathSeparator}potv-update.part');
     final apk = File('${dir.path}${Platform.pathSeparator}potv-update.apk');
 

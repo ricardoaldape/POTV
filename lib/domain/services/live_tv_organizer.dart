@@ -103,6 +103,16 @@ class LiveTvOrganizer {
 
   bool isAllowedChannel(LiveChannel channel) {
     final raw = '${channel.name} ${channel.group ?? ''}'.toLowerCase();
+    // A historical gateway feed accidentally included a browser User-Agent
+    // inside EXTINF metadata (e.g. "like Gecko) Chrome/154..." as a title).
+    // Hide these corrupt entries immediately on clients with the old catalog,
+    // even before the gateway parser fix is deployed.
+    if (RegExp(
+      r'(?:like\s+gecko\)|mozilla/5\.0|chrome/[0-9]+\.|'
+      r'safari/[0-9]+\.|\bgroup-title\s*=|\bhttp-user-agent\s*=)',
+    ).hasMatch(raw)) {
+      return false;
+    }
     if (RegExp(r'(^|[^0-9])(?:18\+|\+18)([^0-9]|$)').hasMatch(raw)) {
       return false;
     }

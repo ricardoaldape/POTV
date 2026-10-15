@@ -90,6 +90,32 @@ void main() {
     );
   });
 
+  test('corrupt browser User-Agent titles are excluded without hiding ESPN Latino', () {
+    const organizer = LiveTvOrganizer();
+    final channel = makeChannel(
+      'like Gecko) Chrome/154.0.0.0 Safari/537.36" group-title="Sports" ESPN 2 (Netherlands)',
+      group: 'Sports',
+    );
+    expect(organizer.isAllowedChannel(channel), isFalse);
+    expect(
+      organizer.isAllowedChannel(
+        makeChannel('ESPN 2 Latin America (1080p)', group: 'Sports'),
+      ),
+      isTrue,
+    );
+    final cleaned = organizer.merge(
+      partner: [
+        channel,
+        makeChannel('ESPN 2 Latin America (1080p)', group: 'Sports'),
+      ],
+      local: const [],
+      partnerSports: const [],
+      publicSports: const [],
+    );
+    expect(cleaned, hasLength(1));
+    expect(cleaned.single.name, contains('Latin America'));
+  });
+
   test('adult and explicit TV entries are rejected globally', () {
     const organizer = LiveTvOrganizer();
     expect(
