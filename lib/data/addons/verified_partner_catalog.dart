@@ -7,11 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// bundling. A working manifest does NOT imply that it serves playable video.
 final verifiedPartnerAddonsProvider =
     FutureProvider<List<VerifiedPartnerAddon>>((ref) async {
-  final source = await rootBundle.loadString(
-    'assets/partner_compatible_addons_kino.json',
-  );
-  return VerifiedPartnerAddon.parseCatalog(source);
-});
+      final source = await rootBundle.loadString(
+        'assets/partner_compatible_addons_kino.json',
+      );
+      return VerifiedPartnerAddon.parseCatalog(source);
+    });
 
 class VerifiedPartnerAddon {
   final String id;
@@ -48,7 +48,8 @@ class VerifiedPartnerAddon {
 
   static List<VerifiedPartnerAddon> parseCatalog(String source) {
     final decoded = jsonDecode(source);
-    if (decoded is! Map || decoded['schema'] != 1 ||
+    if (decoded is! Map ||
+        decoded['schema'] != 1 ||
         decoded['addons'] is! List) {
       throw const FormatException('Catálogo de complementos inválido.');
     }
@@ -69,21 +70,27 @@ class VerifiedPartnerAddon {
       final id = value['id']?.toString().trim() ?? '';
       final name = value['name']?.toString().trim() ?? '';
       final uri = Uri.tryParse(value['manifest']?.toString() ?? '');
-      if (id.isEmpty || name.isEmpty || uri == null ||
-          uri.scheme != 'https' || uri.host.isEmpty ||
-          uri.userInfo.isNotEmpty || uri.hasFragment ||
+      if (id.isEmpty ||
+          name.isEmpty ||
+          uri == null ||
+          uri.scheme != 'https' ||
+          uri.host.isEmpty ||
+          uri.userInfo.isNotEmpty ||
+          uri.hasFragment ||
           !uri.path.endsWith('/manifest.json') ||
           !seen.add(id)) {
         continue;
       }
-      results.add(VerifiedPartnerAddon(
-        id: id,
-        name: name,
-        manifestUri: uri,
-        resources: texts(value['resources']),
-        types: texts(value['types']),
-        categories: texts(value['categories']),
-      ));
+      results.add(
+        VerifiedPartnerAddon(
+          id: id,
+          name: name,
+          manifestUri: uri,
+          resources: texts(value['resources']),
+          types: texts(value['types']),
+          categories: texts(value['categories']),
+        ),
+      );
       if (results.length >= 80) break;
     }
     return List.unmodifiable(results);

@@ -42,17 +42,19 @@ void main() {
     );
   });
 
-  test('partner manifest asset includes independently verified entries',
-      () async {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    final entries = VerifiedPartnerAddon.parseCatalog(
-      await loadVerifiedCatalogForTest(),
-    );
-    expect(entries, hasLength(21));
-    expect(entries.where((a) => a.offersStreams), hasLength(2));
-    expect(entries.where((a) => a.offersSubtitles), hasLength(5));
-    expect(entries.every((a) => a.manifestUri.userInfo.isEmpty), isTrue);
-  });
+  test(
+    'partner manifest asset includes independently verified entries',
+    () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final entries = VerifiedPartnerAddon.parseCatalog(
+        await loadVerifiedCatalogForTest(),
+      );
+      expect(entries, hasLength(21));
+      expect(entries.where((a) => a.offersStreams), hasLength(2));
+      expect(entries.where((a) => a.offersSubtitles), hasLength(5));
+      expect(entries.every((a) => a.manifestUri.userInfo.isEmpty), isTrue);
+    },
+  );
 }
 
 Future<String> loadVerifiedCatalogForTest() async {

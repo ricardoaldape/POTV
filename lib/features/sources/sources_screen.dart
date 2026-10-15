@@ -67,7 +67,9 @@ class SourcesScreen extends ConsumerWidget {
     if (value == null || value.isEmpty) return;
 
     try {
-      final result = await ref.read(universalSourceInstallerProvider).install(value);
+      final result = await ref
+          .read(universalSourceInstallerProvider)
+          .install(value);
       ref.invalidate(stremioAddonsProvider);
       ref.invalidate(nuvioPluginsProvider);
       ref.invalidate(resolverStatusProvider);
@@ -81,13 +83,17 @@ class SourcesScreen extends ConsumerWidget {
       );
     } on FormatException catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: const Text('No se pudo agregar la fuente. Revisa su configuración.')),
+        SnackBar(
+          content: const Text(
+            'No se pudo agregar la fuente. Revisa su configuración.',
+          ),
+        ),
       );
     }
   }
@@ -108,10 +114,9 @@ class SourcesScreen extends ConsumerWidget {
         (entry) => entry.manifestUri == info.manifestUri,
       );
       if (!alreadyInstalled) {
-        await ref.read(stremioAddonRepositoryProvider).add(
-          name: info.name,
-          manifestUri: info.manifestUri,
-        );
+        await ref
+            .read(stremioAddonRepositoryProvider)
+            .add(name: info.name, manifestUri: info.manifestUri);
       }
       ref.invalidate(stremioAddonsProvider);
       ref.invalidate(resolverStatusProvider);
@@ -119,8 +124,8 @@ class SourcesScreen extends ConsumerWidget {
       final capabilities = info.supportsStreams
           ? 'Podrá consultar fuentes que entregue el proveedor.'
           : info.resources.contains('subtitles')
-              ? 'Podrá buscar subtítulos compatibles.'
-              : 'Este complemento entrega catálogos, no videos.';
+          ? 'Podrá buscar subtítulos compatibles.'
+          : 'Este complemento entrega catálogos, no videos.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -154,7 +159,10 @@ class SourcesScreen extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'Nombre')),
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(labelText: 'Nombre'),
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: endpoint,
@@ -165,9 +173,14 @@ class SourcesScreen extends ConsumerWidget {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop((name: name.text.trim(), endpoint: endpoint.text.trim())),
+            onPressed: () => Navigator.of(
+              context,
+            ).pop((name: name.text.trim(), endpoint: endpoint.text.trim())),
             child: const Text('Agregar'),
           ),
         ],
@@ -175,10 +188,14 @@ class SourcesScreen extends ConsumerWidget {
     );
     name.dispose();
     endpoint.dispose();
-    if (result == null || result.name.isEmpty || result.endpoint.isEmpty) return;
+    if (result == null || result.name.isEmpty || result.endpoint.isEmpty) {
+      return;
+    }
     final uri = Uri.tryParse(result.endpoint);
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) return;
-    await ref.read(httpSourceRepositoryProvider).add(name: result.name, endpoint: uri);
+    await ref
+        .read(httpSourceRepositoryProvider)
+        .add(name: result.name, endpoint: uri);
     ref.invalidate(httpSourcesProvider);
     ref.invalidate(resolverStatusProvider);
   }
@@ -191,15 +208,18 @@ class SourcesScreen extends ConsumerWidget {
         title: const Text('Agregar addon compatible'),
         content: TextField(
           controller: controller,
-                obscureText: true,
-                enableSuggestions: false,
-                autocorrect: false,
+          obscureText: true,
+          enableSuggestions: false,
+          autocorrect: false,
           autofocus: true,
           keyboardType: TextInputType.url,
           decoration: const InputDecoration(labelText: 'URL o manifest.json'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(controller.text.trim()),
             child: const Text('Agregar'),
@@ -212,13 +232,21 @@ class SourcesScreen extends ConsumerWidget {
     final uri = Uri.tryParse(value);
     if (uri == null) return;
     final manifest = await ref.read(stremioAddonClientProvider).inspect(uri);
-    await ref.read(stremioAddonRepositoryProvider).add(name: manifest.name, manifestUri: manifest.manifestUri);
+    await ref
+        .read(stremioAddonRepositoryProvider)
+        .add(name: manifest.name, manifestUri: manifest.manifestUri);
     ref.invalidate(stremioAddonsProvider);
     ref.invalidate(resolverStatusProvider);
   }
 
-  Future<void> _toggleHttp(WidgetRef ref, HttpSourceConfig source, bool enabled) async {
-    await ref.read(httpSourceRepositoryProvider).update(source.copyWith(enabled: enabled));
+  Future<void> _toggleHttp(
+    WidgetRef ref,
+    HttpSourceConfig source,
+    bool enabled,
+  ) async {
+    await ref
+        .read(httpSourceRepositoryProvider)
+        .update(source.copyWith(enabled: enabled));
     ref.invalidate(httpSourcesProvider);
     ref.invalidate(resolverStatusProvider);
   }
@@ -229,8 +257,14 @@ class SourcesScreen extends ConsumerWidget {
     ref.invalidate(resolverStatusProvider);
   }
 
-  Future<void> _toggleAddon(WidgetRef ref, StremioAddonConfig addon, bool enabled) async {
-    await ref.read(stremioAddonRepositoryProvider).update(addon.copyWith(enabled: enabled));
+  Future<void> _toggleAddon(
+    WidgetRef ref,
+    StremioAddonConfig addon,
+    bool enabled,
+  ) async {
+    await ref
+        .read(stremioAddonRepositoryProvider)
+        .update(addon.copyWith(enabled: enabled));
     ref.invalidate(stremioAddonsProvider);
     ref.invalidate(resolverStatusProvider);
   }
@@ -241,8 +275,14 @@ class SourcesScreen extends ConsumerWidget {
     ref.invalidate(resolverStatusProvider);
   }
 
-  Future<void> _togglePlugin(WidgetRef ref, NuvioPluginConfig plugin, bool enabled) async {
-    await ref.read(nuvioPluginRepositoryProvider).update(plugin.copyWith(enabled: enabled));
+  Future<void> _togglePlugin(
+    WidgetRef ref,
+    NuvioPluginConfig plugin,
+    bool enabled,
+  ) async {
+    await ref
+        .read(nuvioPluginRepositoryProvider)
+        .update(plugin.copyWith(enabled: enabled));
     ref.invalidate(nuvioPluginsProvider);
     ref.invalidate(resolverStatusProvider);
   }
@@ -271,7 +311,10 @@ class SourcesScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Una sola entrada', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  const Text(
+                    'Una sola entrada',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
                   const SizedBox(height: 7),
                   const Text(
                     'Pega una URL y POTV detecta si es un addon compatible, un repositorio de plugins o una lista M3U.',
@@ -288,7 +331,10 @@ class SourcesScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 22),
-          const _SectionTitle(title: 'Plugins automáticos', subtitle: 'Se consultan en segundo plano al pulsar Play.'),
+          const _SectionTitle(
+            title: 'Plugins automáticos',
+            subtitle: 'Se consultan en segundo plano al pulsar Play.',
+          ),
           const SizedBox(height: 8),
           plugins.when(
             loading: () => const LinearProgressIndicator(minHeight: 2),
@@ -300,7 +346,8 @@ class SourcesScreen extends ConsumerWidget {
                       for (final plugin in items)
                         _PluginTile(
                           plugin: plugin,
-                          onToggle: (value) => _togglePlugin(ref, plugin, value),
+                          onToggle: (value) =>
+                              _togglePlugin(ref, plugin, value),
                           onRemove: () => _removePlugin(ref, plugin.id),
                         ),
                     ],
@@ -335,8 +382,8 @@ class SourcesScreen extends ConsumerWidget {
                           entry.offersStreams
                               ? Icons.play_circle_outline_rounded
                               : entry.offersSubtitles
-                                  ? Icons.subtitles_outlined
-                                  : Icons.movie_filter_outlined,
+                              ? Icons.subtitles_outlined
+                              : Icons.movie_filter_outlined,
                         ),
                         title: Text(entry.name),
                         subtitle: Text(
@@ -346,7 +393,8 @@ class SourcesScreen extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         trailing: OutlinedButton(
-                          onPressed: addons.asData?.value.any(
+                          onPressed:
+                              addons.asData?.value.any(
                                     (existing) =>
                                         existing.manifestUri ==
                                         entry.manifestUri,
@@ -354,10 +402,10 @@ class SourcesScreen extends ConsumerWidget {
                                   true
                               ? null
                               : () => _installVerifiedPartnerAddon(
-                                    context,
-                                    ref,
-                                    entry,
-                                  ),
+                                  context,
+                                  ref,
+                                  entry,
+                                ),
                           child: Text(
                             addons.asData?.value.any(
                                       (existing) =>
@@ -378,8 +426,13 @@ class SourcesScreen extends ConsumerWidget {
           const SizedBox(height: 22),
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
-            title: const Text('Opciones avanzadas', style: TextStyle(fontWeight: FontWeight.w800)),
-            subtitle: const Text('Addons y endpoints configurados manualmente.'),
+            title: const Text(
+              'Opciones avanzadas',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: const Text(
+              'Addons y endpoints configurados manualmente.',
+            ),
             children: [
               _SectionHeader(
                 icon: Icons.extension_rounded,
@@ -391,14 +444,17 @@ class SourcesScreen extends ConsumerWidget {
                 error: (error, stack) => _ErrorCard(error: error),
                 data: (items) => items.isEmpty
                     ? const _EmptySection(text: 'No hay addons configurados.')
-                    : Column(children: [
-                        for (final addon in items)
-                          _AddonTile(
-                            addon: addon,
-                            onToggle: (value) => _toggleAddon(ref, addon, value),
-                            onRemove: () => _removeAddon(ref, addon.id),
-                          ),
-                      ]),
+                    : Column(
+                        children: [
+                          for (final addon in items)
+                            _AddonTile(
+                              addon: addon,
+                              onToggle: (value) =>
+                                  _toggleAddon(ref, addon, value),
+                              onRemove: () => _removeAddon(ref, addon.id),
+                            ),
+                        ],
+                      ),
               ),
               const SizedBox(height: 16),
               _SectionHeader(
@@ -410,15 +466,20 @@ class SourcesScreen extends ConsumerWidget {
                 loading: () => const LinearProgressIndicator(minHeight: 2),
                 error: (error, stack) => _ErrorCard(error: error),
                 data: (items) => items.isEmpty
-                    ? const _EmptySection(text: 'No hay endpoints configurados.')
-                    : Column(children: [
-                        for (final source in items)
-                          _HttpSourceTile(
-                            source: source,
-                            onToggle: (value) => _toggleHttp(ref, source, value),
-                            onRemove: () => _removeHttp(ref, source.id),
-                          ),
-                      ]),
+                    ? const _EmptySection(
+                        text: 'No hay endpoints configurados.',
+                      )
+                    : Column(
+                        children: [
+                          for (final source in items)
+                            _HttpSourceTile(
+                              source: source,
+                              onToggle: (value) =>
+                                  _toggleHttp(ref, source, value),
+                              onRemove: () => _removeHttp(ref, source.id),
+                            ),
+                        ],
+                      ),
               ),
             ],
           ),
@@ -434,86 +495,141 @@ class _SectionTitle extends StatelessWidget {
   const _SectionTitle({required this.title, required this.subtitle});
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-          Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+      ),
+      Text(
+        subtitle,
+        style: const TextStyle(color: Colors.white54, fontSize: 12),
+      ),
+    ],
+  );
 }
 
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
   final String title;
   final VoidCallback onAdd;
-  const _SectionHeader({required this.icon, required this.title, required this.onAdd});
+  const _SectionHeader({
+    required this.icon,
+    required this.title,
+    required this.onAdd,
+  });
   @override
   Widget build(BuildContext context) => ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(icon),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-        trailing: IconButton(onPressed: onAdd, icon: const Icon(Icons.add_circle_outline_rounded)),
-      );
+    contentPadding: EdgeInsets.zero,
+    leading: Icon(icon),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+    trailing: IconButton(
+      onPressed: onAdd,
+      icon: const Icon(Icons.add_circle_outline_rounded),
+    ),
+  );
 }
 
 class _PluginTile extends StatelessWidget {
   final NuvioPluginConfig plugin;
   final ValueChanged<bool> onToggle;
   final VoidCallback onRemove;
-  const _PluginTile({required this.plugin, required this.onToggle, required this.onRemove});
+  const _PluginTile({
+    required this.plugin,
+    required this.onToggle,
+    required this.onRemove,
+  });
   @override
   Widget build(BuildContext context) => Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: ListTile(
-          leading: const Icon(Icons.bolt_rounded),
-          title: Text(plugin.name),
-          subtitle: Text('${plugin.repositoryName} · ${plugin.supportedMediaTypes.join(', ')}', maxLines: 1, overflow: TextOverflow.ellipsis),
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            Switch(value: plugin.enabled, onChanged: onToggle),
-            IconButton(onPressed: onRemove, icon: const Icon(Icons.delete_outline)),
-          ]),
-        ),
-      );
+    margin: const EdgeInsets.only(bottom: 8),
+    child: ListTile(
+      leading: const Icon(Icons.bolt_rounded),
+      title: Text(plugin.name),
+      subtitle: Text(
+        '${plugin.repositoryName} · ${plugin.supportedMediaTypes.join(', ')}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(value: plugin.enabled, onChanged: onToggle),
+          IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _AddonTile extends StatelessWidget {
   final StremioAddonConfig addon;
   final ValueChanged<bool> onToggle;
   final VoidCallback onRemove;
-  const _AddonTile({required this.addon, required this.onToggle, required this.onRemove});
+  const _AddonTile({
+    required this.addon,
+    required this.onToggle,
+    required this.onRemove,
+  });
   @override
   Widget build(BuildContext context) => Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: ListTile(
-          leading: const Icon(Icons.extension_rounded),
-          title: Text(addon.name),
-          subtitle: Text(safeMediaUrlForLog(addon.manifestUri), maxLines: 1, overflow: TextOverflow.ellipsis),
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            Switch(value: addon.enabled, onChanged: onToggle),
-            IconButton(onPressed: onRemove, icon: const Icon(Icons.delete_outline)),
-          ]),
-        ),
-      );
+    margin: const EdgeInsets.only(bottom: 8),
+    child: ListTile(
+      leading: const Icon(Icons.extension_rounded),
+      title: Text(addon.name),
+      subtitle: Text(
+        safeMediaUrlForLog(addon.manifestUri),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(value: addon.enabled, onChanged: onToggle),
+          IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _HttpSourceTile extends StatelessWidget {
   final HttpSourceConfig source;
   final ValueChanged<bool> onToggle;
   final VoidCallback onRemove;
-  const _HttpSourceTile({required this.source, required this.onToggle, required this.onRemove});
+  const _HttpSourceTile({
+    required this.source,
+    required this.onToggle,
+    required this.onRemove,
+  });
   @override
   Widget build(BuildContext context) => Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: ListTile(
-          leading: const Icon(Icons.hub_outlined),
-          title: Text(source.name),
-          subtitle: Text(source.endpoint.toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            Switch(value: source.enabled, onChanged: onToggle),
-            IconButton(onPressed: onRemove, icon: const Icon(Icons.delete_outline)),
-          ]),
-        ),
-      );
+    margin: const EdgeInsets.only(bottom: 8),
+    child: ListTile(
+      leading: const Icon(Icons.hub_outlined),
+      title: Text(source.name),
+      subtitle: Text(
+        source.endpoint.toString(),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(value: source.enabled, onChanged: onToggle),
+          IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _EmptySection extends StatelessWidget {
@@ -521,11 +637,11 @@ class _EmptySection extends StatelessWidget {
   const _EmptySection({required this.text});
   @override
   Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(text, style: const TextStyle(color: Colors.white60)),
-        ),
-      );
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Text(text, style: const TextStyle(color: Colors.white60)),
+    ),
+  );
 }
 
 class _ErrorCard extends StatelessWidget {
@@ -533,9 +649,12 @@ class _ErrorCard extends StatelessWidget {
   const _ErrorCard({required this.error});
   @override
   Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text('No pudimos cargar esta sección. $error', style: const TextStyle(color: Colors.redAccent)),
-        ),
-      );
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Text(
+        'No pudimos cargar esta sección. $error',
+        style: const TextStyle(color: Colors.redAccent),
+      ),
+    ),
+  );
 }
