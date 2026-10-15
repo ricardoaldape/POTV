@@ -40,6 +40,9 @@ gateway = ContentGateway(
     signing_secret=b"fixture-bridge-secret"
 )
 gateway.lmhd = AuthorizedFixture()
+# Paid VOD is disabled until a subscription-aware serving route is in place.
+assert gateway.resolve_movie(title="La Casa", year="2023")["sources"] == []
+gateway.lmhd_vod_enabled = True  # explicit fixture-only authorization
 gateway.lmhd_live_catalog_enabled = True
 payload = gateway.catalog(force=True)["data"]
 assert len(payload["channels"]) == 1, payload
