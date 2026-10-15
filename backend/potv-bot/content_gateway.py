@@ -26,6 +26,7 @@ from urllib.request import (
     Request,
     build_opener,
 )
+from partner_lmhd_api import LMHDPartnerAdapter, PartnerAccessError
 
 from lmhd_partner import LmhdPartner, PartnerApiError
 
@@ -1437,6 +1438,30 @@ class ContentGateway:
                 lmhd_events = self.lmhd.sports_events()
             except (PartnerApiError, OSError, ValueError, TypeError):
                 lmhd_events = []
+
+        # Optional, separately licensed partner account. No LMHD
+        # credentials or opaque source tokens are shipped to Flutter.
+        # Leave the existing catalog working when a provider is offline.
+        try:
+            partner_api = LMHDPartnerAdapter.from_environment()
+            if partner_api is not None:
+                partner_channels = LMHDPartnerAdapter.normalize_tv(
+                    partner_api.raw_channels()
+                )
+                for entry in partner_channels:
+                    key = (
+                        entry["name"].strip().lower(),
+                        str(entry.get("epg_id") or "").strip().lower(),
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    try:
+                        all_channels.append(self._channel_payload(entry))
+                    except ContentGatewayError:
+                        continue
+        except (PartnerAccessError, OSError, ValueError):
+            failures += 1
 
         raw_sports = [
             channel
