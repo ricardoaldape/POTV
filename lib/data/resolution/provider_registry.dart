@@ -9,6 +9,7 @@ import '../anime/anime_id_mapping_service.dart';
 import '../plugins/nuvio_plugin_provider.dart';
 import '../sources/http_source_resolver.dart';
 import '../sources/public_domain_movie_resolver.dart';
+import '../../providers/user_providers.dart';
 import 'configured_resolver_catalog.dart';
 import 'configured_resolver_provider.dart';
 import 'partner_api_source_resolver.dart';
@@ -16,6 +17,9 @@ import 'provider_adapters.dart';
 import 'lolplus_adapters.dart';
 
 final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
+  // Rebuild the source registry when a POTV customer logs in, switches
+  // accounts or logs out. This also invalidates per-title playback caches.
+  ref.watch(userAccountProvider);
   final configured = const ConfiguredResolverCatalog().load();
 
   // A whitelabel partner source endpoint is called on each title resolution.
@@ -34,6 +38,18 @@ final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
       PartnerApiSourceResolver(
         baseUrl: partnerApi,
         animeMapping: ref.read(animeIdMappingServiceProvider),
+        // This is the POTV CUSTOMER login token only, never a provider
+        // credential. Do not send it to third-party resolver domains.
+        sessionHeaders: () async {
+          if (partnerApi.host.toLowerCase() != 'potv.fxqubit.com') {
+            return const <String, String>{};
+          }
+          final token =
+              await ref.read(accountAuthServiceProvider).sessionToken();
+          return token == null || token.isEmpty
+              ? const <String, String>{}
+              : <String, String>{'Authorization': 'Bearer $token'};
+        },
       ),
     if (partnerEnabled)
       ConfiguredResolverProvider(ResolverEndpointConfig(
