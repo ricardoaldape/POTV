@@ -6,6 +6,7 @@ import sqlite3
 import string
 import uuid
 from datetime import datetime, timedelta, timezone
+from subscription_policy import LOCAL_TZ, TRIAL_DURATION, aware, monthly_expiry, subscription_state
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PBKDF2_ITERATIONS = 260_000
@@ -78,6 +79,28 @@ class AccountStore:
             CREATE INDEX IF NOT EXISTS idx_app_recovery_account
               ON app_recovery_codes(account_id);
             """)
+            cols = {row[1] for row in con.execute("PRAGMA table_info(app_accounts)")}
+            if "subscription_billing_day" not in cols:
+                con.execute("ALTER TABLE app_accounts ADD COLUMN subscription_billing_day INTEGER")
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS app_manual_activations (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  account_id TEXT NOT NULL,
+                  payment_reference TEXT,
+                  payment_paid_at TEXT,
+                  approved_by TEXT NOT NULL,
+                  approved_at TEXT NOT NULL,
+                  starts_at TEXT NOT NULL,
+                  previous_expires_at TEXT,
+                  new_expires_at TEXT NOT NULL,
+                  FOREIGN KEY(account_id) REFERENCES app_accounts(id)
+                )
+            """)
+            con.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_payment_reference
+                ON app_manual_activations(payment_reference)
+                WHERE payment_reference IS NOT NULL
+            """)
 
     def _payload(self, row):
         if row is None:
@@ -88,8 +111,9 @@ class AccountStore:
             "username": row["username"],
             "created_at": row["created_at"],
             "telegram_chat_id": None if row["telegram_id"] is None else str(row["telegram_id"]),
-            "subscription_status": row["subscription_status"],
-            "subscription_expires_at": row["subscription_expires_at"],
+            **subscription_state(
+                row["subscription_status"], row["subscription_expires_at"]
+            ),
         }
 
     def register(self, email, password, username):
@@ -104,18 +128,23 @@ class AccountStore:
         salt = secrets.token_bytes(16)
         account_id = str(uuid.uuid4())
         stamp = _iso(_now())
+        trial_end = _iso(aware(stamp) + TRIAL_DURATION)
         try:
             with self._db() as con:
                 con.execute(
                     """INSERT INTO app_accounts
-                    (id,email,username,password_salt,password_hash,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?)""",
+                    (id,email,username,password_salt,password_hash,
+                     subscription_status,subscription_expires_at,
+                     created_at,updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)""",
                     (
                         account_id,
                         email,
                         username,
                         salt.hex(),
                         _hash_password(password, salt),
+                        "trial",
+                        trial_end,
                         stamp,
                         stamp,
                     ),
@@ -293,3 +322,86 @@ class AccountStore:
                 WHERE telegram_id=?""",
                 (status or "free", expires_at, _iso(_now()), int(telegram_id)),
             )
+
+    def account_by_email(self, email):
+        email = (email or "").strip().lower()
+        if not _EMAIL_RE.match(email):
+            raise AccountError("invalid_email")
+        with self._db() as con:
+            row = con.execute(
+                "SELECT * FROM app_accounts WHERE email=?", (email,)
+            ).fetchone()
+            return self._payload(row)
+
+    def activate_manual(
+        self, email, *, approved_by, payment_confirmed=False,
+        payment_reference=None, payment_paid_at=None, at=None
+    ):
+        """One paid calendar month, following current term if still active.
+
+        Only call after human payment approval. Not reachable from user API.
+        """
+        email = (email or "").strip().lower()
+        if not _EMAIL_RE.match(email):
+            raise AccountError("invalid_email")
+        if not payment_confirmed or not str(approved_by or "").strip():
+            raise AccountError("payment_approval_required")
+        reference = str(payment_reference or "").strip() or None
+        if reference is not None and len(reference) > 160:
+            raise AccountError("invalid_payment_reference")
+        stamp = aware(at) if at is not None else _now()
+        if stamp is None:
+            raise AccountError("invalid_activation_date")
+        paid_at = aware(payment_paid_at) if payment_paid_at is not None else None
+        if payment_paid_at is not None and paid_at is None:
+            raise AccountError("invalid_payment_date")
+        with self._db() as con:
+            row = con.execute(
+                "SELECT * FROM app_accounts WHERE email=?", (email,)
+            ).fetchone()
+            if row is None:
+                raise AccountError("account_not_found")
+            prev_expiry = aware(row["subscription_expires_at"])
+            extending = (
+                row["subscription_status"] == "active"
+                and prev_expiry is not None and prev_expiry > stamp
+            )
+            start = prev_expiry if extending else stamp
+            billing_day = (
+                row["subscription_billing_day"] if extending
+                and row["subscription_billing_day"] else
+                start.astimezone(LOCAL_TZ).day
+            )
+            new_expiry = monthly_expiry(start, billing_day)
+            if reference is None:
+                # A duplicate chat instruction must not add another free month.
+                latest = con.execute(
+                    """SELECT approved_at FROM app_manual_activations
+                    WHERE account_id=? ORDER BY id DESC LIMIT 1""",
+                    (row["id"],)
+                ).fetchone()
+                if latest and stamp - aware(latest["approved_at"]) < timedelta(hours=24):
+                    raise AccountError("duplicate_manual_approval")
+            try:
+                con.execute(
+                    """INSERT INTO app_manual_activations(
+                       account_id,payment_reference,payment_paid_at,approved_by,
+                       approved_at,starts_at,previous_expires_at,new_expires_at
+                    ) VALUES(?,?,?,?,?,?,?,?)""",
+                    (row["id"], reference,
+                     _iso(paid_at) if paid_at else None,
+                     str(approved_by).strip(), _iso(stamp), _iso(start),
+                     row["subscription_expires_at"], _iso(new_expiry))
+                )
+            except sqlite3.IntegrityError as exc:
+                raise AccountError("duplicate_payment_reference") from exc
+            con.execute(
+                """UPDATE app_accounts SET subscription_status='active',
+                subscription_expires_at=?,subscription_billing_day=?,updated_at=?
+                WHERE id=?""",
+                (_iso(new_expiry), billing_day, _iso(stamp), row["id"])
+            )
+            updated = con.execute(
+                "SELECT * FROM app_accounts WHERE id=?", (row["id"],)
+            ).fetchone()
+            return self._payload(updated)
