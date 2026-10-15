@@ -237,6 +237,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          # GitHub Release source tag must refer to this tested build commit.
+          target_commitish: ${{ github.sha }}
           name: POTV ${{ steps.meta.outputs.version_name }}
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           body_path: ota-out/release-notes.txt
