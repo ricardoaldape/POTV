@@ -183,7 +183,12 @@ jobs:
             throw 'Production signing certificate changed. Refusing OTA.'
           }
 
-          $package = (& $aapt dump badging $apk | Select-Object -First 1)
+          # Select-Object -First 1 aborts aapt's native stdout pipe early
+          # and can leave LASTEXITCODE=1 despite valid APK metadata. Capture
+          # the full native command before selecting the package line.
+          $badging = & $aapt dump badging $apk
+          if ($LASTEXITCODE -ne 0) { throw 'Android aapt badging inspection failed' }
+          $package = $badging | Select-Object -First 1
           if ($package -notmatch "name='com\.potv\.potv'") {
             throw 'Unexpected Android package name'
           }
@@ -202,6 +207,9 @@ jobs:
           Write-Output ('OTA_SHA256=' + $sha)
           Write-Output ('OTA_SIGNING_CERT_SHA256=' + $digest)
           Write-Output ('OTA_SIZE_BYTES=' + $size)
+          # GitHub's Windows PowerShell wrapper must not inherit a stale
+          # external-process exit code after every verification passed.
+          exit 0
 
       - name: Create release notes
         shell: powershell
