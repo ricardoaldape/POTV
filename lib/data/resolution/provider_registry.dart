@@ -10,6 +10,7 @@ import '../plugins/nuvio_plugin_provider.dart';
 import '../sources/http_source_resolver.dart';
 import '../sources/public_domain_movie_resolver.dart';
 import '../../providers/user_providers.dart';
+import 'potv_customer_session_headers.dart';
 import 'configured_resolver_catalog.dart';
 import 'configured_resolver_provider.dart';
 import 'partner_api_source_resolver.dart';
@@ -40,16 +41,10 @@ final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
         animeMapping: ref.read(animeIdMappingServiceProvider),
         // This is the POTV CUSTOMER login token only, never a provider
         // credential. Do not send it to third-party resolver domains.
-        sessionHeaders: () async {
-          if (partnerApi.host.toLowerCase() != 'potv.fxqubit.com') {
-            return const <String, String>{};
-          }
-          final token =
-              await ref.read(accountAuthServiceProvider).sessionToken();
-          return token == null || token.isEmpty
-              ? const <String, String>{}
-              : <String, String>{'Authorization': 'Bearer $token'};
-        },
+        sessionHeaders: () => potvCustomerSessionHeaders(
+          partnerApi,
+          () => ref.read(accountAuthServiceProvider).sessionToken(),
+        ),
       ),
     if (partnerEnabled)
       ConfiguredResolverProvider(ResolverEndpointConfig(
