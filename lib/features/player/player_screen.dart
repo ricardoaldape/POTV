@@ -12,6 +12,7 @@ import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import 'secure_webview_player.dart';
+import '../../ui/branding/potv_animated_assets.dart';
 
 class PlayerScreen extends StatefulWidget {
   final PlaybackSession session;
@@ -508,11 +509,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       content = switch (currentStream.backend) {
         PlaybackBackend.native => videoController == null
-            ? const Center(child: CircularProgressIndicator())
-            : Video(
-                controller: videoController!,
-                controls: NoVideoControls,
-                fit: BoxFit.contain,
+            ? const PotvBufferingFlag()
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  Video(
+                    controller: videoController!,
+                    controls: NoVideoControls,
+                    fit: BoxFit.contain,
+                  ),
+                  if (p != null)
+                    StreamBuilder<bool>(
+                      stream: p.stream.buffering,
+                      initialData: p.state.buffering,
+                      builder: (context, snapshot) => snapshot.data == true
+                          ? const Positioned.fill(
+                              child: IgnorePointer(
+                                child: ColoredBox(
+                                  color: Color(0xB0000000),
+                                  child: PotvBufferingFlag(),
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                ],
               ),
         PlaybackBackend.webView => SecureWebViewPlayer(
             key: ValueKey(currentStream.id),
