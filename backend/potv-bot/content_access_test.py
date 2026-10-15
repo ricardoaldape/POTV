@@ -20,6 +20,12 @@ assert has_active_subscription({
     "subscription_status": "active", "subscription_expires_at": future
 }, now=now)
 assert has_active_subscription({
+    "subscription_status": "trial", "subscription_expires_at": future
+}, now=now)
+assert not has_active_subscription({
+    "subscription_status": "trial", "subscription_expires_at": past
+}, now=now)
+assert has_active_subscription({
     "subscription_status": "active", "subscription_expires_at": "2026-10-16T00:00:00Z"
 }, now=now)
 
