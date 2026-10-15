@@ -263,7 +263,7 @@ class LmhdPartner:
                 "home": parts[0].strip(),
                 "away": parts[1].strip(),
                 "starts_at": when.isoformat(),
-                "is_live": True,
+                "is_live": datetime.now(timezone.utc) >= when,
                 "streams": [{"url": media["url"]}],
             })
         return result
