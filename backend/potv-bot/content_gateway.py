@@ -27,6 +27,8 @@ from urllib.request import (
     build_opener,
 )
 
+from lmhd_partner import LmhdPartner, PartnerApiError
+
 _EXTINF_ATTR = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
 _HLS_URI_ATTR = re.compile(r'URI="([^"]+)"')
 _SPORTS = re.compile(
@@ -126,6 +128,26 @@ class ContentGateway:
             if metadata_file is not None
             else os.getenv("POTV_CONTENT_METADATA_FILE", "").strip()
         )
+        # Optional authorized provider service config, stored ONLY on the VPS
+        # (or supplied as a test fixture). Never load APK-embedded sessions.
+        # Keep existing Xtream/M3U streams working if a partner configuration
+        # is absent or temporarily invalid.
+        self.lmhd = None
+        lmhd_file = os.getenv("POTV_LMHD_SERVICE_FILE", "").strip()
+        if lmhd_file:
+            try:
+                self.lmhd = LmhdPartner.from_file(lmhd_file)
+            except (OSError, ValueError, KeyError, TypeError):
+                self.lmhd = None
+        self.lmhd_live_catalog_enabled = (
+            os.getenv("POTV_LMHD_INCLUDE_LIVE_CATALOG", "").strip().lower()
+            == "true"
+        )
+        # Both paid catalog and paid VOD remain explicitly disabled until
+        # POTV's entitlement checks authorize the requesting customer.
+        self.lmhd_vod_enabled = (
+            os.getenv("POTV_LMHD_VOD_ENABLED", "").strip().lower() == "true"
+        )
         self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
         self._lock = threading.RLock()
         self._targets = {}
@@ -141,7 +163,7 @@ class ContentGateway:
 
     @property
     def configured(self):
-        return bool(self.sources)
+        return bool(self.sources) or self.lmhd is not None
 
     def _allowed_upstream(self, raw):
         try:
@@ -563,6 +585,49 @@ class ContentGateway:
                     return row
         return exact_title[0] if len(exact_title) == 1 else None
 
+    def _lmhd_candidates(self, media_type, *, title, year=None,
+                         season=1, episode=1):
+        # Provider IDs are not TMDB IDs. Require an exact title/year match
+        # before requesting a stream; do not cross-link unrelated content.
+        if self.lmhd is None or not self.lmhd_vod_enabled or not title:
+            return []
+        try:
+            if media_type == "movie":
+                rows = self.lmhd.movie_sources(title=title, year=year)
+            else:
+                rows = self.lmhd.episode_sources(
+                    title=title, year=year, season=season, episode=episode
+                )
+        except (PartnerApiError, OSError, ValueError, TypeError):
+            return []
+
+        sources = []
+        seen = set()
+        for row in rows[:8]:
+            upstream = str(row.get("url") or "").strip()
+            try:
+                target_id = self._register_target(upstream)
+            except ContentGatewayError:
+                continue
+            if target_id in seen:
+                continue
+            seen.add(target_id)
+            # Sign and proxy URLs; source auth tokens never reach Android.
+            # The media MIME hint disambiguates extensionless HLS sources.
+            hint = str(row.get("format") or "").strip().lower()
+            url = self._proxy_url(target_id)
+            if hint in ("hls", "m3u8") and "format=" not in url:
+                url += "&format=hls"
+            elif hint in ("dash", "mpd") and "format=" not in url:
+                url += "&format=mpd"
+            sources.append({
+                "provider": "POTV",
+                "real_url": url,
+                "language": row.get("language") or None,
+                "quality": row.get("quality") or None,
+            })
+        return sources
+
     def resolve_movie(self, *, tmdb_id=None, title=None, year=None):
         sources = []
         seen_targets = set()
@@ -637,6 +702,10 @@ class ContentGateway:
             })
             if self.source_mode == "failover":
                 break
+        if not sources:
+            sources.extend(self._lmhd_candidates(
+                "movie", title=title, year=year
+            ))
         return {"sources": sources}
 
     def resolve_series_episode(
@@ -754,6 +823,10 @@ class ContentGateway:
             })
             if self.source_mode == "failover":
                 break
+        if not sources:
+            sources.extend(self._lmhd_candidates(
+                "tv", title=title, year=year, season=season, episode=episode
+            ))
         return {"sources": sources}
 
     def _target_id(self, url, headers):
@@ -1343,6 +1416,28 @@ class ContentGateway:
             if parsed and self.source_mode == "failover":
                 break
 
+        lmhd_events = []
+        if self.lmhd is not None and self.lmhd_live_catalog_enabled:
+            # Opt-in only: do not publish licensed TV to a public catalog
+            # before the POTV subscription/entitlement gateway is in place.
+            try:
+                for row in self.lmhd.tv_channels()[:600]:
+                    name = str(row.get("name") or "").strip()
+                    group = str(row.get("group") or "").strip()
+                    if not name or self._is_adult_entry(name, group):
+                        continue
+                    try:
+                        channel = self._channel_payload(row)
+                    except ContentGatewayError:
+                        continue
+                    key = (name.lower(), str(row.get("epg_id") or "").lower())
+                    if key not in seen:
+                        seen.add(key)
+                        all_channels.append(channel)
+                lmhd_events = self.lmhd.sports_events()
+            except (PartnerApiError, OSError, ValueError, TypeError):
+                lmhd_events = []
+
         raw_sports = [
             channel
             for channel in all_channels
@@ -1364,6 +1459,10 @@ class ContentGateway:
             *xtream_guide,
         ]
         events = self._events_payload(metadata)
+        if lmhd_events:
+            events.extend(self._events_payload({
+                "sports_events": lmhd_events
+            }))
         revision_material = "|".join(sorted(channel["id"] for channel in all_channels))
         revision_material += f"|{len(guide)}|{len(events)}"
         revision = hashlib.sha256(revision_material.encode("utf-8")).hexdigest()[:20]
