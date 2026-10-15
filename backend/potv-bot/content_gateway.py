@@ -28,6 +28,7 @@ from urllib.request import (
 )
 
 from lmhd_partner import LmhdPartner, PartnerApiError
+from stremio_live_partner import StremioLivePartner, StremioLiveError
 
 _EXTINF_ATTR = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
 _HLS_URI_ATTR = re.compile(r'URI="([^"]+)"')
@@ -148,6 +149,18 @@ class ContentGateway:
         self.lmhd_vod_enabled = (
             os.getenv("POTV_LMHD_VOD_ENABLED", "").strip().lower() == "true"
         )
+        # Kino/Stremio imports use an explicit set of approved live channel
+        # IDs and CDN hosts. Do not auto-import every catalog or broadcaster.
+        self.stremio_live = None
+        live_file = os.getenv("POTV_STREMIO_LIVE_APPROVED_FILE", "").strip()
+        if live_file:
+            try:
+                self.stremio_live = StremioLivePartner.from_file(live_file)
+            except (ValueError, KeyError, OSError, TypeError):
+                self.stremio_live = None
+        self.stremio_live_enabled = (
+            os.getenv("POTV_STREMIO_LIVE_ENABLED", "").strip().lower() == "true"
+        )
         self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
         self._lock = threading.RLock()
         self._targets = {}
@@ -163,7 +176,10 @@ class ContentGateway:
 
     @property
     def configured(self):
-        return bool(self.sources) or self.lmhd is not None
+        return (
+            bool(self.sources) or self.lmhd is not None
+            or (self.stremio_live is not None and self.stremio_live_enabled)
+        )
 
     def _allowed_upstream(self, raw):
         try:
@@ -1202,6 +1218,20 @@ class ContentGateway:
             "hls_url": self._proxy_url(target_id),
             "language": channel.get("language") or None,
         }
+        # Signed backup candidates are delivered to Media3 without exposing
+        # the origin URLs or third-party authentication query strings.
+        backups = []
+        raw_backups = channel.get("backups") or channel.get("backup_urls") or []
+        if isinstance(raw_backups, list):
+            for raw in raw_backups[:5]:
+                try:
+                    other = self._register_target(raw, channel.get("headers"))
+                except ContentGatewayError:
+                    continue
+                if other != target_id and other not in backups:
+                    backups.append(other)
+        if backups:
+            payload["backup_urls"] = [self._proxy_url(value) for value in backups]
         logo = str(channel.get("logo") or "").strip()
         if logo.startswith("https://"):
             payload["logo"] = logo
@@ -1437,6 +1467,25 @@ class ContentGateway:
                 lmhd_events = self.lmhd.sports_events()
             except (PartnerApiError, OSError, ValueError, TypeError):
                 lmhd_events = []
+
+        if self.stremio_live is not None and self.stremio_live_enabled:
+            try:
+                for row in self.stremio_live.channels()[:40]:
+                    name = str(row.get("name") or "").strip()
+                    group = str(row.get("group") or "").strip()
+                    if not name or self._is_adult_entry(name, group):
+                        continue
+                    key = (name.lower(), str(row.get("epg_id") or "").lower())
+                    if key in seen:
+                        continue
+                    try:
+                        channel = self._channel_payload(row)
+                    except ContentGatewayError:
+                        continue
+                    seen.add(key)
+                    all_channels.append(channel)
+            except (StremioLiveError, ValueError, OSError, TypeError):
+                pass
 
         raw_sports = [
             channel
