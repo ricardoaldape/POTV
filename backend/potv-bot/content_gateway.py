@@ -143,6 +143,11 @@ class ContentGateway:
             os.getenv("POTV_LMHD_INCLUDE_LIVE_CATALOG", "").strip().lower()
             == "true"
         )
+        # Both paid catalog and paid VOD remain explicitly disabled until
+        # POTV's entitlement checks authorize the requesting customer.
+        self.lmhd_vod_enabled = (
+            os.getenv("POTV_LMHD_VOD_ENABLED", "").strip().lower() == "true"
+        )
         self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
         self._lock = threading.RLock()
         self._targets = {}
@@ -584,7 +589,7 @@ class ContentGateway:
                          season=1, episode=1):
         # Provider IDs are not TMDB IDs. Require an exact title/year match
         # before requesting a stream; do not cross-link unrelated content.
-        if self.lmhd is None or not title:
+        if self.lmhd is None or not self.lmhd_vod_enabled or not title:
             return []
         try:
             if media_type == "movie":
