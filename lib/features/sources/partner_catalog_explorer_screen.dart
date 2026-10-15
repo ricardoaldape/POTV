@@ -94,8 +94,9 @@ class _PartnerCatalogExplorerScreenState
             );
           }
           final current = selected ?? values.first;
-          final loading = items ??=
-              ref.read(partnerCatalogClientProvider).listings(current);
+          final loading = items ??= ref
+              .read(partnerCatalogClientProvider)
+              .listings(current);
           return Column(
             children: [
               Padding(

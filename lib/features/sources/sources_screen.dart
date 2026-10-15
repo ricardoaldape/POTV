@@ -381,12 +381,12 @@ class SourcesScreen extends ConsumerWidget {
                         key: Key('verified-addon-${entry.id}'),
                         onTap: entry.offersCatalog
                             ? () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => PartnerCatalogExplorerScreen(
-                                      addon: entry,
-                                    ),
+                                MaterialPageRoute<void>(
+                                  builder: (_) => PartnerCatalogExplorerScreen(
+                                    addon: entry,
                                   ),
-                                )
+                                ),
+                              )
                             : null,
                         leading: Icon(
                           entry.offersStreams

@@ -10,8 +10,14 @@ void main() {
         {'id': 'popular', 'type': 'movie', 'name': 'Películas'},
         {'id': 'airing', 'type': 'anime', 'name': 'Anime al aire'},
         {'id': '../admin', 'type': 'movie', 'name': 'Unsafe'},
-        {'id': 'search-only', 'type': 'series', 'name': 'Search',
-         'extra': [{'name': 'search', 'isRequired': true}]},
+        {
+          'id': 'search-only',
+          'type': 'series',
+          'name': 'Search',
+          'extra': [
+            {'name': 'search', 'isRequired': true},
+          ],
+        },
         {'id': 'popular', 'type': 'movie', 'name': 'Duplicado'},
       ],
     }, manifest);
@@ -54,10 +60,11 @@ void main() {
 
   test('rejects insecure catalog base and invalid responses', () {
     expect(
-      PartnerCatalogClient.parseCatalogs(
-        {'catalogs': [{'id': 'top', 'type': 'movie'}]},
-        Uri.parse('http://catalog.example/manifest.json'),
-      ),
+      PartnerCatalogClient.parseCatalogs({
+        'catalogs': [
+          {'id': 'top', 'type': 'movie'},
+        ],
+      }, Uri.parse('http://catalog.example/manifest.json')),
       isEmpty,
     );
     expect(PartnerCatalogClient.parseMedia({'wrong': []}, 'series'), isEmpty);

@@ -4,16 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'verified_partner_catalog.dart';
 
 final partnerCatalogClientProvider = Provider<PartnerCatalogClient>((ref) {
-  return PartnerCatalogClient(Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 6),
-      receiveTimeout: const Duration(seconds: 12),
-      headers: const {
-        'Accept': 'application/json',
-        'User-Agent': 'POTV/1.0 (Android)',
-      },
+  return PartnerCatalogClient(
+    Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 6),
+        receiveTimeout: const Duration(seconds: 12),
+        headers: const {
+          'Accept': 'application/json',
+          'User-Agent': 'POTV/1.0 (Android)',
+        },
+      ),
     ),
-  ));
+  );
 });
 
 class PartnerCatalog {
@@ -78,10 +80,7 @@ class PartnerCatalogClient {
     return parseMedia(response.data, catalog.type);
   }
 
-  static List<PartnerCatalog> parseCatalogs(
-    Object? raw,
-    Uri manifestUri,
-  ) {
+  static List<PartnerCatalog> parseCatalogs(Object? raw, Uri manifestUri) {
     if (manifestUri.scheme != 'https' ||
         manifestUri.host.isEmpty ||
         manifestUri.userInfo.isNotEmpty) {
@@ -96,25 +95,29 @@ class PartnerCatalogClient {
       final type = item['type']?.toString().trim() ?? '';
       final id = item['id']?.toString().trim() ?? '';
       if (!{'movie', 'series', 'anime', 'tv', 'music'}.contains(type) ||
-          id.isEmpty || id.length > 100 || id.contains('/') ||
-          id.contains('..') || !seen.add('$type:$id')) {
+          id.isEmpty ||
+          id.length > 100 ||
+          id.contains('/') ||
+          id.contains('..') ||
+          !seen.add('$type:$id')) {
         continue;
       }
       final extras = item['extra'];
       // Some catalogs require per-account configuration or a search term.
       // Avoid promising they work without those parameters.
-      if (extras is List && extras.any(
-        (x) => x is Map && x['isRequired'] == true,
-      )) {
+      if (extras is List &&
+          extras.any((x) => x is Map && x['isRequired'] == true)) {
         continue;
       }
       final name = item['name']?.toString().trim();
-      result.add(PartnerCatalog(
-        id: id,
-        name: (name == null || name.isEmpty) ? id : name,
-        type: type,
-        manifestUri: manifestUri,
-      ));
+      result.add(
+        PartnerCatalog(
+          id: id,
+          name: (name == null || name.isEmpty) ? id : name,
+          type: type,
+          manifestUri: manifestUri,
+        ),
+      );
       if (result.length >= 60) break;
     }
     return List.unmodifiable(result);
@@ -131,25 +134,27 @@ class PartnerCatalogClient {
       if (title.isEmpty || id.isEmpty || !seen.add(id)) continue;
       final poster = Uri.tryParse(item['poster']?.toString() ?? '');
       final text = item['description']?.toString().trim();
-      final year = item['year']?.toString() ??
-          item['releaseInfo']?.toString();
+      final year = item['year']?.toString() ?? item['releaseInfo']?.toString();
       final rawTmdb = item['moviedb_id'];
-      result.add(PartnerCatalogMedia(
-        id: id,
-        title: title,
-        type: type,
-        year: (year == null || year.trim().isEmpty) ? null : year,
-        description: (text == null || text.isEmpty) ? null : text,
-        poster: poster != null &&
-                poster.scheme == 'https' &&
-                poster.host.isNotEmpty &&
-                poster.userInfo.isEmpty
-            ? poster
-            : null,
-        tmdbId: rawTmdb is int
-            ? rawTmdb
-            : int.tryParse(rawTmdb?.toString() ?? ''),
-      ));
+      result.add(
+        PartnerCatalogMedia(
+          id: id,
+          title: title,
+          type: type,
+          year: (year == null || year.trim().isEmpty) ? null : year,
+          description: (text == null || text.isEmpty) ? null : text,
+          poster:
+              poster != null &&
+                  poster.scheme == 'https' &&
+                  poster.host.isNotEmpty &&
+                  poster.userInfo.isEmpty
+              ? poster
+              : null,
+          tmdbId: rawTmdb is int
+              ? rawTmdb
+              : int.tryParse(rawTmdb?.toString() ?? ''),
+        ),
+      );
       if (result.length >= 100) break;
     }
     return List.unmodifiable(result);
