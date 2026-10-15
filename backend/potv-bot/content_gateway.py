@@ -151,6 +151,10 @@ class ContentGateway:
         self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
         self._lock = threading.RLock()
         self._targets = {}
+        # Every signed live HLS segment registers a new target. Without
+        # expiry a continuously playing TV channel grows this map forever.
+        self._target_last_signed = {}
+        self._new_target_counter = 0
         self._catalog = None
         self._catalog_at = 0.0
         self._catalog_refreshing = False
@@ -846,7 +850,28 @@ class ContentGateway:
         target_id = self._target_id(url, safe_headers)
         with self._lock:
             self._targets[target_id] = (url, safe_headers)
+            self._target_last_signed[target_id] = time.monotonic()
+            self._new_target_counter += 1
+            if self._new_target_counter >= 512:
+                self._prune_expired_targets_locked(time.monotonic())
+                self._new_target_counter = 0
         return target_id
+
+    def _prune_expired_targets_locked(self, now):
+        """Drop unused HLS targets only after their 15-minute signatures expire.
+
+        Caller must hold self._lock. Playback requests already in progress
+        retain their local URL/headers; pruning never interrupts their socket.
+        """
+        cutoff = now - 1200.0
+        expired = [
+            key
+            for key, signed_at in self._target_last_signed.items()
+            if signed_at < cutoff
+        ]
+        for key in expired:
+            self._target_last_signed.pop(key, None)
+            self._targets.pop(key, None)
 
     def _signature(self, target_id, expires):
         raw = f"{target_id}|{expires}".encode("utf-8")
@@ -865,6 +890,8 @@ class ContentGateway:
         # upstream URL or credentials. The signature still validates target_id.
         with self._lock:
             target = self._targets.get(target_id)
+            if target is not None:
+                self._target_last_signed[target_id] = time.monotonic()
         if target is not None:
             path = urlsplit(target[0]).path.lower()
             if path.endswith(".m3u8"):
