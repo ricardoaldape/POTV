@@ -9,11 +9,12 @@ class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
 
   String _status(SubscriptionStatus status) => switch (status) {
-        SubscriptionStatus.active => 'Activa',
-        SubscriptionStatus.expired => 'Vencida',
-        SubscriptionStatus.pending => 'Pendiente',
-        SubscriptionStatus.free => 'Sin suscripción',
-      };
+    SubscriptionStatus.active => 'Activa',
+    SubscriptionStatus.trial => 'Prueba gratuita',
+    SubscriptionStatus.expired => 'Vencida',
+    SubscriptionStatus.pending => 'Pendiente',
+    SubscriptionStatus.free => 'Sin suscripción',
+  };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -24,10 +25,10 @@ class AccountScreen extends ConsumerWidget {
     final expiryLabel = expiry == null
         ? null
         : expiry.day.toString().padLeft(2, '0') +
-            '/' +
-            expiry.month.toString().padLeft(2, '0') +
-            '/' +
-            expiry.year.toString();
+              '/' +
+              expiry.month.toString().padLeft(2, '0') +
+              '/' +
+              expiry.year.toString();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mi cuenta')),
@@ -68,8 +69,7 @@ class AccountScreen extends ConsumerWidget {
                   : Icons.workspace_premium_outlined,
             ),
             title: Text(_status(account.subscriptionStatus)),
-            subtitle:
-                expiryLabel == null ? null : Text('Vence ' + expiryLabel),
+            subtitle: expiryLabel == null ? null : Text('Vence ' + expiryLabel),
           ),
           ListTile(
             leading: const Icon(Icons.telegram_rounded),
@@ -81,9 +81,7 @@ class AccountScreen extends ConsumerWidget {
             subtitle: const Text('Valida tu suscripción y vencimiento'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const LinkSubscriptionScreen(),
-              ),
+              MaterialPageRoute(builder: (_) => const LinkSubscriptionScreen()),
             ),
           ),
           const SizedBox(height: 24),

@@ -1,16 +1,51 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/user_providers.dart';
 import '../ui/onboarding/onboarding_screen.dart';
+import '../ui/subscription/subscription_locked_screen.dart';
 import 'app_router.dart';
 import 'app_theme.dart';
 
-class PotvApp extends ConsumerWidget {
+class PotvApp extends ConsumerStatefulWidget {
   const PotvApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PotvApp> createState() => _PotvAppState();
+}
+
+class _PotvAppState extends ConsumerState<PotvApp> with WidgetsBindingObserver {
+  Timer? _expiryTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Even without navigation, access locks shortly after the server expiry.
+    _expiryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        ref.read(userAccountProvider) != null) {
+      unawaited(ref.read(userAccountProvider.notifier).refreshSubscription());
+    }
+  }
+
+  @override
+  void dispose() {
+    _expiryTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final bootstrap = ref.watch(authBootstrapProvider);
     final account = ref.watch(userAccountProvider);
 
@@ -32,6 +67,15 @@ class PotvApp extends ConsumerWidget {
       );
     }
 
+    if (!account.hasViewingAccess) {
+      return MaterialApp(
+        title: 'POTV',
+        debugShowCheckedModeBanner: false,
+        theme: PotvTheme.dark(),
+        home: SubscriptionLockedScreen(account: account),
+      );
+    }
+
     return MaterialApp.router(
       title: 'POTV',
       debugShowCheckedModeBanner: false,
@@ -46,21 +90,21 @@ class _PotvSplash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'POTV',
-                style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900),
-              ),
-              SizedBox(height: 20),
-              SizedBox.square(
-                dimension: 26,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-            ],
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'POTV',
+            style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900),
           ),
-        ),
-      );
+          SizedBox(height: 20),
+          SizedBox.square(
+            dimension: 26,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+        ],
+      ),
+    ),
+  );
 }

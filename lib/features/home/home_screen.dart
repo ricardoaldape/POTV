@@ -11,6 +11,7 @@ import '../../data/catalog/partner_content_repository.dart';
 import '../../data/history/playback_history_repository.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
+import '../../providers/user_providers.dart';
 import '../browse/genre_browse_screen.dart';
 import '../player/media_playback_coordinator.dart';
 import 'widgets/continue_watching_rail.dart';
@@ -22,11 +23,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   final MediaType? initialType;
   final bool lockType;
 
-  const HomeScreen({
-    super.key,
-    this.initialType,
-    this.lockType = false,
-  });
+  const HomeScreen({super.key, this.initialType, this.lockType = false});
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -127,11 +124,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   MediaType? _mediaTypeFromHistory(String value) => switch (value) {
-        'movie' => MediaType.movie,
-        'tv' => MediaType.tv,
-        'anime' => MediaType.anime,
-        _ => null,
-      };
+    'movie' => MediaType.movie,
+    'tv' => MediaType.tv,
+    'anime' => MediaType.anime,
+    _ => null,
+  };
 
   Future<void> _resumeHistory(PlaybackHistoryEntry history) async {
     final type = _mediaTypeFromHistory(history.mediaType);
@@ -174,14 +171,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final AsyncValue<List<MediaItem>> trending =
-        selectedType == MediaType.anime
-            ? ref.watch(animeTrendingProvider)
-            : ref.watch(homeTrendingProvider(selectedType));
-    final AsyncValue<List<MediaItem>> popular =
-        selectedType == MediaType.anime
-            ? ref.watch(animePopularProvider)
-            : ref.watch(homePopularProvider(selectedType));
+    final AsyncValue<List<MediaItem>> trending = selectedType == MediaType.anime
+        ? ref.watch(animeTrendingProvider)
+        : ref.watch(homeTrendingProvider(selectedType));
+    final AsyncValue<List<MediaItem>> popular = selectedType == MediaType.anime
+        ? ref.watch(animePopularProvider)
+        : ref.watch(homePopularProvider(selectedType));
     final genres = switch (selectedType) {
       MediaType.movie => movieGenres,
       MediaType.tv => tvGenres,
@@ -197,6 +192,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final popularItems = popular.asData?.value ?? const <MediaItem>[];
     final hero = trendingItems.isEmpty ? null : trendingItems.first;
     final wideHeader = MediaQuery.sizeOf(context).width >= 760;
+    final subscription = ref.watch(userAccountProvider);
 
     return Scaffold(
       body: CustomScrollView(
@@ -259,23 +255,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               const SizedBox(width: 8),
             ],
           ),
+          if (subscription?.renewalWarning ?? false)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                child: Material(
+                  color: const Color(0xFF3B2B13),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.notifications_active_outlined,
+                          color: Colors.amberAccent,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Tu suscripción vence en ${subscription!.remainingDays} '
+                            'día(s). Renueva para seguir disfrutando POTV.',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (!wideHeader && !widget.lockType)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
                 child: _MediaTypeSwitch(
                   selected: selectedType,
-                  onChanged: (type) =>
-                      setState(() => selectedType = type),
+                  onChanged: (type) => setState(() => selectedType = type),
                 ),
               ),
             ),
           if (hero != null)
             SliverToBoxAdapter(
-              child: HomeHero(
-                item: hero,
-                onPlay: () => _openItem(hero),
-              ),
+              child: HomeHero(item: hero, onPlay: () => _openItem(hero)),
             )
           else
             SliverToBoxAdapter(
@@ -317,10 +341,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(top: 14),
-              child: _GenrePicker(
-                genres: genres,
-                onSelected: _openGenre,
-              ),
+              child: _GenrePicker(genres: genres, onSelected: _openGenre),
             ),
           ),
           if (partnerItems.isNotEmpty)
@@ -362,10 +383,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           for (final genre in genres.take(6))
             SliverToBoxAdapter(
-              child: _GenreSection(
-                type: selectedType,
-                genre: genre,
-              ),
+              child: _GenreSection(type: selectedType, genre: genre),
             ),
           SliverToBoxAdapter(
             child: Padding(
@@ -387,10 +405,7 @@ class _MediaTypeSwitch extends StatelessWidget {
   final MediaType selected;
   final ValueChanged<MediaType> onChanged;
 
-  const _MediaTypeSwitch({
-    required this.selected,
-    required this.onChanged,
-  });
+  const _MediaTypeSwitch({required this.selected, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -427,9 +442,7 @@ class _MediaTypeSwitch extends StatelessWidget {
               ? PotvTheme.cyan
               : PotvTheme.surface,
         ),
-        side: WidgetStateProperty.all(
-          const BorderSide(color: Colors.white12),
-        ),
+        side: WidgetStateProperty.all(const BorderSide(color: Colors.white12)),
       ),
     );
   }
@@ -439,10 +452,7 @@ class _SectionHeading extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const _SectionHeading({
-    required this.title,
-    required this.subtitle,
-  });
+  const _SectionHeading({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -467,10 +477,7 @@ class _SectionHeading extends StatelessWidget {
                 subtitle,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white54,
-                  fontSize: 13,
-                ),
+                style: const TextStyle(color: Colors.white54, fontSize: 13),
               ),
             ),
           ),
@@ -485,21 +492,14 @@ class _GenreSpec {
   final int? tmdbId;
   final String? anilistGenre;
 
-  const _GenreSpec({
-    required this.title,
-    this.tmdbId,
-    this.anilistGenre,
-  });
+  const _GenreSpec({required this.title, this.tmdbId, this.anilistGenre});
 }
 
 class _GenrePicker extends StatelessWidget {
   final List<_GenreSpec> genres;
   final Future<void> Function(_GenreSpec) onSelected;
 
-  const _GenrePicker({
-    required this.genres,
-    required this.onSelected,
-  });
+  const _GenrePicker({required this.genres, required this.onSelected});
 
   @override
   Widget build(BuildContext context) {
@@ -526,10 +526,7 @@ class _GenreSection extends ConsumerWidget {
   final MediaType type;
   final _GenreSpec genre;
 
-  const _GenreSection({
-    required this.type,
-    required this.genre,
-  });
+  const _GenreSection({required this.type, required this.genre});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -542,9 +539,7 @@ class _GenreSection extends ConsumerWidget {
     } else {
       final id = genre.tmdbId;
       if (id == null) return const SizedBox.shrink();
-      state = ref.watch(
-        homeGenreProvider((type: type, genreId: id)),
-      );
+      state = ref.watch(homeGenreProvider((type: type, genreId: id)));
     }
 
     final items = state.asData?.value ?? const <MediaItem>[];
@@ -589,10 +584,7 @@ class _HeroFallback extends StatelessWidget {
   final bool loading;
   final Object? error;
 
-  const _HeroFallback({
-    required this.loading,
-    this.error,
-  });
+  const _HeroFallback({required this.loading, this.error});
 
   @override
   Widget build(BuildContext context) {
@@ -601,10 +593,7 @@ class _HeroFallback extends StatelessWidget {
       padding: const EdgeInsets.all(32),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            PotvTheme.surfaceAlt,
-            PotvTheme.background,
-          ],
+          colors: [PotvTheme.surfaceAlt, PotvTheme.background],
         ),
       ),
       child: Align(
@@ -628,19 +617,13 @@ class _HeroFallback extends StatelessWidget {
                 loading
                     ? 'Preparando tu catálogo…'
                     : error == null
-                        ? 'Tu catálogo aparecerá aquí.'
-                        : 'No pudimos cargar el catálogo en este momento.',
-                style: const TextStyle(
-                  fontSize: 17,
-                  color: Colors.white70,
-                ),
+                    ? 'Tu catálogo aparecerá aquí.'
+                    : 'No pudimos cargar el catálogo en este momento.',
+                style: const TextStyle(fontSize: 17, color: Colors.white70),
               ),
               if (loading) ...[
                 const SizedBox(height: 18),
-                const SizedBox(
-                  width: 240,
-                  child: LinearProgressIndicator(),
-                ),
+                const SizedBox(width: 240, child: LinearProgressIndicator()),
               ],
             ],
           ),

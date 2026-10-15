@@ -17,18 +17,18 @@ final accountAuthServiceProvider = Provider<AccountAuthService>(
 
 final userAccountProvider =
     StateNotifierProvider<UserAccountNotifier, UserAccount?>(
-  (ref) => UserAccountNotifier(ref),
-);
+      (ref) => UserAccountNotifier(ref),
+    );
 
 final userProfilesProvider =
     StateNotifierProvider<UserProfilesNotifier, List<UserProfile>>(
-  (ref) => UserProfilesNotifier(ref),
-);
+      (ref) => UserProfilesNotifier(ref),
+    );
 
 final currentProfileIdProvider =
     StateNotifierProvider<CurrentProfileIdNotifier, String?>(
-  (ref) => CurrentProfileIdNotifier(ref),
-);
+      (ref) => CurrentProfileIdNotifier(ref),
+    );
 
 final activeProfileProvider = Provider<UserProfile?>((ref) {
   final id = ref.watch(currentProfileIdProvider);
@@ -75,40 +75,68 @@ class UserAccountNotifier extends StateNotifier<UserAccount?> {
     required String name,
   }) async {
     final auth = ref.read(accountAuthServiceProvider);
-    final account = await auth.register(email: email, password: password, name: name);
+    final account = await auth.register(
+      email: email,
+      password: password,
+      name: name,
+    );
     final repo = await ref.read(userAccountRepositoryProvider.future);
     state = account;
     await repo.saveAccount(account);
     await ref.read(userProfilesProvider.notifier).loadForAccount(account.id);
     if (ref.read(userProfilesProvider).isEmpty) {
-      final profile = await ref.read(userProfilesProvider.notifier).addProfile(name);
+      final profile = await ref
+          .read(userProfilesProvider.notifier)
+          .addProfile(name);
       if (profile != null) {
         await ref.read(currentProfileIdProvider.notifier).set(profile.id);
       }
     }
   }
 
-  Future<void> login({
-    required String email,
-    required String password,
-  }) async {
-    final account =
-        await ref.read(accountAuthServiceProvider).login(email: email, password: password);
+  Future<void> login({required String email, required String password}) async {
+    final account = await ref
+        .read(accountAuthServiceProvider)
+        .login(email: email, password: password);
     final repo = await ref.read(userAccountRepositoryProvider.future);
     state = account;
     await repo.saveAccount(account);
     await ref.read(userProfilesProvider.notifier).loadForAccount(account.id);
     final profiles = ref.read(userProfilesProvider);
     if (profiles.isEmpty) {
-      final seedName = account.username.trim().isEmpty ? 'Perfil 1' : account.username;
-      final profile = await ref.read(userProfilesProvider.notifier).addProfile(seedName);
+      final seedName = account.username.trim().isEmpty
+          ? 'Perfil 1'
+          : account.username;
+      final profile = await ref
+          .read(userProfilesProvider.notifier)
+          .addProfile(seedName);
       await ref.read(currentProfileIdProvider.notifier).set(profile?.id);
     } else {
       final saved = repo.loadActiveProfileId();
       final valid = profiles.any((profile) => profile.id == saved);
-      await ref.read(currentProfileIdProvider.notifier).set(
-            valid ? saved : profiles.first.id,
-          );
+      await ref
+          .read(currentProfileIdProvider.notifier)
+          .set(valid ? saved : profiles.first.id);
+    }
+  }
+
+  /// Revalidate subscription with the POTV server after a manual activation.
+  /// Returns false on a connection problem; local dates never get extended.
+  Future<bool> refreshSubscription() async {
+    try {
+      final account = await ref.read(accountAuthServiceProvider).restore();
+      final repo = await ref.read(userAccountRepositoryProvider.future);
+      if (account == null) {
+        state = null;
+        await repo.clearSession();
+        ref.read(userProfilesProvider.notifier).clearVisible();
+        return true;
+      }
+      state = account;
+      await repo.saveAccount(account);
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -185,7 +213,10 @@ class UserProfilesNotifier extends StateNotifier<List<UserProfile>> {
   Future<void> updateProfile(UserProfile updated) async {
     final account = ref.read(userAccountProvider);
     if (account == null || updated.accountId != account.id) return;
-    state = [for (final p in state) if (p.id == updated.id) updated else p];
+    state = [
+      for (final p in state)
+        if (p.id == updated.id) updated else p,
+    ];
     final repo = await ref.read(userAccountRepositoryProvider.future);
     await repo.saveProfiles(account.id, state);
   }
