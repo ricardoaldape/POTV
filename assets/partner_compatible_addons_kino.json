@@ -1,0 +1,350 @@
+{
+  "schema": 1,
+  "source": "Partner APK Kino: public Stremio addon manifest metadata, verified 2026-10-15",
+  "addons": [
+    {
+      "id": "opensubtitles-v3",
+      "name": "OpenSubtitles v3",
+      "manifest": "https://opensubtitles-v3.strem.io/manifest.json",
+      "categories": [
+        "subtitles"
+      ],
+      "resources": [
+        "subtitles"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "subtis",
+      "name": "Subtis - Beta Pública",
+      "manifest": "https://stremio.fly.dev/manifest.json",
+      "categories": [
+        "subtitles"
+      ],
+      "resources": [
+        "subtitles"
+      ],
+      "types": [
+        "movie"
+      ]
+    },
+    {
+      "id": "subsense",
+      "name": "SubSense",
+      "manifest": "https://subsense.nepiraw.com/manifest.json",
+      "categories": [
+        "subtitles"
+      ],
+      "resources": [
+        "subtitles"
+      ],
+      "types": [
+        "movie",
+        "series",
+        "subtitles"
+      ]
+    },
+    {
+      "id": "subtitles-website",
+      "name": "Subtitle Search Engine",
+      "manifest": "https://subtitles.website/stremio/manifest.json",
+      "categories": [
+        "subtitles"
+      ],
+      "resources": [
+        "subtitles"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "cinemeta",
+      "name": "Cinemeta",
+      "manifest": "https://v3-cinemeta.strem.io/manifest.json",
+      "categories": [
+        "movies",
+        "series",
+        "utilities"
+      ],
+      "resources": [
+        "addon_catalog",
+        "catalog",
+        "meta"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "streaming-catalogs",
+      "name": "Streaming Catalogs",
+      "manifest": "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/manifest.json",
+      "categories": [
+        "movies",
+        "series",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "imdb-catalogs",
+      "name": "IMDB Catalogs",
+      "manifest": "https://1fe84bc728af-imdb-catalogs.baby-beamup.club/manifest.json",
+      "categories": [
+        "movies",
+        "series",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "seenr",
+      "name": "Seenr",
+      "manifest": "https://seenr.app/api/v1/stremio/manifest.json",
+      "categories": [
+        "movies",
+        "series",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "stremboxd",
+      "name": "Stremboxd",
+      "manifest": "https://api.stremboxd.com/manifest.json",
+      "categories": [
+        "movies",
+        "utilities"
+      ],
+      "resources": [
+        "catalog",
+        "meta"
+      ],
+      "types": [
+        "movie"
+      ]
+    },
+    {
+      "id": "rotten-tomatoes",
+      "name": "Rotten Tomatoes",
+      "manifest": "https://7a82163c306e-rottentomatoes.baby-beamup.club/manifest.json",
+      "categories": [
+        "movies",
+        "series",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "film-festivals",
+      "name": "Film Festivals 2 | ElfHosted",
+      "manifest": "https://stremio-film-festivals.elfhosted.com/manifest.json",
+      "categories": [
+        "movies",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie"
+      ]
+    },
+    {
+      "id": "mubi",
+      "name": "Mubi Catalog",
+      "manifest": "https://mubi2stremio.adiba.ro/manifest.json",
+      "categories": [
+        "movies",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie"
+      ]
+    },
+    {
+      "id": "cinema-time-machine",
+      "name": "Cinema Time Machine",
+      "manifest": "https://9662a158fccb-cinema-time-machine.baby-beamup.club/manifest.json",
+      "categories": [
+        "movies",
+        "series",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "star-wars",
+      "name": "Star Wars Universe",
+      "manifest": "https://addon-star-wars-u9e3.onrender.com/manifest.json",
+      "categories": [
+        "movies",
+        "series",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "james-bond",
+      "name": "James Bond 007 Collection (Official)",
+      "manifest": "https://addon-007.vercel.app/manifest.json",
+      "categories": [
+        "movies",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "007 Collection"
+      ]
+    },
+    {
+      "id": "anime-kitsu",
+      "name": "Anime Kitsu",
+      "manifest": "https://anime-kitsu.strem.fun/manifest.json",
+      "categories": [
+        "anime",
+        "utilities"
+      ],
+      "resources": [
+        "catalog",
+        "meta",
+        "subtitles"
+      ],
+      "types": [
+        "anime",
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "anime-catalogs",
+      "name": "Anime Catalogs",
+      "manifest": "https://1fe84bc728af-stremio-anime-catalogs.baby-beamup.club/manifest.json",
+      "categories": [
+        "anime",
+        "utilities"
+      ],
+      "resources": [
+        "catalog",
+        "meta"
+      ],
+      "types": [
+        "anime",
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "animes-season",
+      "name": "Animes' season",
+      "manifest": "https://victorgveloso.github.io/animes-season-addon/manifest.json",
+      "categories": [
+        "anime",
+        "utilities"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "movie",
+        "series"
+      ]
+    },
+    {
+      "id": "dragonball-es",
+      "name": "Dragon Ball ES - Cronología",
+      "manifest": "https://yancha10.github.io/stremio-dragonball-es-catalog/manifest.json",
+      "categories": [
+        "anime"
+      ],
+      "resources": [
+        "catalog"
+      ],
+      "types": [
+        "series",
+        "movie"
+      ]
+    },
+    {
+      "id": "pluto-tv",
+      "name": "Pluto TV",
+      "manifest": "https://dev.nebulawp.org/stremio/pluto-tv-addon/manifest.json",
+      "categories": [
+        "live"
+      ],
+      "resources": [
+        "catalog",
+        "meta",
+        "stream"
+      ],
+      "types": [
+        "tv"
+      ]
+    },
+    {
+      "id": "radios",
+      "name": "Radios",
+      "manifest": "https://1fe84bc728af-stremio-radios.baby-beamup.club/manifest.json",
+      "categories": [
+        "radio"
+      ],
+      "resources": [
+        "catalog",
+        "meta",
+        "stream"
+      ],
+      "types": [
+        "music",
+        "movie"
+      ]
+    }
+  ]
+}
