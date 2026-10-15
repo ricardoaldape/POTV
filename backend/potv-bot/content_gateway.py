@@ -696,7 +696,7 @@ class ContentGateway:
             seen_targets.add(target_id)
             sources.append({
                 "provider": "POTV",
-                "real_url": self._proxy_url(target_id, lifetime=14400),
+                "real_url": self._proxy_url(target_id),
                 "language": "es-MX",
                 "quality": quality,
             })
@@ -817,7 +817,7 @@ class ContentGateway:
             seen_targets.add(target_id)
             sources.append({
                 "provider": "POTV",
-                "real_url": self._proxy_url(target_id, lifetime=14400),
+                "real_url": self._proxy_url(target_id),
                 "language": "es-MX",
                 "quality": quality,
             })
@@ -884,7 +884,7 @@ class ContentGateway:
         except ValueError:
             return False
         signature = (values.get("s") or [""])[0]
-        # Signed live playlists can outlive an event; every signed URL still\n        # has an HMAC, fixed expiry and no provider account in the URI.\n        if expires < int(time.time()) or expires > int(time.time()) + 21600:
+        if expires < int(time.time()) or expires > int(time.time()) + 3600:
             return False
         expected = self._signature(target_id, expires)
         return bool(signature) and hmac.compare_digest(signature, expected)
@@ -1199,7 +1199,7 @@ class ContentGateway:
             "name": channel["name"].strip(),
             "group": channel.get("group") or None,
             "epg_id": channel.get("epg_id") or None,
-            "hls_url": self._proxy_url(target_id, lifetime=21600),
+            "hls_url": self._proxy_url(target_id),
             "language": channel.get("language") or None,
         }
         logo = str(channel.get("logo") or "").strip()
@@ -1361,7 +1361,7 @@ class ContentGateway:
                     target_id = self._register_target(str(url), headers)
                 except ContentGatewayError:
                     continue
-                streams.append({"url": self._proxy_url(target_id, lifetime=21600)})
+                streams.append({"url": self._proxy_url(target_id)})
             if not streams:
                 # Never advertise an event as playable without an explicit stream.
                 continue
@@ -1493,7 +1493,7 @@ class ContentGateway:
             target_id = unquote(parsed.path[len(prefix):])
             if target_id not in self._targets:
                 return url
-            return self._proxy_url(target_id, lifetime=21600)
+            return self._proxy_url(target_id)
 
         for group in ("channels", "sports_channels"):
             for channel in result.get("data", {}).get(group, []):
@@ -1586,7 +1586,9 @@ class ContentGateway:
         def proxied(value):
             upstream = urljoin(base_url, value.strip())
             target_id = self._register_target(upstream, headers)
-            # Live child manifests are refreshed repeatedly throughout a\n            # match. Their signed URLs must outlast an ordinary 15-minute\n            # segment token; media segments still expire after 15 minutes.\n            path = urlsplit(upstream).path.lower()\n            return self._proxy_url(\n                target_id,\n                lifetime=21600 if path.endswith(".m3u8") else 900,\n            )\n\n        output = []
+            return self._proxy_url(target_id)
+
+        output = []
         for raw_line in body.splitlines():
             line = raw_line.strip()
             if not line:
