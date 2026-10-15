@@ -110,7 +110,7 @@ class StremioLivePartner:
 
     def channels(self, *, force=False):
         now=time.monotonic()
-        if not force and self._cache and now-self._cache_at<self.ttl:
+        if not force and self._cache_at and now-self._cache_at<self.ttl:
             return [dict(x) for x in self._cache]
         manifest = self._json(self.manifest_url)
         supported = manifest.get("resources") or []
@@ -128,12 +128,19 @@ class StremioLivePartner:
         if not isinstance(metas,list):
             raise StremioLiveError("stremio_catalog_missing")
         result=[]
+        seen_ids=set()
+        # A sick addon must not hold POTV's entire TV catalog refresh.
+        deadline=time.monotonic()+20
         for meta in metas[:5000]:
+            if time.monotonic()>deadline:
+                break
             if not isinstance(meta,dict):
                 continue
             channel_id=str(meta.get("id") or "")
-            if channel_id not in self.allowed_ids or meta.get("type") not in (None,"tv"):
+            if (channel_id not in self.allowed_ids or channel_id in seen_ids
+                    or meta.get("type") not in (None,"tv")):
                 continue
+            seen_ids.add(channel_id)
             name=str(meta.get("name") or "").strip()
             if not name:continue
             try:
