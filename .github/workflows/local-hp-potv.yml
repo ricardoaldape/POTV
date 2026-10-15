@@ -1,0 +1,44 @@
+name: POTV QA on HP (no hosted minutes)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_apk:
+        description: 'Also build a local Android QA APK'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  hp-qa:
+    # Must be registered as an independent runner in ricardoaldape/POTV.
+    # Never use ubuntu-latest or the Juego HP runner for this workflow.
+    runs-on: [self-hosted, Windows, X64, potv]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout POTV source
+        uses: actions/checkout@v4
+      - name: Display self-hosted machine
+        shell: pwsh
+        run: |
+          Write-Output "Running on POTV Windows self-hosted runner."
+          Write-Output ('Machine: ' + $env:COMPUTERNAME)
+      - name: Validate, test and optionally build on HP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $args = @()
+          if ('${{ inputs.build_apk }}' -eq 'true') { $args += '-BuildApk' }
+          & '.github/scripts/local-potv-qa.ps1' @args
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Report local artifact path
+        shell: pwsh
+        if: ${{ inputs.build_apk }}
+        run: |
+          $p = 'build/app/outputs/flutter-apk/app-release.apk'
+          if (!(Test-Path $p)) { throw "No APK generated" }
+          Write-Output ('QA APK left locally: ' + (Resolve-Path $p).Path)
+          Write-Output 'No GitHub artifact storage is used.'

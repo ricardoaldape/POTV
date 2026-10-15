@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,10 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../../app/app_theme.dart';
 import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
+import '../../data/catalog/partner_content_repository.dart';
 import '../../data/history/playback_history_repository.dart';
-import '../../data/resolution/resolver_status.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
+import '../../providers/user_providers.dart';
 import '../browse/genre_browse_screen.dart';
 import '../player/media_playback_coordinator.dart';
 import 'widgets/continue_watching_rail.dart';
@@ -17,34 +20,53 @@ import 'widgets/media_rail.dart';
 import 'widgets/top_ten_rail.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  final MediaType? initialType;
+  final bool lockType;
+
+  const HomeScreen({super.key, this.initialType, this.lockType = false});
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
-  static bool _vodSetupPromptedThisSession = false;
-  MediaType selectedType = MediaType.movie;
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
+  Timer? _catalogTimer;
+
+  void _refreshCatalog() => ref.invalidate(partnerContentProvider);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshCatalog();
+      _catalogTimer ??= Timer.periodic(
+        const Duration(minutes: 2),
+        (_) => _refreshCatalog(),
+      );
+    } else {
+      _catalogTimer?.cancel();
+      _catalogTimer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _catalogTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  late MediaType selectedType;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _maybeShowVodSetup();
-    });
-  }
-
-  Future<void> _maybeShowVodSetup() async {
-    if (_vodSetupPromptedThisSession || !mounted) return;
-    _vodSetupPromptedThisSession = true;
-    try {
-      final status = await ref.read(resolverStatusProvider.future);
-      if (!mounted || status.externalRoutes > 0) return;
-      await context.push<bool>('/setup-vod');
-    } catch (_) {
-      // El catálogo debe seguir funcionando aunque falle la comprobación local.
-    }
+    selectedType = widget.initialType ?? MediaType.movie;
+    WidgetsBinding.instance.addObserver(this);
+    _catalogTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) => _refreshCatalog(),
+    );
   }
 
   static const movieGenres = <_GenreSpec>[
@@ -102,11 +124,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   MediaType? _mediaTypeFromHistory(String value) => switch (value) {
-        'movie' => MediaType.movie,
-        'tv' => MediaType.tv,
-        'anime' => MediaType.anime,
-        _ => null,
-      };
+    'movie' => MediaType.movie,
+    'tv' => MediaType.tv,
+    'anime' => MediaType.anime,
+    _ => null,
+  };
 
   Future<void> _resumeHistory(PlaybackHistoryEntry history) async {
     final type = _mediaTypeFromHistory(history.mediaType);
@@ -149,19 +171,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final AsyncValue<List<MediaItem>> trending =
-        selectedType == MediaType.anime
-            ? ref.watch(animeTrendingProvider)
-            : ref.watch(homeTrendingProvider(selectedType));
-    final AsyncValue<List<MediaItem>> popular =
-        selectedType == MediaType.anime
-            ? ref.watch(animePopularProvider)
-            : ref.watch(homePopularProvider(selectedType));
+    final AsyncValue<List<MediaItem>> trending = selectedType == MediaType.anime
+        ? ref.watch(animeTrendingProvider)
+        : ref.watch(homeTrendingProvider(selectedType));
+    final AsyncValue<List<MediaItem>> popular = selectedType == MediaType.anime
+        ? ref.watch(animePopularProvider)
+        : ref.watch(homePopularProvider(selectedType));
     final genres = switch (selectedType) {
       MediaType.movie => movieGenres,
       MediaType.tv => tvGenres,
       MediaType.anime => animeGenres,
     };
+    final partnerSnapshot = ref.watch(partnerContentProvider).asData?.value;
+    final partnerItems =
+        partnerSnapshot?.forType(selectedType) ?? const <MediaItem>[];
     final historyState = ref.watch(playbackHistoryProvider);
     final historyItems =
         historyState.asData?.value ?? const <PlaybackHistoryEntry>[];
@@ -169,6 +192,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final popularItems = popular.asData?.value ?? const <MediaItem>[];
     final hero = trendingItems.isEmpty ? null : trendingItems.first;
     final wideHeader = MediaQuery.sizeOf(context).width >= 760;
+    final subscription = ref.watch(userAccountProvider);
 
     return Scaffold(
       body: CustomScrollView(
@@ -188,12 +212,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           letterSpacing: -0.8,
                         ),
                       ),
-                      const SizedBox(width: 18),
-                      _MediaTypeSwitch(
-                        selected: selectedType,
-                        onChanged: (type) =>
-                            setState(() => selectedType = type),
-                      ),
+                      if (!widget.lockType) ...[
+                        const SizedBox(width: 18),
+                        _MediaTypeSwitch(
+                          selected: selectedType,
+                          onChanged: (type) =>
+                              setState(() => selectedType = type),
+                        ),
+                      ],
                     ],
                   )
                 : const Text(
@@ -210,9 +236,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 icon: const Icon(Icons.search_rounded),
               ),
               IconButton(
-                tooltip: 'Ajustes',
-                onPressed: () => context.go('/settings'),
-                icon: const Icon(Icons.settings_rounded),
+                tooltip: 'Perfil',
+                onPressed: () => context.go('/profile'),
+                icon: const Icon(Icons.account_circle_outlined),
               ),
               if (wideHeader)
                 IconButton(
@@ -229,23 +255,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(width: 8),
             ],
           ),
-          if (!wideHeader)
+          if (subscription?.renewalWarning ?? false)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                child: Material(
+                  color: const Color(0xFF3B2B13),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.notifications_active_outlined,
+                          color: Colors.amberAccent,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Tu suscripción vence en ${subscription!.remainingDays} '
+                            'día(s). Renueva para seguir disfrutando POTV.',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (!wideHeader && !widget.lockType)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
                 child: _MediaTypeSwitch(
                   selected: selectedType,
-                  onChanged: (type) =>
-                      setState(() => selectedType = type),
+                  onChanged: (type) => setState(() => selectedType = type),
                 ),
               ),
             ),
           if (hero != null)
             SliverToBoxAdapter(
-              child: HomeHero(
-                item: hero,
-                onPlay: () => _openItem(hero),
-              ),
+              child: HomeHero(item: hero, onPlay: () => _openItem(hero)),
             )
           else
             SliverToBoxAdapter(
@@ -275,11 +329,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 },
                 subtitle: switch (selectedType) {
                   MediaType.movie =>
-                    'Elige una película y POTV buscará automáticamente el mejor servidor disponible.',
+                    'Descubre películas y continúa donde te quedaste.',
                   MediaType.tv =>
-                    'Explora series sin salir de la misma pantalla.',
+                    'Tus series, episodios y progreso en un solo lugar.',
                   MediaType.anime =>
-                    'AniList organiza el catálogo; los episodios se resuelven localmente.',
+                    'Explora anime y continúa tus episodios fácilmente.',
                 },
               ),
             ),
@@ -287,12 +341,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(top: 14),
-              child: _GenrePicker(
-                genres: genres,
-                onSelected: _openGenre,
-              ),
+              child: _GenrePicker(genres: genres, onSelected: _openGenre),
             ),
           ),
+          if (partnerItems.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 18),
+                child: MediaRail(
+                  title: 'Novedades del catálogo',
+                  items: partnerItems,
+                  onPlay: _openItem,
+                ),
+              ),
+            ),
           if (popularItems.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
@@ -321,10 +383,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           for (final genre in genres.take(6))
             SliverToBoxAdapter(
-              child: _GenreSection(
-                type: selectedType,
-                genre: genre,
-              ),
+              child: _GenreSection(type: selectedType, genre: genre),
             ),
           SliverToBoxAdapter(
             child: Padding(
@@ -346,10 +405,7 @@ class _MediaTypeSwitch extends StatelessWidget {
   final MediaType selected;
   final ValueChanged<MediaType> onChanged;
 
-  const _MediaTypeSwitch({
-    required this.selected,
-    required this.onChanged,
-  });
+  const _MediaTypeSwitch({required this.selected, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -386,9 +442,7 @@ class _MediaTypeSwitch extends StatelessWidget {
               ? PotvTheme.cyan
               : PotvTheme.surface,
         ),
-        side: WidgetStateProperty.all(
-          const BorderSide(color: Colors.white12),
-        ),
+        side: WidgetStateProperty.all(const BorderSide(color: Colors.white12)),
       ),
     );
   }
@@ -398,10 +452,7 @@ class _SectionHeading extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const _SectionHeading({
-    required this.title,
-    required this.subtitle,
-  });
+  const _SectionHeading({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -426,10 +477,7 @@ class _SectionHeading extends StatelessWidget {
                 subtitle,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white54,
-                  fontSize: 13,
-                ),
+                style: const TextStyle(color: Colors.white54, fontSize: 13),
               ),
             ),
           ),
@@ -444,21 +492,14 @@ class _GenreSpec {
   final int? tmdbId;
   final String? anilistGenre;
 
-  const _GenreSpec({
-    required this.title,
-    this.tmdbId,
-    this.anilistGenre,
-  });
+  const _GenreSpec({required this.title, this.tmdbId, this.anilistGenre});
 }
 
 class _GenrePicker extends StatelessWidget {
   final List<_GenreSpec> genres;
   final Future<void> Function(_GenreSpec) onSelected;
 
-  const _GenrePicker({
-    required this.genres,
-    required this.onSelected,
-  });
+  const _GenrePicker({required this.genres, required this.onSelected});
 
   @override
   Widget build(BuildContext context) {
@@ -485,10 +526,7 @@ class _GenreSection extends ConsumerWidget {
   final MediaType type;
   final _GenreSpec genre;
 
-  const _GenreSection({
-    required this.type,
-    required this.genre,
-  });
+  const _GenreSection({required this.type, required this.genre});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -501,9 +539,7 @@ class _GenreSection extends ConsumerWidget {
     } else {
       final id = genre.tmdbId;
       if (id == null) return const SizedBox.shrink();
-      state = ref.watch(
-        homeGenreProvider((type: type, genreId: id)),
-      );
+      state = ref.watch(homeGenreProvider((type: type, genreId: id)));
     }
 
     final items = state.asData?.value ?? const <MediaItem>[];
@@ -548,10 +584,7 @@ class _HeroFallback extends StatelessWidget {
   final bool loading;
   final Object? error;
 
-  const _HeroFallback({
-    required this.loading,
-    this.error,
-  });
+  const _HeroFallback({required this.loading, this.error});
 
   @override
   Widget build(BuildContext context) {
@@ -560,10 +593,7 @@ class _HeroFallback extends StatelessWidget {
       padding: const EdgeInsets.all(32),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            PotvTheme.surfaceAlt,
-            PotvTheme.background,
-          ],
+          colors: [PotvTheme.surfaceAlt, PotvTheme.background],
         ),
       ),
       child: Align(
@@ -587,19 +617,13 @@ class _HeroFallback extends StatelessWidget {
                 loading
                     ? 'Preparando tu catálogo…'
                     : error == null
-                        ? 'Tu catálogo aparecerá aquí.'
-                        : 'Falta configurar TMDB para cargar metadatos.',
-                style: const TextStyle(
-                  fontSize: 17,
-                  color: Colors.white70,
-                ),
+                    ? 'Tu catálogo aparecerá aquí.'
+                    : 'No pudimos cargar el catálogo en este momento.',
+                style: const TextStyle(fontSize: 17, color: Colors.white70),
               ),
               if (loading) ...[
                 const SizedBox(height: 18),
-                const SizedBox(
-                  width: 240,
-                  child: LinearProgressIndicator(),
-                ),
+                const SizedBox(width: 240, child: LinearProgressIndicator()),
               ],
             ],
           ),

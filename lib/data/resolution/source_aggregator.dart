@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/security/media_url_logging.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../debug/debug_log_provider.dart';
@@ -11,7 +12,9 @@ import 'provider_registry.dart';
 
 final sourceAggregatorProvider = Provider<SourceAggregator>((ref) {
   return SourceAggregator(
-    ref.read(providerRegistryProvider),
+    // Watch registry changes so cached playback candidates cannot survive
+    // a POTV account switch or logout.
+    ref.watch(providerRegistryProvider),
     resolverManager: ref.read(resolverManagerProvider),
   );
 });
@@ -159,7 +162,7 @@ class SourceAggregator {
             final candidate = batch.candidates[index];
             final urlLog =
                 'SourceAggregator ${provider.id} URL ${index + 1}/${batch.candidates.length} '
-                '-> ${candidate.uri}';
+                '-> ${safeMediaUrlForLog(candidate.uri)}';
             debugPrint(urlLog);
             addDebugLog(urlLog);
           }
@@ -172,7 +175,15 @@ class SourceAggregator {
             if (batch.candidates.isNotEmpty) {
               final firstCandidate = candidates.isEmpty;
               candidates.addAll(batch.candidates);
-              if (firstCandidate && firstCandidateGrace > Duration.zero) {
+              // A fast embed must not hide slower, actually playable sources.
+              // Give other providers an opportunity to return native media.
+              if (firstCandidate &&
+                  candidates.any((c) => c.backend == PlaybackBackend.native) &&
+                  firstCandidateGrace > Duration.zero) {
+                graceTimer = Timer(firstCandidateGrace, finish);
+              } else if (graceTimer == null &&
+                  candidates.any((c) => c.backend == PlaybackBackend.native) &&
+                  firstCandidateGrace > Duration.zero) {
                 graceTimer = Timer(firstCandidateGrace, finish);
               }
             }
@@ -180,7 +191,7 @@ class SourceAggregator {
 
           if (remaining == 0) {
             finish();
-          } else if (candidates.isNotEmpty &&
+          } else if (candidates.any((c) => c.backend == PlaybackBackend.native) &&
               firstCandidateGrace <= Duration.zero) {
             finish();
           }

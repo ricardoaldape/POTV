@@ -14,9 +14,11 @@ class M3uParser {
       if (line.isEmpty || line == '#EXTM3U') continue;
 
       if (line.startsWith('#EXTINF:')) {
-        attrs = _attributes(line);
-        final comma = line.indexOf(',');
-        title = comma >= 0 ? line.substring(comma + 1).trim() : 'Canal';
+        // EXTINF attributes can contain commas inside quotes, including
+        // browser User-Agent strings. The first comma is not the title.
+        final comma = _metadataSeparator(line);
+        attrs = _attributes(comma >= 0 ? line.substring(0, comma) : line);
+        title = comma >= 0 ? line.substring(comma + 1).trim() : null;
         continue;
       }
 
@@ -66,6 +68,12 @@ class M3uParser {
             uri: parsed.uri,
             headers: headers,
             backend: PlaybackBackend.native,
+            // Preserve explicit M3U audio language metadata for Sports Hub
+            // and playback choice. Never infer language from the channel's
+            // country, title, or URL.
+            language: attrs['tvg-language'] ??
+                attrs['audio-language'] ??
+                attrs['language'],
           ),
         ),
       );
@@ -135,6 +143,19 @@ class M3uParser {
       default:
         return key;
     }
+  }
+
+  static int _metadataSeparator(String line) {
+    var quoted = false;
+    for (var i = 0; i < line.length; i++) {
+      final ch = line.codeUnitAt(i);
+      if (ch == 34 && (i == 0 || line.codeUnitAt(i - 1) != 92)) {
+        quoted = !quoted;
+      } else if (ch == 44 && !quoted) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   static Map<String, String> _attributes(String line) {

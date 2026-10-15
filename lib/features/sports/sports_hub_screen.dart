@@ -1,41 +1,47 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../data/catalog/partner_content_repository.dart';
 import '../../data/live_tv/built_in_live_sources.dart';
-import '../../data/sports/addon_sports_repository.dart';
 import '../../data/live_tv/live_tv_repository.dart';
+import '../../data/sports/addon_sports_repository.dart';
 import '../../data/sports/sports_repository.dart';
-import '../../domain/models/addon_sports_item.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/sports_event.dart';
-import '../../domain/services/sports_channel_resolver.dart';
+import '../../domain/models/addon_sports_item.dart';
+import '../../domain/models/stream_candidate.dart';
+import '../../domain/services/sports_channel_language.dart';
+import '../../domain/services/sports_hub_organizer.dart';
 import 'addon_sports_rail.dart';
 import 'sports_channel_rail.dart';
 
-const _sports = <({String label, String api, IconData icon})>[
-  (label: 'Fútbol', api: 'Soccer', icon: Icons.sports_soccer),
-  (label: 'Basket', api: 'Basketball', icon: Icons.sports_basketball),
-  (
-    label: 'NFL',
-    api: 'American Football',
-    icon: Icons.sports_football,
-  ),
-  (label: 'Béisbol', api: 'Baseball', icon: Icons.sports_baseball),
-  (label: 'Hockey', api: 'Ice Hockey', icon: Icons.sports_hockey),
-  (label: 'Motor', api: 'Motorsport', icon: Icons.sports_motorsports),
-  (label: 'Tenis', api: 'Tennis', icon: Icons.sports_tennis),
-  (label: 'Combate', api: 'Fighting', icon: Icons.sports_mma),
-];
+String _subtitle(String competition, DateTime startsAt) =>
+    '$competition · ${DateFormat.Hm().format(startsAt)}';
 
-String _subtitle(String competition, DateTime startsAt) {
-  final time = DateFormat.Hm().format(startsAt);
-  return '$competition · $time';
-}
+IconData _categoryIcon(SportsHubCategory category) => switch (category) {
+      SportsHubCategory.all => Icons.apps_rounded,
+      SportsHubCategory.soccer => Icons.sports_soccer_rounded,
+      SportsHubCategory.americanFootball => Icons.sports_football_rounded,
+      SportsHubCategory.basketball => Icons.sports_basketball_rounded,
+      SportsHubCategory.baseball => Icons.sports_baseball_rounded,
+      SportsHubCategory.combat => Icons.sports_mma_rounded,
+      SportsHubCategory.hockey => Icons.sports_hockey_rounded,
+      SportsHubCategory.motorsport => Icons.sports_motorsports_rounded,
+      SportsHubCategory.tennis => Icons.sports_tennis_rounded,
+      SportsHubCategory.other => Icons.sports_rounded,
+      SportsHubCategory.sportsTv => Icons.live_tv_rounded,
+    };
 
+/// Category-first Sports Hub: same information architecture on phone and TV.
+/// Sources can come from POTV addons, M3U, public channels and approved
+/// partner catalogs. No partner account/branding/payment UI is used here.
 class SportsHubScreen extends ConsumerStatefulWidget {
   const SportsHubScreen({super.key});
 
@@ -43,317 +49,797 @@ class SportsHubScreen extends ConsumerStatefulWidget {
   ConsumerState<SportsHubScreen> createState() => _SportsHubScreenState();
 }
 
-class _SportsHubScreenState extends ConsumerState<SportsHubScreen> {
-  String selectedSport = 'Soccer';
+class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
+    with WidgetsBindingObserver {
+  static const organizer = SportsHubOrganizer();
+  static const languageService = SportsChannelLanguage();
+  SportsLanguagePreference preferredLanguage = SportsLanguagePreference.spanish;
+  SportsHubCategory selectedCategory = SportsHubCategory.all;
   DateTime selectedDay = DateUtils.dateOnly(DateTime.now());
+  Timer? _catalogTimer;
+  Timer? _initialGuideRefresh;
 
-  List<LiveChannel> _mergeChannels(
-    List<LiveChannel> primary,
-    List<LiveChannel> secondary,
-  ) {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startRefreshTimer();
+    _initialGuideRefresh = Timer(
+      const Duration(seconds: 5),
+      () {
+        if (mounted) ref.invalidate(partnerContentProvider);
+      },
+    );
+    unawaited(_loadPreferredLanguage());
+  }
+
+  Future<void> _loadPreferredLanguage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(SportsChannelLanguage.preferenceKey);
+      if (!mounted || saved == null) return;
+      for (final option in SportsLanguagePreference.values) {
+        if (option.name == saved) {
+          setState(() => preferredLanguage = option);
+          return;
+        }
+      }
+    } catch (_) {
+      // A broken preferences store should not prevent channel browsing.
+    }
+  }
+
+  Future<void> _selectPreferredLanguage(SportsLanguagePreference value) async {
+    setState(() => preferredLanguage = value);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(SportsChannelLanguage.preferenceKey, value.name);
+    } catch (_) {
+      // The in-session choice still works if persistence is unavailable.
+    }
+  }
+
+  void _startRefreshTimer() {
+    _catalogTimer ??= Timer.periodic(
+      const Duration(minutes: 2),
+      (_) {
+        if (mounted) ref.invalidate(partnerContentProvider);
+      },
+    );
+  }
+
+  void _refresh() {
+    ref.invalidate(partnerContentProvider);
+    ref.invalidate(builtInSportsChannelsProvider);
+    ref.invalidate(liveChannelsProvider);
+    ref.invalidate(epgProgramsProvider);
+    ref.invalidate(addonSportsItemsProvider('networks'));
+    if (!selectedCategory.isTelevision) {
+      ref.invalidate(sportsEventsProvider(
+        (day: selectedDay, sport: selectedCategory.apiSport),
+      ));
+      ref.invalidate(addonSportsItemsProvider(
+        selectedCategory.apiSport ?? 'all',
+      ));
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(partnerContentProvider);
+      _startRefreshTimer();
+    } else {
+      _catalogTimer?.cancel();
+      _catalogTimer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _catalogTimer?.cancel();
+    _initialGuideRefresh?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  List<_SportsNowItem> _buildNowGuide({
+    required List<LiveChannel> channels,
+    required List<EpgProgram> programs,
+    required List<SportsEvent> events,
+  }) {
+    final now = DateTime.now();
+    final result = <_SportsNowItem>[];
     final seen = <String>{};
-    final result = <LiveChannel>[];
+    final representedChannels = <String>{};
 
-    for (final channel in [...primary, ...secondary]) {
-      final key = [
-        channel.epgId?.trim().toLowerCase() ?? '',
-        channel.name.trim().toLowerCase(),
-        channel.stream.uri.toString(),
-      ].join('|');
-      if (seen.add(key)) result.add(channel);
+    bool categoryMatchesChannel(LiveChannel channel, EpgProgram program) {
+      if (selectedCategory == SportsHubCategory.all ||
+          selectedCategory == SportsHubCategory.sportsTv) {
+        return true;
+      }
+      final channelCategory = organizer.categoryForChannel(channel);
+      final programCategory = organizer.classifySport(
+        '${program.title} ${program.description ?? ''}',
+      );
+      return channelCategory == selectedCategory ||
+          programCategory == selectedCategory;
     }
 
-    return result;
+    for (final channel in channels) {
+      final epgId = channel.epgId?.trim().toLowerCase();
+      if (epgId == null || epgId.isEmpty) continue;
+      EpgProgram? current;
+      for (final program in programs) {
+        if (program.channelId.trim().toLowerCase() == epgId &&
+            program.isOnAir(now)) {
+          current = program;
+          break;
+        }
+      }
+      if (current == null || !categoryMatchesChannel(channel, current)) {
+        continue;
+      }
+      EpgProgram? next;
+      for (final program in programs) {
+        if (program.channelId.trim().toLowerCase() != epgId ||
+            !program.startsAt.isAfter(now)) {
+          continue;
+        }
+        if (next == null || program.startsAt.isBefore(next.startsAt)) {
+          next = program;
+        }
+      }
+      final key = 'epg:$epgId:${current.title.toLowerCase()}';
+      if (!seen.add(key)) continue;
+      representedChannels.add(channel.id);
+      result.add(
+        _SportsNowItem(
+          title: current.title,
+          subtitle: channel.name,
+          startsAt: current.startsAt,
+          endsAt: current.endsAt,
+          candidates: channel.playbackCandidates,
+          nextTitle: next?.title,
+        ),
+      );
+    }
+
+    for (final event in events) {
+      if (!event.isLive || event.streams.isEmpty) continue;
+      if (selectedCategory != SportsHubCategory.all &&
+          selectedCategory != SportsHubCategory.sportsTv &&
+          organizer.categoryForEvent(event) != selectedCategory) {
+        continue;
+      }
+      final key = 'event:${event.id}';
+      if (!seen.add(key)) continue;
+      result.add(
+        _SportsNowItem(
+          title: event.title,
+          subtitle: event.competition,
+          startsAt: event.startsAt,
+          candidates: event.streams,
+        ),
+      );
+    }
+
+    return result.take(18).toList(growable: false);
   }
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
     final value = await showDatePicker(
       context: context,
       initialDate: selectedDay,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      firstDate: now.subtract(const Duration(days: 30)),
+      lastDate: now.add(const Duration(days: 365)),
     );
-    if (value != null) {
+    if (value != null && mounted) {
       setState(() => selectedDay = DateUtils.dateOnly(value));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final query = (day: selectedDay, sport: selectedSport);
-    final eventsState = ref.watch(sportsEventsProvider(query));
-    final events = eventsState.asData?.value ?? const <SportsEvent>[];
-    final liveChannels = ref.watch(liveChannelsProvider).asData?.value ??
+    final isTv = selectedCategory.isTelevision;
+    final query = (day: selectedDay, sport: selectedCategory.apiSport);
+    final scheduleState = isTv
+        ? const AsyncData<List<SportsEvent>>([])
+        : ref.watch(sportsEventsProvider(query));
+    final addonState = isTv
+        ? const AsyncData<List<AddonSportsItem>>([])
+        : ref.watch(addonSportsItemsProvider(
+            selectedCategory.apiSport ?? 'all',
+          ));
+    final networkState = ref.watch(addonSportsItemsProvider('networks'));
+    final networkItems =
+        networkState.asData?.value ?? const <AddonSportsItem>[];
+    final partner = ref.watch(partnerContentProvider).asData?.value;
+    final starterSports = ref.watch(starterSportsChannelsProvider);
+    final builtInState = ref.watch(builtInSportsChannelsProvider);
+    final builtIn = [
+      ...starterSports,
+      ...builtInState.asData?.value ?? const <LiveChannel>[],
+    ];
+    final local = ref.watch(liveChannelsProvider).asData?.value ??
         const <LiveChannel>[];
-    final sportsChannelsState = ref.watch(builtInSportsChannelsProvider);
-    final sportsChannels =
-        sportsChannelsState.asData?.value ?? const <LiveChannel>[];
-    final addonSportsState = ref.watch(addonSportsItemsProvider(selectedSport));
-    final addonSportsItems =
-        addonSportsState.asData?.value ?? const <AddonSportsItem>[];
-    final channels = _mergeChannels(liveChannels, sportsChannels);
     final programs = ref.watch(epgProgramsProvider).asData?.value ??
         const <EpgProgram>[];
+
+    // Local live-TV playlists may contain ordinary news or movies: never
+    // display those in Sports Hub merely because they come from an M3U.
+    final allChannels = organizer.mergeSportChannels(
+      partnerSports: partner?.sportsChannels ?? const <LiveChannel>[],
+      builtInSports: builtIn,
+      localChannels: local,
+      partnerGeneral: partner?.channels ?? const <LiveChannel>[],
+    );
+    final activeChannels = languageService.preferredChannels(
+      organizer.channelsFor(allChannels, selectedCategory), preferredLanguage);
+    final generalChannels = languageService.preferredChannels(
+      organizer.generalChannels(allChannels), preferredLanguage);
+
+    final guidePrograms = <EpgProgram>[
+      ...partner?.guidePrograms ?? const <EpgProgram>[],
+      ...programs,
+    ];
+    final scheduleEvents = organizer.eventsFor(
+      scheduleState.asData?.value ?? const <SportsEvent>[],
+      selectedCategory,
+      day: selectedDay,
+    );
+    final addonItems =
+        addonState.asData?.value ?? const <AddonSportsItem>[];
+    final liveAddonItems = addonItems
+        .where((item) => item.isLive)
+        .toList(growable: false);
+    final otherAddonItems = addonItems
+        .where((item) => !item.isLive)
+        .toList(growable: false);
+    final playableEvents = organizer
+        .eventsFor(
+          partner?.sportsEvents ?? const <SportsEvent>[],
+          selectedCategory,
+          day: selectedDay,
+        )
+        .where((event) => event.streams.isNotEmpty)
+        .toList(growable: false);
+    final nowGuide = _buildNowGuide(
+      channels: languageService.preferredChannels(
+        allChannels,
+        preferredLanguage,
+      ),
+      programs: guidePrograms,
+      events: partner?.sportsEvents ?? const <SportsEvent>[],
+    );
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sports Hub'),
         actions: [
           IconButton(
-            tooltip: 'Actualizar eventos',
-            onPressed: () {
-              ref.invalidate(sportsEventsProvider(query));
-              ref.invalidate(addonSportsItemsProvider(selectedSport));
-              ref.invalidate(builtInSportsChannelsProvider);
-            },
-            icon: const Icon(Icons.refresh),
+            tooltip: 'Actualizar deportes y canales',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 36),
         children: [
-          Text(
-            'Deportes · ${DateFormat('EEE d MMM').format(selectedDay)}',
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
+          const Text(
+            'Tu centro deportivo',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.7,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           const Text(
-            'POTV combina el calendario deportivo con canales públicos disponibles y con tus propias fuentes locales. Nada de esto se proxifica por nuestros servidores.',
+            'Eventos, competiciones y canales organizados por deporte.',
             style: TextStyle(color: Colors.white60),
           ),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          Row(
             children: [
-              ChoiceChip(
-                label: const Text('Hoy'),
-                selected: DateUtils.isSameDay(
-                  selectedDay,
-                  DateTime.now(),
+              const Icon(Icons.language_rounded, size: 18),
+              const SizedBox(width: 7),
+              const Expanded(
+                child: Text(
+                  'Idioma preferido para TV deportiva',
+                  style: TextStyle(fontWeight: FontWeight.w700),
                 ),
-                onSelected: (_) {
-                  setState(() {
-                    selectedDay = DateUtils.dateOnly(DateTime.now());
-                  });
-                },
-              ),
-              ChoiceChip(
-                label: const Text('Mañana'),
-                selected: DateUtils.isSameDay(
-                  selectedDay,
-                  DateTime.now().add(const Duration(days: 1)),
-                ),
-                onSelected: (_) {
-                  setState(() {
-                    selectedDay = DateUtils.dateOnly(
-                      DateTime.now().add(const Duration(days: 1)),
-                    );
-                  });
-                },
-              ),
-              OutlinedButton.icon(
-                onPressed: _pickDate,
-                icon: const Icon(Icons.calendar_month),
-                label: const Text('Calendario'),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final sport in _sports)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      avatar: Icon(sport.icon, size: 18),
-                      label: Text(sport.label),
-                      selected: selectedSport == sport.api,
-                      onSelected: (_) {
-                        setState(() => selectedSport = sport.api);
-                      },
-                    ),
-                  ),
-              ],
-            ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 7,
+            children: [
+              for (final language in SportsLanguagePreference.values)
+                ChoiceChip(
+                  key: ValueKey('sports-language-${language.name}'),
+                  label: Text(language.label),
+                  selected: preferredLanguage == language,
+                  onSelected: (_) => unawaited(_selectPreferredLanguage(language)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'POTV intenta mostrar primero señales en el idioma elegido cuando '
+            'esa información está disponible.',
+            style: TextStyle(color: Colors.white60, fontSize: 12),
           ),
           const SizedBox(height: 18),
-          if (addonSportsState.isLoading)
-            const LinearProgressIndicator(minHeight: 2),
-          if (addonSportsItems.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'En vivo desde tus addons',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
+          _SectionHeading(
+            label: 'EXPLORAR POR DEPORTE',
+            description: 'Elige una categoría o abre TV deportiva.',
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final category in SportsHubCategory.values)
+                ChoiceChip(
+                  key: ValueKey('sports-category-${category.name}'),
+                  avatar: Icon(_categoryIcon(category), size: 18),
+                  label: Text(category.title),
+                  selected: selectedCategory == category,
+                  tooltip: 'Mostrar ${category.title}',
+                  onSelected: (_) =>
+                      setState(() => selectedCategory = category),
                 ),
-                Text(
-                  '${addonSportsItems.length} eventos',
-                  style: const TextStyle(color: Colors.white54),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const _SectionHeading(
+            label: 'PARRILLA EN VIVO',
+            description:
+                'Sólo programas y eventos con transmisión confirmada ahora.',
+          ),
+          const SizedBox(height: 10),
+          if (nowGuide.isNotEmpty)
+            _SportsNowRail(items: nowGuide)
+          else if (liveAddonItems.isNotEmpty)
+            AddonSportsRail(items: liveAddonItems)
+          else
+            const _EmptySection(
+              'No hay una transmisión deportiva en vivo confirmada ahora. '
+              'Consulta TV deportiva para ver las señales disponibles.',
+            ),
+          const SizedBox(height: 22),
+          if (networkItems.isNotEmpty) ...[
+            _SectionHeading(
+              label: 'CANALES 24/7',
+              description:
+                  '${networkItems.length} redes deportivas disponibles; POTV verifica la señal al abrir.',
+            ),
+            const SizedBox(height: 10),
+            AddonSportsRail(items: networkItems),
+            const SizedBox(height: 22),
+          ] else if (networkState.isLoading) ...[
+            const _SectionHeading(
+              label: 'CANALES 24/7',
+              description: 'Cargando redes deportivas…',
+            ),
+            const SizedBox(height: 9),
+            const LinearProgressIndicator(minHeight: 2),
+            const SizedBox(height: 22),
+          ],
+          if (!isTv && allChannels.isNotEmpty) ...[
+            _SectionHeading(
+              label: 'CANALES DEPORTIVOS',
+              description:
+                  '${languageService.preferredChannels(allChannels, preferredLanguage).length} señales disponibles.',
+            ),
+            const SizedBox(height: 9),
+            SportsChannelRail(
+              channels: languageService.preferredChannels(
+                allChannels,
+                preferredLanguage,
+              ),
+              preferredLanguage: preferredLanguage,
+            ),
+            const SizedBox(height: 22),
+          ] else if (!isTv && builtInState.isLoading) ...[
+            const _SectionHeading(
+              label: 'CANALES DEPORTIVOS',
+              description: 'Cargando señales deportivas…',
+            ),
+            const SizedBox(height: 9),
+            const LinearProgressIndicator(minHeight: 2),
+            const SizedBox(height: 22),
+          ],
+          if (isTv) ...[
+            _SectionHeading(
+              label: 'TV DEPORTIVA',
+              description: '${languageService.preferredChannels(allChannels, preferredLanguage).length} canales según tu idioma preferido.',
+            ),
+            if (builtInState.isLoading && allChannels.isEmpty)
+              const LinearProgressIndicator(minHeight: 2),
+            if (allChannels.isEmpty && !builtInState.isLoading)
+              const _EmptySection(
+                'No encontramos señales deportivas disponibles en este momento.',
+              ),
+            for (final sport in SportsHubCategory.values)
+              if (sport != SportsHubCategory.all &&
+                  sport != SportsHubCategory.sportsTv &&
+                  sport != SportsHubCategory.other &&
+                  languageService.preferredChannels(
+                    organizer.channelsFor(allChannels, sport),
+                    preferredLanguage,
+                  ).isNotEmpty) ...[
+                const SizedBox(height: 19),
+                _SectionHeading(
+                  label: 'CANALES · ${sport.title.toUpperCase()}',
+                  description: 'Señales dedicadas a ${sport.title.toLowerCase()}.',
+                ),
+                const SizedBox(height: 9),
+                SportsChannelRail(
+                  channels: languageService.preferredChannels(
+                    organizer.channelsFor(allChannels, sport),
+                    preferredLanguage,
+                  ),
+                  preferredLanguage: preferredLanguage,
+                ),
+              ],
+            if (generalChannels.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const _SectionHeading(
+                label: 'TV DEPORTIVA GENERAL',
+                description: 'Canales que transmiten distintas disciplinas.',
+              ),
+              const SizedBox(height: 9),
+              SportsChannelRail(
+                channels: generalChannels,
+                preferredLanguage: preferredLanguage,
+              ),
+            ],
+          ] else ...[
+            _SectionHeading(
+              label: selectedCategory == SportsHubCategory.all
+                  ? 'AGENDA DEPORTIVA'
+                  : 'AGENDA · ${selectedCategory.title.toUpperCase()}',
+              description: DateFormat('EEE d MMM').format(selectedDay),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Hoy'),
+                  selected: DateUtils.isSameDay(
+                    selectedDay,
+                    DateTime.now(),
+                  ),
+                  onSelected: (_) => setState(() {
+                    selectedDay = DateUtils.dateOnly(DateTime.now());
+                  }),
+                ),
+                ChoiceChip(
+                  label: const Text('Mañana'),
+                  selected: DateUtils.isSameDay(
+                    selectedDay,
+                    DateTime.now().add(const Duration(days: 1)),
+                  ),
+                  onSelected: (_) => setState(() {
+                    selectedDay = DateUtils.dateOnly(
+                      DateTime.now().add(const Duration(days: 1)),
+                    );
+                  }),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _pickDate,
+                  icon: const Icon(Icons.calendar_month_rounded),
+                  label: const Text('Elegir fecha'),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            const Text(
-              'POTV lee el catálogo del addon instalado y pide sus servidores solo cuando eliges un evento.',
-              style: TextStyle(color: Colors.white60),
-            ),
-            const SizedBox(height: 10),
-            AddonSportsRail(items: addonSportsItems),
-            const SizedBox(height: 22),
+            const SizedBox(height: 16),
+            if (activeChannels.isNotEmpty &&
+                selectedCategory != SportsHubCategory.all) ...[
+              _SectionHeading(
+                label: 'CANALES · ${selectedCategory.title.toUpperCase()}',
+                description: 'Señales para esta categoría.',
+              ),
+              const SizedBox(height: 9),
+              SportsChannelRail(
+                channels: activeChannels,
+                preferredLanguage: preferredLanguage,
+              ),
+              const SizedBox(height: 20),
+            ],
+            if (selectedCategory != SportsHubCategory.all &&
+                generalChannels.isNotEmpty) ...[
+              const _SectionHeading(
+                label: 'TV DEPORTIVA GENERAL',
+                description: 'Más señales deportivas disponibles.',
+              ),
+              const SizedBox(height: 9),
+              SportsChannelRail(
+                channels: generalChannels,
+                preferredLanguage: preferredLanguage,
+              ),
+              const SizedBox(height: 22),
+            ],
+            if (scheduleState.isLoading)
+              const LinearProgressIndicator(minHeight: 2),
+            if (scheduleEvents.isNotEmpty) ...[
+              _SectionHeading(
+                label: 'AGENDA',
+                description:
+                    '${scheduleEvents.length} eventos programados para la fecha.',
+              ),
+              const SizedBox(height: 10),
+              for (final event in scheduleEvents)
+                _SportsScheduleCard(event: event),
+              const SizedBox(height: 20),
+            ],
+            if (addonState.isLoading)
+              const LinearProgressIndicator(minHeight: 2),
+            if (otherAddonItems.isNotEmpty) ...[
+              _SectionHeading(
+                label: 'MÁS EVENTOS',
+                description:
+                    '${otherAddonItems.length} eventos disponibles; POTV verifica la señal al abrir.',
+              ),
+              const SizedBox(height: 10),
+              AddonSportsRail(items: otherAddonItems),
+              const SizedBox(height: 20),
+            ],
+            if (playableEvents.isNotEmpty) ...[
+              _SectionHeading(
+                label: 'EVENTOS CON SEÑAL',
+                description:
+                    '${playableEvents.length} con transmisión confirmada.',
+              ),
+              const SizedBox(height: 10),
+              for (final event in playableEvents)
+                _SportsEventCard(event: event),
+            ] else if (!scheduleState.isLoading &&
+                scheduleEvents.isEmpty &&
+                liveAddonItems.isEmpty &&
+                otherAddonItems.isEmpty &&
+                activeChannels.isEmpty &&
+                generalChannels.isEmpty)
+              _EmptySection(
+                'No hay eventos ni señales de ${selectedCategory.title.toLowerCase()} '
+                'para esta fecha. Prueba otro deporte o consulta TV deportiva.',
+              ),
           ],
-          if (sportsChannelsState.isLoading)
-            const LinearProgressIndicator(minHeight: 2),
-          if (sportsChannels.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            const Text(
-              'Canales deportivos disponibles',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 10),
-            SportsChannelRail(channels: sportsChannels),
-          ],
-          const SizedBox(height: 22),
-          if (eventsState.isLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          if (eventsState.hasError)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Text(
-                  'No pudimos cargar los eventos deportivos.\n${eventsState.error}',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          for (final event in events)
-            _SportsEventCard(
-              event: event,
-              channels: channels,
-              fallbackChannels: sportsChannels,
-              programs: programs,
-            ),
-          if (!eventsState.isLoading &&
-              !eventsState.hasError &&
-              events.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'No hay eventos de esta categoría para hoy.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
 }
 
-class _SportsEventCard extends StatelessWidget {
-  final SportsEvent event;
-  final List<LiveChannel> channels;
-  final List<LiveChannel> fallbackChannels;
-  final List<EpgProgram> programs;
+class _SectionHeading extends StatelessWidget {
+  final String label;
+  final String description;
 
-  const _SportsEventCard({
-    required this.event,
-    required this.channels,
-    required this.fallbackChannels,
-    required this.programs,
+  const _SectionHeading({
+    required this.label,
+    required this.description,
   });
 
-  Future<void> _openFallbackChannels(BuildContext context) async {
-    final visible = fallbackChannels.take(24).toList(growable: false);
-    if (visible.isEmpty) return;
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(description,
+              style: const TextStyle(color: Colors.white60, fontSize: 13)),
+        ],
+      );
+}
 
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          children: [
-            const Text(
-              'Canales deportivos disponibles',
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'No encontramos una coincidencia automática para este evento. Elige un canal disponible para comprobar su programación.',
-              style: TextStyle(color: Colors.white60),
-            ),
-            const SizedBox(height: 14),
-            for (final channel in visible)
-              Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: channel.logo == null
-                      ? const CircleAvatar(child: Icon(Icons.live_tv_rounded))
-                      : CircleAvatar(
-                          backgroundImage: NetworkImage(channel.logo.toString()),
-                        ),
-                  title: Text(channel.name),
-                  subtitle: channel.group == null
-                      ? null
-                      : Text(
-                          channel.group!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                  trailing: const Icon(Icons.play_arrow_rounded),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    context.push(
-                      '/player',
-                      extra: PlaybackSession(
-                        title: channel.name,
-                        candidates: [channel.stream],
-                        isLive: true,
-                      ),
-                    );
-                  },
-                ),
-              ),
-          ],
+class _EmptySection extends StatelessWidget {
+  final String message;
+  const _EmptySection(this.message);
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Row(
+            children: [
+              const Icon(Icons.sports_outlined, size: 28),
+              const SizedBox(width: 12),
+              Expanded(child: Text(message)),
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
+}
+
+class _SportsNowItem {
+  final String title;
+  final String subtitle;
+  final DateTime startsAt;
+  final DateTime? endsAt;
+  final List<StreamCandidate> candidates;
+  final String? nextTitle;
+
+  const _SportsNowItem({
+    required this.title,
+    required this.subtitle,
+    required this.startsAt,
+    this.endsAt,
+    required this.candidates,
+    this.nextTitle,
+  });
+}
+
+class _SportsNowRail extends StatelessWidget {
+  final List<_SportsNowItem> items;
+
+  const _SportsNowRail({required this.items});
 
   @override
   Widget build(BuildContext context) {
-    const resolver = SportsChannelResolver();
-    final matches = resolver.resolve(
-      event: event,
-      channels: channels,
-      programs: programs,
+    final now = DateTime.now();
+    return SizedBox(
+      height: 178,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final duration = item.endsAt?.difference(item.startsAt);
+          final elapsed = now.difference(item.startsAt);
+          final progress = duration == null ||
+                  duration.inMilliseconds <= 0 ||
+                  elapsed.isNegative
+              ? null
+              : (elapsed.inMilliseconds / duration.inMilliseconds)
+                  .clamp(0.0, 1.0)
+                  .toDouble();
+          return SizedBox(
+            width: 260,
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: item.candidates.isEmpty
+                    ? null
+                    : () => context.push(
+                          '/player',
+                          extra: PlaybackSession(
+                            title: item.title,
+                            candidates: item.candidates,
+                            isLive: true,
+                          ),
+                        ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 9,
+                            color: Colors.redAccent,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'EN VIVO',
+                            style: TextStyle(
+                              color: Colors.redAccent,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        item.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        item.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (item.nextTitle != null) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          'Después · ${item.nextTitle}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      if (progress != null)
+                        LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 3,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
-    final best = matches.isEmpty ? null : matches.first;
+  }
+}
 
+class _SportsScheduleCard extends StatelessWidget {
+  final SportsEvent event;
+
+  const _SportsScheduleCard({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: const Icon(Icons.event_rounded),
+        title: Text(
+          event.title,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(_subtitle(event.competition, event.startsAt)),
+        trailing: event.isLive
+            ? const Text(
+                'EN VIVO',
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w900,
+                ),
+              )
+            : Text(
+                DateFormat.Hm().format(event.startsAt),
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+      ),
+    );
+  }
+}
+class _SportsEventCard extends StatelessWidget {
+  final SportsEvent event;
+
+  const _SportsEventCard({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final playable = event.streams;
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
@@ -378,39 +864,22 @@ class _SportsEventCard extends StatelessWidget {
                   color: Colors.redAccent,
                 ),
               ),
-            if (best != null)
-              Text(
-                best.program?.title ?? 'Disponible en ${best.channel.name}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white70),
-              ),
+            const Text(
+              'Transmisión del evento disponible',
+              style: TextStyle(color: Colors.white70),
+            ),
           ],
         ),
         trailing: FilledButton(
-          onPressed: best == null
-              ? fallbackChannels.isEmpty
-                  ? null
-                  : () => _openFallbackChannels(context)
-              : () {
-                  final session = PlaybackSession(
-                    title: event.title,
-                    candidates: [
-                      for (final match in matches) match.channel.stream,
-                    ],
-                    isLive: true,
-                  );
-                  context.push('/player', extra: session);
-                },
-          child: Text(
-            best == null
-                ? fallbackChannels.isEmpty
-                    ? 'SIN CANALES'
-                    : 'CANALES'
-                : matches.length > 1
-                    ? 'VER · ${matches.length}'
-                    : 'VER',
+          onPressed: () => context.push(
+            '/player',
+            extra: PlaybackSession(
+              title: event.title,
+              candidates: playable,
+              isLive: true,
+            ),
           ),
+          child: const Text('VER EVENTO'),
         ),
       ),
     );

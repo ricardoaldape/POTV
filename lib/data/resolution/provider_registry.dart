@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/app_config.dart';
+import '../../domain/resolution/resolver_endpoint_config.dart';
 import '../../domain/resolution/provider_resolver.dart';
 import '../addons/stremio_source_resolver.dart';
 import '../anime/anime_id_mapping_service.dart';
@@ -7,15 +9,51 @@ import '../anime/anime_id_mapping_service.dart';
 import '../plugins/nuvio_plugin_provider.dart';
 import '../sources/http_source_resolver.dart';
 import '../sources/public_domain_movie_resolver.dart';
+import '../../providers/user_providers.dart';
+import 'potv_customer_session_headers.dart';
 import 'configured_resolver_catalog.dart';
 import 'configured_resolver_provider.dart';
+import 'partner_api_source_resolver.dart';
 import 'provider_adapters.dart';
 import 'lolplus_adapters.dart';
 
 final providerRegistryProvider = Provider<List<ProviderResolver>>((ref) {
+  // Rebuild the source registry when a POTV customer logs in, switches
+  // accounts or logs out. This also invalidates per-title playback caches.
+  ref.watch(userAccountProvider);
   final configured = const ConfiguredResolverCatalog().load();
 
+  // A whitelabel partner source endpoint is called on each title resolution.
+  // Its backend may add, remove, reprioritize or repair servers independently
+  // of the installed POTV APK.
+  final partnerApi = Uri.tryParse(AppConfig.partnerApiBaseUrl.trim());
+  final partnerUrl = Uri.tryParse(AppConfig.partnerSourcesUrl.trim());
+  final partnerEnabled = partnerUrl != null &&
+      partnerUrl.scheme == 'https' &&
+      partnerUrl.host.isNotEmpty &&
+      partnerUrl.userInfo.isEmpty;
+
   final providers = <ProviderResolver>[
+    if (partnerApi != null && partnerApi.scheme == 'https' &&
+        partnerApi.host.isNotEmpty && partnerApi.userInfo.isEmpty)
+      PartnerApiSourceResolver(
+        baseUrl: partnerApi,
+        animeMapping: ref.read(animeIdMappingServiceProvider),
+        // This is the POTV CUSTOMER login token only, never a provider
+        // credential. Do not send it to third-party resolver domains.
+        sessionHeaders: () => potvCustomerSessionHeaders(
+          partnerApi,
+          () => ref.read(accountAuthServiceProvider).sessionToken(),
+        ),
+      ),
+    if (partnerEnabled)
+      ConfiguredResolverProvider(ResolverEndpointConfig(
+        id: 'potv_partner_sources',
+        name: 'POTV',
+        endpoint: partnerUrl,
+        mediaTypes: const {'movie', 'tv', 'anime'},
+        priority: 1,
+      )),
     for (final config in configured) ConfiguredResolverProvider(config),
     ref.read(nuvioPluginProviderResolverProvider),
     // Embed69ProviderResolver(

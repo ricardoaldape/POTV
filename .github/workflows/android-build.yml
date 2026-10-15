@@ -14,6 +14,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Enforce subscription gate before APK build
+        run: python3 tool/verify_subscription_contract.py
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -53,7 +56,22 @@ jobs:
         run: flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release
+        env:
+          POTV_PARTNER_CATALOG_URL: ${{ vars.POTV_PARTNER_CATALOG_URL }}
+          POTV_PARTNER_SOURCES_URL: ${{ vars.POTV_PARTNER_SOURCES_URL }}
+          POTV_PARTNER_API_BASE_URL: ${{ vars.POTV_PARTNER_API_BASE_URL }}
+        run: |
+          args=()
+          if [ -n "$POTV_PARTNER_API_BASE_URL" ]; then
+            args+=("--dart-define=POTV_PARTNER_API_BASE_URL=$POTV_PARTNER_API_BASE_URL")
+          fi
+          if [ -n "$POTV_PARTNER_SOURCES_URL" ]; then
+            args+=("--dart-define=POTV_PARTNER_SOURCES_URL=$POTV_PARTNER_SOURCES_URL")
+          fi
+          if [ -n "$POTV_PARTNER_CATALOG_URL" ]; then
+            args+=("--dart-define=POTV_PARTNER_CATALOG_URL=$POTV_PARTNER_CATALOG_URL")
+          fi
+          flutter build apk --release "${args[@]}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

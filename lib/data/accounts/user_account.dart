@@ -1,19 +1,19 @@
 import 'dart:convert';
 
-import 'package:uuid/uuid.dart';
-
-enum SubscriptionStatus { free, pending, active, expired }
+enum SubscriptionStatus { free, pending, active, expired, trial }
 
 class UserAccount {
   final String id;
+  final String email;
   final String username;
   final DateTime createdAt;
   final String? telegramChatId;
   final SubscriptionStatus subscriptionStatus;
   final DateTime? subscriptionExpiresAt;
 
-  UserAccount({
+  const UserAccount({
     required this.id,
+    required this.email,
     required this.username,
     required this.createdAt,
     this.telegramChatId,
@@ -21,34 +21,116 @@ class UserAccount {
     this.subscriptionExpiresAt,
   });
 
-  factory UserAccount.create(String username) {
+  /// Display-only gate. The server remains authoritative for streaming access.
+  bool get hasViewingAccess {
+    final expiry = subscriptionExpiresAt;
+    return expiry != null &&
+        (subscriptionStatus == SubscriptionStatus.active ||
+            subscriptionStatus == SubscriptionStatus.trial) &&
+        DateTime.now().toUtc().isBefore(expiry.toUtc());
+  }
+
+  int get remainingDays {
+    final expiry = subscriptionExpiresAt;
+    if (expiry == null || !hasViewingAccess) return 0;
+    final seconds = expiry.toUtc().difference(DateTime.now().toUtc()).inSeconds;
+    return seconds <= 0 ? 0 : (seconds + 86399) ~/ 86400;
+  }
+
+  bool get renewalWarning =>
+      subscriptionStatus == SubscriptionStatus.active &&
+      hasViewingAccess &&
+      subscriptionExpiresAt!.toUtc().difference(DateTime.now().toUtc()) <=
+          const Duration(days: 10);
+
+  UserAccount copyWith({
+    String? id,
+    String? email,
+    String? username,
+    DateTime? createdAt,
+    String? telegramChatId,
+    bool clearTelegramChatId = false,
+    SubscriptionStatus? subscriptionStatus,
+    DateTime? subscriptionExpiresAt,
+    bool clearSubscriptionExpiresAt = false,
+  }) {
     return UserAccount(
-      id: const Uuid().v4(),
-      username: username,
-      createdAt: DateTime.now().toUtc(),
+      id: id ?? this.id,
+      email: email ?? this.email,
+      username: username ?? this.username,
+      createdAt: createdAt ?? this.createdAt,
+      telegramChatId: clearTelegramChatId
+          ? null
+          : (telegramChatId ?? this.telegramChatId),
+      subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
+      subscriptionExpiresAt: clearSubscriptionExpiresAt
+          ? null
+          : (subscriptionExpiresAt ?? this.subscriptionExpiresAt),
+    );
+  }
+
+  static SubscriptionStatus _status(Object? value) {
+    final raw = value?.toString().toLowerCase().trim();
+    return SubscriptionStatus.values.firstWhere(
+      (item) => item.name == raw,
+      orElse: () => SubscriptionStatus.free,
+    );
+  }
+
+  factory UserAccount.fromApi(Map<String, dynamic> json) {
+    return UserAccount(
+      id: json['id']?.toString() ?? '',
+      email: json['email']?.toString() ?? '',
+      username:
+          json['username']?.toString() ??
+          json['email']?.toString().split('@').first ??
+          'POTV',
+      createdAt:
+          DateTime.tryParse(json['created_at']?.toString() ?? '')?.toUtc() ??
+          DateTime.now().toUtc(),
+      telegramChatId: json['telegram_chat_id']?.toString(),
+      subscriptionStatus: _status(
+        json['subscription_status'] ?? json['status'],
+      ),
+      subscriptionExpiresAt: DateTime.tryParse(
+        (json['subscription_expires_at'] ?? json['expires_at'])?.toString() ??
+            '',
+      )?.toUtc(),
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'username': username,
-        'createdAt': createdAt.toIso8601String(),
-        'telegramChatId': telegramChatId,
-        'subscriptionStatus': subscriptionStatus.index,
-        'subscriptionExpiresAt': subscriptionExpiresAt?.toIso8601String(),
-      };
+    'id': id,
+    'email': email,
+    'username': username,
+    'createdAt': createdAt.toIso8601String(),
+    'telegramChatId': telegramChatId,
+    'subscriptionStatus': subscriptionStatus.name,
+    'subscriptionExpiresAt': subscriptionExpiresAt?.toIso8601String(),
+  };
 
   factory UserAccount.fromJson(Map<String, dynamic> json) {
+    final rawStatus = json['subscriptionStatus'];
+    SubscriptionStatus status;
+    if (rawStatus is int &&
+        rawStatus >= 0 &&
+        rawStatus < SubscriptionStatus.values.length) {
+      status = SubscriptionStatus.values[rawStatus];
+    } else {
+      status = _status(rawStatus);
+    }
     return UserAccount(
-      id: json['id'] as String,
-      username: json['username'] as String,
-      createdAt: DateTime.parse(json['createdAt'] as String).toUtc(),
-      telegramChatId: json['telegramChatId'] as String?,
-      subscriptionStatus:
-          SubscriptionStatus.values[(json['subscriptionStatus'] as int?) ?? 0],
-      subscriptionExpiresAt: json['subscriptionExpiresAt'] != null
-          ? DateTime.parse(json['subscriptionExpiresAt'] as String).toUtc()
-          : null,
+      id: json['id']?.toString() ?? '',
+      email: json['email']?.toString() ?? '',
+      username: json['username']?.toString() ?? '',
+      createdAt:
+          DateTime.tryParse(json['createdAt']?.toString() ?? '')?.toUtc() ??
+          DateTime.now().toUtc(),
+      telegramChatId: json['telegramChatId']?.toString(),
+      subscriptionStatus: status,
+      subscriptionExpiresAt: DateTime.tryParse(
+        json['subscriptionExpiresAt']?.toString() ?? '',
+      )?.toUtc(),
     );
   }
 

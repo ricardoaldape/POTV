@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/local/local_config_bundle.dart';
+import '../../core/security/media_url_logging.dart';
 import '../../data/addons/stremio_addon_repository.dart';
 import '../../data/addons/stremio_source_resolver.dart';
 import '../../data/bootstrap/default_manifest_bootstrap.dart';
@@ -127,13 +128,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       report.writeln('---');
       report.writeln('Resultado agregado: ${result.candidates.length} fuentes totales');
-      report.writeln(
-        'Primeras 3 URLs: ${result.candidates.take(3).map((candidate) => candidate.uri.toString()).join(' | ') == '' ? 'ninguna' : result.candidates.take(3).map((candidate) => candidate.uri.toString()).join(' | ')}',
-      );
+      final examples = result.candidates
+          .take(3)
+          .map((candidate) => safeMediaUrlForLog(candidate.uri))
+          .join(' | ');
+      report.writeln('Primeras 3 fuentes: ${examples.isEmpty ? 'ninguna' : examples}');
     } catch (error, stack) {
       report.writeln('ERROR DEL RESOLVER');
-      report.writeln(error.toString());
-      report.writeln(stack.toString());
+      report.writeln(safePlaybackErrorForLog(error.toString()));
+      report.writeln('Detalles técnicos omitidos por privacidad.');
     }
 
     if (!mounted) return;
@@ -252,7 +255,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             children: [
                               for (final entry in defaultManifestResult.failures.entries) ...[
                                 SelectableText(
-                                  entry.key,
+                                  Uri.tryParse(entry.key) == null
+                                      ? 'Fuente no disponible'
+                                      : safeMediaUrlForLog(Uri.parse(entry.key)),
                                   style: const TextStyle(
                                     color: Colors.redAccent,
                                     fontSize: 11,
@@ -261,7 +266,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 SelectableText(
-                                  entry.value,
+                                  safePlaybackErrorForLog(entry.value),
                                   style: const TextStyle(
                                     color: Colors.white54,
                                     fontSize: 10,
@@ -382,6 +387,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
             ),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.system_update_alt_rounded),
+            title: const Text('POTV Update Center'),
+            subtitle: const Text(
+              'Actualizaciones oficiales · Estable / Beta · APK verificada.',
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => context.push('/update-center'),
           ),
           const Divider(),
           ListTile(

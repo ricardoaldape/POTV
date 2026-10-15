@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/security/media_url_logging.dart';
 import '../../domain/models/http_source_config.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/source_resolver.dart';
@@ -85,7 +86,7 @@ class HttpSourceResolver implements SourceResolver {
       for (var index = 0; index < candidates.length; index++) {
         _log(
           'HTTP source ${source.name} URL ${index + 1}/${candidates.length} '
-          '-> ${candidates[index].uri}',
+          '-> ${safeMediaUrlForLog(candidates[index].uri)}',
         );
       }
       return candidates;

@@ -5,8 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/catalog/series_episode_repository.dart';
+import '../../data/history/media_favorites_repository.dart';
 import '../../data/history/playback_history_repository.dart';
-import '../../data/sources/unified_source_resolver.dart';
+import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/series_episode.dart';
@@ -65,14 +66,12 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     int? episode,
   }) async {
     try {
-      await ref.read(unifiedSourceResolverProvider).resolve(
-            mediaType: widget.item.mediaTypeName,
-            mediaId: widget.item.id.toString(),
-            externalId: widget.item.externalId,
-            title: widget.item.title,
-            year: widget.item.year,
-            season: season,
-            episode: episode,
+      await ref.read(playbackPreparationServiceProvider).prepare(
+            PlaybackPreparationRequest.fromMediaItem(
+              widget.item,
+              season: season,
+              episode: episode,
+            ),
           );
     } catch (_) {
       // Warm-up is opportunistic. Play performs the authoritative resolution.
@@ -178,6 +177,11 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final favorites =
+        ref.watch(mediaFavoritesProvider).asData?.value ?? const <MediaItem>[];
+    final isFavorite = favorites.any(
+      (value) => value.id == item.id && value.type == item.type,
+    );
 
     return Scaffold(
       body: CustomScrollView(
@@ -185,6 +189,20 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
           SliverAppBar(
             pinned: true,
             expandedHeight: 320,
+            actions: [
+              IconButton(
+                tooltip: isFavorite ? 'Quitar de mi lista' : 'Agregar a mi lista',
+                onPressed: () async {
+                  await const MediaFavoritesRepository().toggle(item);
+                  ref.invalidate(mediaFavoritesProvider);
+                },
+                icon: Icon(
+                  isFavorite
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                ),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
                 item.title,
@@ -229,13 +247,6 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   children: [
                     Chip(label: Text(item.typeLabel)),
                     if (item.year != null) Chip(label: Text(item.year!)),
-                    Chip(
-                      label: Text(
-                        item.type == MediaType.anime
-                            ? 'AniList ${item.id}'
-                            : 'TMDB ${item.id}',
-                      ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 18),

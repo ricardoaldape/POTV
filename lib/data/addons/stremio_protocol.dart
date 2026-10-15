@@ -56,6 +56,7 @@ class StremioProtocol {
       final externalUrl =
           Uri.tryParse(value['externalUrl']?.toString() ?? '');
       final ytId = _text(value['ytId']);
+      if (_isPromotionalStream(value, directUrl, externalUrl)) continue;
 
       final Uri? url;
       final PlaybackBackend backend;
@@ -66,7 +67,8 @@ class StremioProtocol {
       } else if (externalUrl != null &&
           (externalUrl.scheme == 'http' || externalUrl.scheme == 'https')) {
         url = externalUrl;
-        backend = PlaybackBackend.external;
+        // Web fallback stays inside POTV; block unexpected app switching.
+        backend = PlaybackBackend.webView;
       } else if (ytId != null) {
         url = Uri.parse('https://www.youtube.com/watch?v=$ytId');
         backend = PlaybackBackend.external;
@@ -96,6 +98,34 @@ class StremioProtocol {
     }
 
     return result;
+  }
+
+  static bool _isPromotionalStream(
+    Map<String, dynamic> value,
+    Uri? directUrl,
+    Uri? externalUrl,
+  ) {
+    final text = [
+      _text(value['name']),
+      _text(value['title']),
+      _text(value['description']),
+    ].whereType<String>().join(' ').toLowerCase();
+    if (text.contains('support us') ||
+        text.contains('donate') ||
+        text.contains('donation')) {
+      return true;
+    }
+
+    for (final uri in [directUrl, externalUrl]) {
+      if (uri == null) continue;
+      final path = uri.path.toLowerCase();
+      if (path == '/donate' ||
+          path.startsWith('/donate/') ||
+          path.contains('/donation')) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static Map<String, String> _requestHeaders(Object? behaviorHints) {

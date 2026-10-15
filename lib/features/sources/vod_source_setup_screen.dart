@@ -77,7 +77,7 @@ class _VodSourceSetupScreenState extends ConsumerState<VodSourceSetupScreen> {
       if (!mounted) return;
       setState(() {
         busy = false;
-        error = 'No pudimos conectar esa fuente. $e';
+        error = 'No se pudo conectar la fuente. Verifica la dirección y vuelve a intentar.';
       });
     }
   }
@@ -86,7 +86,7 @@ class _VodSourceSetupScreenState extends ConsumerState<VodSourceSetupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Configurar VOD'),
+        title: const Text('Fuentes avanzadas'),
         leading: IconButton(
           onPressed: busy ? null : () => context.pop(false),
           icon: const Icon(Icons.close_rounded),
@@ -107,18 +107,21 @@ class _VodSourceSetupScreenState extends ConsumerState<VodSourceSetupScreen> {
                       const Icon(Icons.play_circle_fill_rounded, size: 52),
                       const SizedBox(height: 18),
                       const Text(
-                        'Conecta tu fuente una sola vez',
+                        'Administración avanzada de fuentes',
                         style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
                       ),
                       const SizedBox(height: 10),
                       const Text(
-                        'POTV la guardará en este dispositivo. Después sólo eliges una película, serie o anime y pulsas Play; POTV consulta las fuentes automáticamente.',
+                        'Normalmente no necesitas configurar nada. POTV busca fuentes de reproducción automáticamente. Usa esta pantalla sólo para administrar una fuente adicional de forma voluntaria.',
                         style: TextStyle(color: Colors.white70, height: 1.45),
                       ),
                       const SizedBox(height: 22),
                       TextField(
                         controller: controller,
-                        autofocus: true,
+                        autofocus: false,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
                         keyboardType: TextInputType.url,
                         enabled: !busy,
                         onSubmitted: (_) => _connect(),

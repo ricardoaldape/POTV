@@ -6,6 +6,26 @@ class AppConfig {
     defaultValue: 'https://control.invalid',
   );
 
+  // HTTPS endpoint for a POTV-operated, authorized content gateway.
+  // The endpoint is public; partner secrets must stay on the server.
+  // Normalized source resolver served by the authorized POTV gateway.
+  // New source servers are delivered as data; no rebuild needed.
+  // Authorized provider API base, no tokens embedded.
+  static const partnerApiBaseUrl = String.fromEnvironment(
+    'POTV_PARTNER_API_BASE_URL',
+    defaultValue: 'https://potv.fxqubit.com/api/v1/',
+  );
+
+  static const partnerSourcesUrl = String.fromEnvironment(
+    'POTV_PARTNER_SOURCES_URL',
+    defaultValue: '',
+  );
+
+  static const partnerCatalogUrl = String.fromEnvironment(
+    'POTV_PARTNER_CATALOG_URL',
+    defaultValue: 'https://potv.fxqubit.com/api/v1/content/catalog',
+  );
+
   static const resolverEndpointsJson = String.fromEnvironment(
     'POTV_RESOLVER_ENDPOINTS_JSON',
     defaultValue: '[]',

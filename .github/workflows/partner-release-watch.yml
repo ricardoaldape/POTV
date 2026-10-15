@@ -1,0 +1,59 @@
+name: Track partner releases
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compare partner release metadata
+        uses: actions/github-script@v7
+        env:
+          POTV_PARTNER_RELEASE_REPO: ${{ vars.POTV_PARTNER_RELEASE_REPO }}
+        with:
+          script: |
+            const upstream = (process.env.POTV_PARTNER_RELEASE_REPO || '').trim();
+            if (!upstream) {
+              core.info('No partner release feed configured; watcher disabled.');
+              return;
+            }
+            if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(upstream)) {
+              throw new Error('POTV_PARTNER_RELEASE_REPO must be owner/repo');
+            }
+            const [owner, repo] = upstream.split('/');
+            const { data: release } = await github.rest.repos.getLatestRelease({ owner, repo });
+            const apk = (release.assets || []).find(a => a.name.toLowerCase().endsWith('.apk'));
+            const fingerprint = (apk?.digest || apk?.id || release.id).toString().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+            const title = `POTV partner update review: ${release.tag_name} (${fingerprint})`;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo, state: 'all', per_page: 100,
+            });
+            if (issues.some(issue => issue.title === title)) {
+              core.info('Partner release has already been reviewed or queued.');
+              return;
+            }
+            const body = [
+              '### Partner release detected',
+              `- Tag: ${release.tag_name}`,
+              `- Published: ${release.published_at || 'unknown'}`,
+              `- Package fingerprint: ${apk?.digest || 'not published'}`,
+              '',
+              '### POTV reflection checklist',
+              '- [ ] Check whether new films, series, anime, live channels and sports events already appear via the configured content gateway.',
+              '- [ ] Verify at least one real playable source per category, under authorized entitlements.',
+              '- [ ] Compare only app-level features that cannot flow from the content API (player and UI changes).',
+              '- [ ] Implement required POTV-side changes in a reviewed branch; run Android/TV QA.',
+              '- [ ] Verify no partner billing, login UI, branding or device-count model is introduced.',
+              '',
+              'Note: new APK code cannot be automatically transplanted into POTV. The dynamic catalog tracks server-side content independently of releases.',
+            ].join('\n');
+            await github.rest.issues.create({ ...context.repo, title, body });
+            core.info('New partner release review issue created.');

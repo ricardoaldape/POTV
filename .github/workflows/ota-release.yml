@@ -30,6 +30,15 @@ jobs:
       - name: Checkout requested revision
         uses: actions/checkout@v4
 
+      - name: Enforce subscription gate before signed OTA
+        shell: powershell
+        run: |
+          & python tool/verify_subscription_contract.py
+          if ($LASTEXITCODE -ne 0) { throw 'POTV subscription baseline required' }
+          if ('${{ github.ref_name }}' -ne 'main') {
+            throw 'Only main may publish POTV OTA releases'
+          }
+
       - name: Read and validate OTA version
         id: meta
         shell: powershell

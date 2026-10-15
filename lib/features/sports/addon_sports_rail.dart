@@ -33,7 +33,7 @@ class AddonSportsRail extends ConsumerWidget {
               child: CircularProgressIndicator(strokeWidth: 2.4),
             ),
             SizedBox(width: 16),
-            Expanded(child: Text('Buscando servidores del evento…')),
+            Expanded(child: Text('Preparando transmisión…')),
           ],
         ),
       ),
@@ -50,11 +50,10 @@ class AddonSportsRail extends ConsumerWidget {
     Navigator.of(context, rootNavigator: true).pop();
 
     if (playable.isEmpty) {
+      debugPrint('Sports: sin señal para evento ${item.id} en addon ${item.addon.id}');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'El addon ${item.addon.name} no devolvió un servidor reproducible para este evento.',
-          ),
+        const SnackBar(
+          content: Text('No hay una transmisión disponible para este evento.'),
         ),
       );
       return;
@@ -169,7 +168,6 @@ class AddonSportsRail extends ConsumerWidget {
                           Text(
                             [
                               item.genre,
-                              item.addon.name,
                             ].whereType<String>().join(' · '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

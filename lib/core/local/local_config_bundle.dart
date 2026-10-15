@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../data/addons/stremio_addon_repository.dart';
+import '../../domain/models/stremio_addon_config.dart';
+
 class LocalConfigBundle {
   static const format = 'potv-local-config';
   static const version = 1;
@@ -9,7 +12,6 @@ class LocalConfigBundle {
   static const _m3uKey = 'live_tv_m3u_url';
   static const _epgKey = 'live_tv_xmltv_url';
   static const _httpSourcesKey = 'potv_http_sources';
-  static const _stremioAddonsKey = 'potv_stremio_addons';
 
   static Future<String> exportJson() async {
     final prefs = await SharedPreferences.getInstance();
@@ -22,13 +24,17 @@ class LocalConfigBundle {
         'xmltv_url': prefs.getString(_epgKey),
       },
       'http_sources': _decodeSources(prefs.getString(_httpSourcesKey)),
-      'stremio_addons': _decodeSources(prefs.getString(_stremioAddonsKey)),
+      // Private addon URLs are not written into clipboard export.
+      'stremio_addons': const [],
     };
 
     return jsonEncode(data);
   }
 
-  static Future<void> importJson(String raw) async {
+  static Future<void> importJson(
+    String raw, {
+    StremioAddonRepository? addonRepository,
+  }) async {
     final decoded = jsonDecode(raw);
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('Configuración POTV inválida');
@@ -56,8 +62,31 @@ class LocalConfigBundle {
     }
 
     final stremioAddons = decoded['stremio_addons'];
-    if (stremioAddons is List) {
-      await prefs.setString(_stremioAddonsKey, jsonEncode(stremioAddons));
+    if (stremioAddons is List && stremioAddons.isNotEmpty) {
+      // Legacy backup import remains possible, but the sensitive URI is
+      // transferred directly into the encrypted storage abstraction.
+      final repository = addonRepository ?? StremioAddonRepository();
+      final existing = await repository.load();
+      final known = existing.map((e) => e.manifestUri.toString()).toSet();
+      for (final value in stremioAddons) {
+        if (value is! Map) continue;
+        StremioAddonConfig addon;
+        try {
+          addon = StremioAddonConfig.fromJson(
+            value.map((key, item) => MapEntry(key.toString(), item)),
+          );
+        } on FormatException {
+          continue;
+        }
+        if (!known.add(addon.manifestUri.toString())) continue;
+        final installed = await repository.add(
+          name: addon.name,
+          manifestUri: addon.manifestUri,
+        );
+        if (!addon.enabled) {
+          await repository.update(installed.copyWith(enabled: false));
+        }
+      }
     }
   }
 

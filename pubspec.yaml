@@ -1,7 +1,7 @@
 name: potv
 description: POTV - local-first Android and Android TV media client
 publish_to: "none"
-version: 0.7.1+12
+version: 1.0.0-beta.4+17
 
 environment:
   sdk: '>=3.12.0 <4.0.0'
@@ -17,6 +17,7 @@ dependencies:
   html: ^0.15.7
   file_picker: ^10.3.7
   flutter_riverpod: ^3.4.3
+  flutter_secure_storage: ^9.2.4
   quickjs_engine: ^0.1.5
   go_router: ^17.5.0
   intl: ^0.20.3
@@ -30,7 +31,6 @@ dependencies:
   webview_flutter: ^4.14.1
   webview_flutter_android: ^4.14.1
   xml: ^6.6.1
-  youtube_explode_dart: ^3.1.0
 
 dev_dependencies:
   flutter_test:
@@ -39,3 +39,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/partner_compatible_addons_kino.json
