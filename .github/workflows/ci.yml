@@ -19,6 +19,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Enforce subscription contract on every update
+        run: python3 tool/verify_subscription_contract.py
+
       - name: Flutter
         uses: subosito/flutter-action@v2
         with:

@@ -27,6 +27,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Enforce server and app subscription contract
+        working-directory: .
+        run: python3 tool/verify_subscription_contract.py
       - name: Compile backend
         run: python -m py_compile app.py account_store.py potv_ops.py group_config.py content_gateway.py
       - name: Account lifecycle smoke test

@@ -27,6 +27,12 @@ jobs:
         with:
           path: potv-ci
 
+      - name: Verify permanent subscription baseline
+        shell: powershell
+        run: |
+          & python tool/verify_subscription_contract.py
+          if ($LASTEXITCODE -ne 0) { throw 'Subscription check failed' }
+
       - name: Prepare committed Android project
         shell: powershell
         run: |

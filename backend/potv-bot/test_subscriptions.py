@@ -20,6 +20,9 @@ class SubscriptionTests(unittest.TestCase):
         self.new = self.store.register("Trial@Example.com", "Good-Password-123", "Prueba")
 
     def tearDown(self):
+        import gc
+        self.store = None
+        gc.collect()  # sqlite3 context manager commits; connection closes on GC on Windows.
         for suffix in ("", "-shm", "-wal"):
             try:
                 os.remove(self.path + suffix)

@@ -47,6 +47,9 @@ jobs:
           print('Release tag and Android versionCode validated:', tag, version_code)
           PY
 
+      - name: Block OTA when subscription contract is broken
+        run: python3 tool/verify_subscription_contract.py
+
       - name: Java 17
         uses: actions/setup-java@v4
         with:
