@@ -39,12 +39,13 @@ def main():
     require("backend/potv-bot/test_subscriptions.py", "test_end_of_month",
             "test_trial_five_days", "test_notice_at_ten_days")
     require("backend/potv-bot/activate_account.py", "payment_confirmed")
+    require("backend/potv-bot/grant_permanent.py", "app_complimentary_grants", "PERMANENT_EXPIRY", "approved_by")
     require("test/subscription_access_test.dart",
             "trial grants access", "expired accounts cannot watch")
     env = __import__("os").environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     subprocess.run(
-        [sys.executable, "-m", "unittest", "-q", "test_subscriptions"],
+        [sys.executable, "-m", "unittest", "-q", "test_subscriptions", "test_grant_permanent"],
         check=True, cwd=ROOT / "backend" / "potv-bot", env=env,
     )
     print("PASS POTV SUBSCRIPTION CONTRACT: five-day trial, monthly billing,"
