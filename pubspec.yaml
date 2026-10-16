@@ -1,7 +1,7 @@
 name: potv
 description: POTV - local-first Android and Android TV media client
 publish_to: "none"
-version: 1.0.0-beta.4+17
+version: 1.0.0-beta.6+19
 
 environment:
   sdk: '>=3.12.0 <4.0.0'
