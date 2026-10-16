@@ -288,8 +288,35 @@ class AccountStore:
                 (row["account_id"],),
             )
 
+    @staticmethod
+    def _merge_telegram_entitlement(row, status, expires_at):
+        """Linking a bot must never erase a POTV trial or paid subscription.
+
+        Only a *valid paid* Telegram entitlement may extend an existing
+        account. Manual POTV approvals remain authoritative; inactive bot
+        state does not downgrade a customer or reset the five-day trial.
+        """
+        current_status = row["subscription_status"] or "free"
+        current_expiry = row["subscription_expires_at"]
+        candidate = subscription_state(status, expires_at)
+        current = subscription_state(current_status, current_expiry)
+        if (str(status or "").lower() == "active" and
+                candidate["access_allowed"] and
+                (not current["access_allowed"] or
+                 aware(expires_at) > aware(current_expiry))):
+            return "active", candidate["subscription_expires_at"]
+        return current_status, current_expiry
+
     def link_telegram(self, account_id, telegram_id, status, expires_at):
         with self._db() as con:
+            current = con.execute(
+                "SELECT * FROM app_accounts WHERE id=?", (account_id,)
+            ).fetchone()
+            if current is None:
+                raise AccountError("account_not_found")
+            merged_status, merged_expiry = self._merge_telegram_entitlement(
+                current, status, expires_at
+            )
             con.execute(
                 "UPDATE app_accounts SET telegram_id=NULL WHERE telegram_id=? AND id<>?",
                 (int(telegram_id), account_id),
@@ -299,28 +326,30 @@ class AccountStore:
                 SET telegram_id=?,subscription_status=?,
                     subscription_expires_at=?,updated_at=?
                 WHERE id=?""",
-                (
-                    int(telegram_id),
-                    status or "free",
-                    expires_at,
-                    _iso(_now()),
-                    account_id,
-                ),
+                (int(telegram_id), merged_status, merged_expiry,
+                 _iso(_now()), account_id),
             )
             row = con.execute(
                 "SELECT * FROM app_accounts WHERE id=?", (account_id,)
             ).fetchone()
-            if row is None:
-                raise AccountError("account_not_found")
             return self._payload(row)
 
     def update_subscription_for_telegram(self, telegram_id, status, expires_at):
         with self._db() as con:
+            row = con.execute(
+                "SELECT * FROM app_accounts WHERE telegram_id=?",
+                (int(telegram_id),),
+            ).fetchone()
+            if row is None:
+                return
+            merged_status, merged_expiry = self._merge_telegram_entitlement(
+                row, status, expires_at
+            )
             con.execute(
                 """UPDATE app_accounts
                 SET subscription_status=?,subscription_expires_at=?,updated_at=?
                 WHERE telegram_id=?""",
-                (status or "free", expires_at, _iso(_now()), int(telegram_id)),
+                (merged_status, merged_expiry, _iso(_now()), int(telegram_id)),
             )
 
     def account_by_email(self, email):
