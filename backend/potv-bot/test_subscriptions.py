@@ -91,6 +91,46 @@ class SubscriptionTests(unittest.TestCase):
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM app_manual_activations").fetchone()[0], 1)
 
+    def test_linking_telegram_does_not_end_trial_early(self):
+        original = self.store.account_by_email("trial@example.com")
+        self.assertEqual(original["subscription_status"], "trial")
+        saved_end = original["subscription_expires_at"]
+
+        linked = self.store.link_telegram(self.new["id"], 999000222, "free", None)
+        self.assertEqual(linked["subscription_status"], "trial")
+        self.assertEqual(linked["subscription_expires_at"], saved_end)
+        self.assertTrue(linked["access_allowed"])
+
+        self.store.update_subscription_for_telegram(999000222, "expired", None)
+        after = self.store.account_by_email("trial@example.com")
+        self.assertEqual(after["subscription_status"], "trial")
+        self.assertEqual(after["subscription_expires_at"], saved_end)
+        self.assertTrue(after["access_allowed"])
+
+    def test_bot_cannot_downgrade_paid_manual_activation(self):
+        paid = self.store.activate_manual(
+            "trial@example.com", approved_by="owner",
+            payment_confirmed=True, payment_reference="test-link-paid",
+        )
+        original_end = paid["subscription_expires_at"]
+        linked = self.store.link_telegram(self.new["id"], 999000333, "free", None)
+        self.assertEqual(linked["subscription_status"], "active")
+        self.assertEqual(linked["subscription_expires_at"], original_end)
+        self.store.update_subscription_for_telegram(999000333, "expired", None)
+        current = self.store.account_by_email("trial@example.com")
+        self.assertEqual(current["subscription_status"], "active")
+        self.assertEqual(current["subscription_expires_at"], original_end)
+
+    def test_paid_telegram_entitlement_can_extend_trial(self):
+        original = self.store.account_by_email("trial@example.com")
+        end = utc(original["subscription_expires_at"]) + timedelta(days=32)
+        linked = self.store.link_telegram(
+            self.new["id"], 999000444, "active", end.isoformat()
+        )
+        self.assertEqual(linked["subscription_status"], "active")
+        self.assertEqual(utc(linked["subscription_expires_at"]), end)
+        self.assertTrue(linked["access_allowed"])
+
     def test_existing_active_account_migration(self):
         old = self.store.register("old@example.com", "Good-Password-123", "Old")
         with self.store._db() as c:
