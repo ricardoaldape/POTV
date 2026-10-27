@@ -69,3 +69,42 @@ retry, _=enrich_stream_formats(general,general_source,probe=failed_probe,
 assert len(count)==3
 assert retry[0]["format_probe_at"]==20000
 print("PASS: incremental general-TV format cache, URL invalidation and backoff")
+
+
+# A new probe implementation can explicitly recheck previous failures once,
+# then normal backoff resumes after format_probe_version=2 is persisted.
+recheck, info = enrich_stream_formats(
+    general, general_source, probe=failed_probe,
+    previous=failed, now=20070, recheck_failures=True,
+)
+assert len(count) == 4
+assert info["format_probes"] == 1
+assert recheck[0]["format_probe_at"] == 20070
+
+# A redirected CDN URL must be public, bounded and stripped of auth/cookies.
+from unittest.mock import patch
+from urllib.request import Request
+from nova_catalog_sync import _SafeMediaRedirect, _public_media_url
+assert not _public_media_url("http://127.0.0.1/private")
+assert not _public_media_url("http://localhost/private")
+source = Request("https://media.example/live", headers={
+    "Authorization": "Bearer sensitive", "Cookie": "secret",
+    "Referer": "https://private.example",
+})
+with patch("nova_catalog_sync._public_media_url", return_value=True):
+    redirect = _SafeMediaRedirect().redirect_request(
+        source, None, 302, "Found", {},
+        "https://cdn.example/public",
+    )
+    assert redirect is not None
+    assert redirect.get_header("Authorization") is None
+    assert redirect.get_header("Cookie") is None
+    assert redirect.get_header("Referer") is None
+    assert redirect.get_header("Range") == "bytes=0-511"
+    assert redirect.potv_redirect_hops == 1
+    redirect.potv_redirect_hops = 3
+    assert _SafeMediaRedirect().redirect_request(
+        redirect, None, 302, "Found", {},
+        "https://cdn.example/again",
+    ) is None
+print("PASS: safe CDN redirects, credential isolation and probe-v2 recheck")
