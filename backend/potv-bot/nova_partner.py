@@ -8,7 +8,8 @@ import ipaddress
 import re
 from pathlib import Path
 from urllib.parse import urlencode, urljoin, urlsplit
-from urllib.request import Request, build_opener
+from urllib.error import HTTPError
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 
 def _private_ip(host):
@@ -19,6 +20,12 @@ def _private_ip(host):
         return False
 
 
+class _NoPartnerRedirects(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        # Never forward a service Authorization header to redirected domains.
+        return None
+
+
 class NovaPartnerError(Exception):
     def __init__(self, code):
         super().__init__(code)
@@ -26,7 +33,8 @@ class NovaPartnerError(Exception):
 
 
 class NovaPartner:
-    def __init__(self, *, base_url, access_token, opener=None, timeout=8):
+    def __init__(self, *, base_url, access_token=None,
+                 allow_anonymous_catalog=False, opener=None, timeout=8):
         raw = str(base_url).strip()
         uri = urlsplit(raw)
         if (
@@ -41,10 +49,12 @@ class NovaPartner:
         self.base_url = raw
         self.host = uri.hostname.lower()
         token = str(access_token or "").strip()
-        if not token or "\n" in token or "\r" in token:
-            raise ValueError("A dedicated POTV service access token is required")
+        if "\n" in token or "\r" in token:
+            raise ValueError("Invalid service access token")
+        if not token and not allow_anonymous_catalog:
+            raise ValueError("Service token or explicitly allowed public provider feed required")
         self._token = token
-        self._opener = opener or build_opener()
+        self._opener = opener or build_opener(_NoPartnerRedirects())
         self.timeout = min(15, max(1, int(timeout)))
 
     @classmethod
@@ -55,6 +65,7 @@ class NovaPartner:
         return cls(
             base_url=data.get("api_base_url", ""),
             access_token=data.get("service_access_token", ""),
+            allow_anonymous_catalog=data.get("allow_anonymous_catalog") is True,
             opener=opener,
         )
 
@@ -69,19 +80,25 @@ class NovaPartner:
             target += "?" + urlencode(query)
         req = Request(target, headers={
             "Accept": "application/json",
-            "Authorization": "Bearer " + self._token,
+            **({"Authorization": "Bearer " + self._token} if self._token else {}),
             "User-Agent": "POTV-Nova-Connector/1.0",
         })
         try:
             with self._opener.open(req, timeout=self.timeout) as response:
                 if getattr(response, "status", 200) != 200:
                     raise NovaPartnerError("upstream_status")
-                raw = response.read(4 * 1024 * 1024 + 1)
-            if len(raw) > 4 * 1024 * 1024:
+                cap = (24 if route == "channels/all_lite" else 4) * 1024 * 1024
+                raw = response.read(cap + 1)
+            if len(raw) > cap:
                 raise NovaPartnerError("payload_too_large")
             return json.loads(raw)
         except NovaPartnerError:
             raise
+        except HTTPError as exc:
+            # Never retry or fall back around an upstream 401/402/403 decision.
+            if exc.code in (401, 402, 403):
+                raise NovaPartnerError("upstream_denied") from None
+            raise NovaPartnerError("upstream_unavailable") from None
         except Exception as exc:
             # Never log the request headers, bearer token or signed media URLs.
             raise NovaPartnerError("upstream_unavailable") from exc
@@ -169,17 +186,44 @@ class NovaPartner:
             raise ValueError("Invalid channel identifier")
         return self._source_urls(self._get("channels/stream/" + identifier))
 
-    def movie_sources(self, tmdb_id):
-        return self._source_urls(
-            self._get("vod/sources/movie/" + str(self._positive_id(tmdb_id)),
-                      {"language": "es-MX"})
+    def movie_source_items(self, tmdb_id, *, title=None, year=None):
+        response = self._get(
+            "vod/sources/movie/" + str(self._positive_id(tmdb_id)),
+            {"language": "es-MX", **({"title": title} if title else {}),
+             **({"year": str(year)} if year else {})}
         )
+        rows = self._rows(response)
+        if rows:
+            return rows
+        payload = self._payload(response)
+        return [payload] if isinstance(payload, dict) else []
 
-    def episode_sources(self, tmdb_id, season, episode):
+    def movie_sources(self, tmdb_id, *, title=None, year=None):
+        return self._source_urls(self.movie_source_items(
+            tmdb_id, title=title, year=year
+        ))
+
+    def episode_source_items(self, tmdb_id, season, episode, *,
+                             title=None, year=None, is_anime=False):
         a,b,c = (self._positive_id(v) for v in (tmdb_id,season,episode))
-        return self._source_urls(
-            self._get(f"vod/sources/tv/{a}/{b}/{c}", {"language":"es-MX"})
+        response = self._get(
+            f"vod/sources/tv/{a}/{b}/{c}",
+            {"language": "es-MX", **({"title":title} if title else {}),
+             **({"year":str(year)} if year else {}),
+             **({"is_anime":"true"} if is_anime else {})}
         )
+        rows = self._rows(response)
+        if rows:
+            return rows
+        payload = self._payload(response)
+        return [payload] if isinstance(payload, dict) else []
+
+    def episode_sources(self, tmdb_id, season, episode, *,
+                        title=None, year=None, is_anime=False):
+        return self._source_urls(self.episode_source_items(
+            tmdb_id, season, episode, title=title, year=year,
+            is_anime=is_anime,
+        ))
 
     def app_version(self):
         return self._payload(self._get("app/version"))

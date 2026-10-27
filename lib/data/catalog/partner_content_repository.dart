@@ -2,11 +2,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_config.dart';
+import '../accounts/potv_content_auth_headers.dart';
+import '../../providers/user_providers.dart';
 import '../../domain/models/partner_content_snapshot.dart';
 
 final partnerContentRepositoryProvider = Provider<PartnerContentRepository>((
   ref,
 ) {
+  ref.watch(userAccountProvider);
   return PartnerContentRepository(
     Dio(
       BaseOptions(
@@ -22,7 +25,7 @@ final partnerContentProvider = FutureProvider<PartnerContentSnapshot>((
   ref,
 ) async {
   // Preserve the two-minute in-memory snapshot across provider invalidations.
-  return ref.read(partnerContentRepositoryProvider).load();
+  return ref.watch(partnerContentRepositoryProvider).load();
 });
 
 /// Dynamic HTTPS content snapshot, refreshed without installing a new APK.
@@ -66,6 +69,7 @@ class PartnerContentRepository {
           headers: {
             'Accept': 'application/json',
             if (_etag != null) 'If-None-Match': _etag!,
+            ...await PotvContentAuthHeaders.forEndpoint(endpoint),
           },
         ),
       );

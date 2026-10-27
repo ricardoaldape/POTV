@@ -31,11 +31,15 @@ assert has_active_subscription({
 
 class Gateway:
     lmhd_vod_enabled = False
+    nova_vod_enabled = False
 
 gw = Gateway()
 assert not requires_vod_subscription(gw, {})
 assert requires_vod_subscription(gw, {"POTV_REQUIRE_VOD_SUBSCRIPTION": "true"})
 assert requires_vod_subscription(gw, {"POTV_REQUIRE_VOD_SUBSCRIPTION": "1"})
+gw.nova_vod_enabled = True
+assert requires_vod_subscription(gw, {})
+gw.nova_vod_enabled = False
 gw.lmhd_vod_enabled = True
 assert requires_vod_subscription(gw, {})
 print("PASS: POTV subscription rejects free/expired/invalid users and gates paid media")

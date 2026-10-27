@@ -78,3 +78,36 @@ not an embedded APK session. Create a non-Git file such as
 Set POTV_NOVA_SERVICE_FILE to that private file and run
 python3 nova_partner_smoke.py. It does not activate public playback routes
 or bypass POTV customer entitlement checks.
+
+## NOVA live catalog and VOD subscription integration
+
+NOVA 1.2.9's authorized HTTP API has been checked against its primary and
+fallback hosts. The server consumes its documented catalog interfaces through
+a configurable private service file. A provider login token is used only if
+the issuer supplies one; a public, unauthenticated feed is used only when
+allow_anonymous_catalog is explicitly true in the service file.
+
+A separate systemd timer runs nova_catalog_sync.py to fetch the provider
+catalog into a root-readable 0600 snapshot. The API process uses the filtered
+snapshot rather than parsing the 18MB+ upstream channel directory on each user
+request. Selected feeds focus Mexico, LATAM and US/ES sports; Argentine and
+adult channels are excluded, and non-playable rows are omitted.
+
+Required VPS configuration:
+- POTV_NOVA_SERVICE_FILE: protected JSON with api_base_url ending /api/
+  and backup_api_base_url when authorized by the issuer.
+- POTV_NOVA_SYNC_FILE: protected NOVA channel snapshot local path.
+- POTV_NOVA_LIVE_ENABLED=true: merge channels for POTV subscribed accounts.
+- POTV_NOVA_VOD_ENABLED=true: enable NOVA film/episode on-demand sources.
+- POTV_NOVA_CHANNEL_LIMIT: maximum, default 4500.
+
+The public catalog remains unchanged for unauthenticated visitors. The API
+checks a valid POTV subscription/trial before exposing the enriched catalog or
+paid VOD resolution. The Flutter client sends its POTV token only to the
+first-party gateway. Upstream HTTP 401/402/403 is never bypassed; provider-only
+premium channels without playable sources require an issuer-granted entitlement.
+
+Playback caveat: native HLS/MPEG-TS channels have verified sample media
+headers, while some VOD rows contain embedding-only sources that may still
+need provider-side extraction or licensed direct streams. Real Android
+decode and OTA installation are separate release acceptance gates.

@@ -61,3 +61,26 @@ Other APKs were inventoried; finding an HLS/DASH/Xtream playback engine
 does not establish a licensed content feed or prove streams work.
 
 Status: inspected and connector implemented; upstream access and OTA pending.
+
+## Supplement: live production upstream verification
+
+Subsequent read-only checks identified NOVA's two API hosts through its
+Retrofit base URL provider and verified their current catalog JSON responses.
+This public provider feed advertises 11,000+ live channel entries, including
+two NFL Network entries. One NFL Network upstream returned MPEG-TS (188-byte
+sync packets) with H.264 video and AC-3-family audio (stream type 0x87).
+A second NFL entry delivered a valid HLS manifest. This does not replace
+long-duration device playback QA and does not prove other premium channels.
+
+The upstream's marked premium-only channels have withheld stream URLs; a
+sample returned HTTP 402 when its stream route was read unauthenticated.
+POTV does NOT bypass those entitlements. The owner may need to have the
+provider attach their paid entitlement to a distinct POTV service credential
+to receive those remaining channels.
+
+Paid POTV accounts receive a first-party, signed-proxy channel view generated
+from a periodically refreshed protected snapshot. The public endpoint never
+publishes this enrichment without verifying an active POTV account session.
+Movie/series/anime resolutions use their actual TMDB/episode identifiers;
+embedded-source VOD remains identified as WebView, not misrepresented as
+direct playable video.
