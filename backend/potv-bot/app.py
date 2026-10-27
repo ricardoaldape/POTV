@@ -433,6 +433,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         raw=json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type","application/json")
+        self.send_header("Cache-Control","private, no-store")
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -528,6 +529,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     year=q("year"),
                     season=season,
                     episode=episode,
+                    is_anime=tv_prefix.endswith("/anime/"),
                 ))
             except ContentGatewayError as exc:
                 self.out(exc.status,{"ok":False,"error":exc.code})
@@ -535,7 +537,16 @@ class ApiHandler(BaseHTTPRequestHandler):
 
         if path=="/api/v1/content/catalog":
             try:
-                self.out(200,CONTENT_GATEWAY.catalog())
+                # The public starter catalog stays readable. The licensed
+                # partner lineup is never served unless the requesting POTV
+                # session belongs to an active subscription or trial.
+                token=self._bearer()
+                account=ACCOUNT_STORE.session(token) if token else None
+                if account is not None and has_active_subscription(account):
+                    catalog=CONTENT_GATEWAY.catalog_for_subscriber()
+                else:
+                    catalog=CONTENT_GATEWAY.catalog()
+                self.out(200,catalog)
             except ContentGatewayError as exc:
                 self.out(exc.status,{"ok":False,"error":exc.code})
             return

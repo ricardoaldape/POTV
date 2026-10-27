@@ -35,6 +35,8 @@ def requires_vod_subscription(gateway, environment):
     """
     if getattr(gateway, "lmhd_vod_enabled", False):
         return True
+    if getattr(gateway, "nova_vod_enabled", False):
+        return True
     return str(environment.get("POTV_REQUIRE_VOD_SUBSCRIPTION") or "").strip().lower() in {
         "true", "1", "yes"
     }

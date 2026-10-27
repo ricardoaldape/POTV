@@ -28,6 +28,7 @@ from urllib.request import (
 )
 
 from lmhd_partner import LmhdPartner, PartnerApiError
+from nova_partner import NovaPartner, NovaPartnerError
 
 _EXTINF_ATTR = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
 _HLS_URI_ATTR = re.compile(r'URI="([^"]+)"')
@@ -155,6 +156,28 @@ class ContentGateway:
         self.lmhd_vod_enabled = (
             os.getenv("POTV_LMHD_VOD_ENABLED", "").strip().lower() == "true"
         )
+        # Enabling NOVA requires a separate provider-issued service account.
+        # Paid resolution is never published by the public content catalog.
+        self.nova = None
+        nova_file = os.getenv("POTV_NOVA_SERVICE_FILE", "").strip()
+        if nova_file:
+            try:
+                self.nova = NovaPartner.from_file(nova_file)
+            except (OSError, ValueError, TypeError):
+                self.nova = None
+        self.nova_vod_enabled = (
+            self.nova is not None
+            and os.getenv("POTV_NOVA_VOD_ENABLED", "").strip().lower() == "true"
+        )
+        self.nova_sync_file = os.getenv("POTV_NOVA_SYNC_FILE", "").strip()
+        self.nova_live_enabled = (
+            self.nova is not None
+            and bool(self.nova_sync_file)
+            and os.getenv("POTV_NOVA_LIVE_ENABLED", "").strip().lower() == "true"
+        )
+        self._nova_subscriber_catalog = None
+        self._nova_subscriber_catalog_at = 0.0
+        self._nova_subscriber_revision = None
         self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
         self._lock = threading.RLock()
         self._targets = {}
@@ -635,6 +658,56 @@ class ContentGateway:
             })
         return sources
 
+    def _nova_candidates(self, kind, *, tmdb_id=None, title=None, year=None,
+                         season=1, episode=1, is_anime=False):
+        # Called only through the subscription-gated VOD routes in app.py.
+        # This opt-in is deliberately separate from the public channel catalog.
+        if not self.nova_vod_enabled or not tmdb_id:
+            return []
+        try:
+            media_id = int(tmdb_id)
+            if media_id <= 0:
+                return []
+            if kind == "movie":
+                items = self.nova.movie_source_items(
+                    str(media_id), title=title, year=year
+                )
+            else:
+                items = self.nova.episode_source_items(
+                    str(media_id), season, episode, title=title, year=year,
+                    is_anime=is_anime,
+                )
+        except (NovaPartnerError, ValueError, TypeError):
+            return []
+        urls = self.nova._source_urls(items)
+        candidates = []
+        for url in urls[:8]:
+            try:
+                target_id = self._register_target(url)
+            except ContentGatewayError:
+                continue
+            candidates.append({
+                "provider": "POTV",
+                "real_url": self._proxy_url(target_id),
+                "language": "es-MX",
+            })
+        # Provider embed sources are WebView alternatives, not native MP4/HLS.
+        if not candidates:
+            for item in items[:8]:
+                if not isinstance(item, dict):
+                    continue
+                uri = self.nova._valid_media_url(item.get("embed_url"))
+                if not uri or not self._allowed_upstream(uri):
+                    continue
+                candidates.append({
+                    "provider": "POTV",
+                    "embed_url": uri,
+                    "requires_extraction": True,
+                    "quality": str(item.get("quality") or ""),
+                    "language": str(item.get("language") or "es-MX"),
+                })
+        return candidates
+
     def resolve_movie(self, *, tmdb_id=None, title=None, year=None):
         sources = []
         seen_targets = set()
@@ -709,6 +782,11 @@ class ContentGateway:
             })
             if self.source_mode == "failover":
                 break
+        # Combine NOVA's authorized alternate sources with any existing
+        # POTV provider candidates instead of discarding them in failover.
+        sources.extend(self._nova_candidates(
+            "movie", tmdb_id=tmdb_id, title=title, year=year
+        ))
         if not sources:
             sources.extend(self._lmhd_candidates(
                 "movie", title=title, year=year
@@ -723,6 +801,7 @@ class ContentGateway:
         year=None,
         season=1,
         episode=1,
+        is_anime=False,
     ):
         sources = []
         seen_targets = set()
@@ -830,6 +909,10 @@ class ContentGateway:
             })
             if self.source_mode == "failover":
                 break
+        sources.extend(self._nova_candidates(
+            "tv", tmdb_id=tmdb_id, title=title, year=year,
+            season=season, episode=episode, is_anime=is_anime
+        ))
         if not sources:
             sources.extend(self._lmhd_candidates(
                 "tv", title=title, year=year, season=season, episode=episode
@@ -1483,6 +1566,101 @@ class ContentGateway:
                 "source_failures": failures,
             }
         }
+
+    def catalog_for_subscriber(self):
+        """A POTV-authenticated subscriber's TV catalog with authorized NOVA.
+
+        MUST be called only after app.py confirms a valid paid/trial session.
+        Never expose this snapshot from the public content/catalog route.
+        """
+        public = self.catalog()
+        if not self.nova_live_enabled:
+            return public
+        now = time.monotonic()
+        with self._lock:
+            if (
+                self._nova_subscriber_catalog is not None
+                and now - self._nova_subscriber_catalog_at < self.refresh_seconds
+            ):
+                return self._resign_cached_catalog(self._nova_subscriber_catalog)
+        try:
+            if os.path.getsize(self.nova_sync_file) > 12 * 1024 * 1024:
+                return public
+            with open(self.nova_sync_file, "r", encoding="utf-8") as fh:
+                snapshot = json.load(fh)
+            rows = snapshot.get("channels") or []
+            if not isinstance(rows, list) or not rows:
+                return public
+        except (OSError, ValueError, TypeError, AttributeError):
+            # An upstream failure must not destroy the existing TV lineup.
+            with self._lock:
+                if self._nova_subscriber_catalog is not None:
+                    return self._resign_cached_catalog(self._nova_subscriber_catalog)
+            return public
+
+        payload = copy.deepcopy(public)
+        data = payload["data"]
+        base_rows = data.get("channels") or []
+        all_channels = list(base_rows)
+        seen = {
+            (str(item.get("name") or "").lower().strip(),
+             str(item.get("epg_id") or "").lower().strip())
+            for item in all_channels
+        }
+        appended = 0
+        for row in rows[:7000]:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            group = str(row.get("group") or "").strip()
+            if not name or self._is_adult_entry(name, group):
+                continue
+            key = (name.lower(), str(row.get("epg_id") or "").lower())
+            if key in seen:
+                continue
+            try:
+                channel = self._channel_payload(row)
+            except ContentGatewayError:
+                continue
+            backups = []
+            raw_backups = row.get("backup_urls")
+            if isinstance(raw_backups, list):
+                for url in raw_backups[:4]:
+                    try:
+                        target = self._register_target(url)
+                    except (ContentGatewayError, ValueError, TypeError):
+                        continue
+                    backups.append(self._proxy_url(target))
+            if backups:
+                channel["backup_urls"] = backups
+            seen.add(key)
+            all_channels.append(channel)
+            appended += 1
+        raw_sports = [
+            channel for channel in all_channels
+            if _SPORTS.search(
+                str(channel.get("name") or "") + " " +
+                str(channel.get("group") or "")
+            )
+        ]
+        sports = self._merge_sports_variants(raw_sports)
+        data["channels"] = [
+            channel for channel in all_channels
+            if channel not in raw_sports
+        ] + sports
+        data["sports_channels"] = sports
+        for media_kind in ("movies", "series"):
+            media_rows = snapshot.get(media_kind)
+            if isinstance(media_rows, list):
+                data[media_kind] = media_rows[:1500]
+        data["revision"] = hashlib.sha256((
+            str(data.get("revision") or "") +
+            str(snapshot.get("revision") or "") + str(appended)
+        ).encode("utf-8")).hexdigest()[:20]
+        with self._lock:
+            self._nova_subscriber_catalog = payload
+            self._nova_subscriber_catalog_at = now
+        return payload
 
     def _resign_cached_catalog(self, payload):
         # Cached URLs have a 15-minute TTL. Refresh their signatures without
