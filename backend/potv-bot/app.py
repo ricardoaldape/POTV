@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from account_store import AccountStore, AccountError
 from content_gateway import ContentGateway, ContentGatewayError
 from content_access import has_active_subscription, requires_vod_subscription, catalog_access_status
+from catalog_json_transport import encode_catalog
 
 BASE=os.path.dirname(os.path.abspath(__file__))
 DB=os.getenv("POTV_DB",os.path.join(BASE,"potv.sqlite3"))
@@ -430,10 +431,23 @@ handle_message, BOT_COMMANDS = install(globals())
 
 class ApiHandler(BaseHTTPRequestHandler):
     def out(self,code,obj):
-        raw=json.dumps(obj).encode()
+        # The authenticated NOVA catalog can exceed 4 MB. Compress it only
+        # when the client explicitly accepts gzip; never compress login,
+        # entitlement, payment or source-resolution responses.
+        catalog = urlsplit(self.path).path == "/api/v1/content/catalog"
+        if catalog:
+            raw, compressed = encode_catalog(
+                obj, self.headers.get("Accept-Encoding", "")
+            )
+        else:
+            raw, compressed = json.dumps(obj).encode(), False
         self.send_response(code)
         self.send_header("Content-Type","application/json")
         self.send_header("Cache-Control","private, no-store")
+        if catalog:
+            self.send_header("Vary", "Accept-Encoding")
+        if compressed:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
