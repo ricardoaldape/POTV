@@ -119,3 +119,23 @@ On upstream API outage, the last known good snapshot stays intact.
 A signed subscriber stream target is rebuilt from that private snapshot
 after a POTV API process restart; anonymous clients still do not receive
 the premium catalog.
+
+
+### Legacy OTA manifest (older Android clients)
+
+The /api/v1/version/latest endpoint reads version.json. Newer POTV
+Update Center checks official GitHub Releases directly; older clients
+still need the legacy JSON endpoint. ota_manifest_sync.py reconciles
+against published releases under ricardoaldape/POTV and requires a
+matching APK asset, GitHub-provided SHA-256 digest, release notes with
+POTV-Version-Code, canonical HTTPS URL, and versionCode strictly greater
+than the installed manifest. Invalid or unavailable releases leave the
+current manifest untouched. The script does not install APKs or bypass
+Android's user confirmation.
+
+Deploy ops/systemd/potv-ota-manifest.service and .timer on the VPS and
+enable the timer. The unit uses --allow-beta because POTV's current
+official channel is prerelease; omit it for stable releases only.
+Verify before enabling with:
+    python3 ota_manifest_sync.py --allow-beta --dry-run
+Never point apk_url to a build artifact or unsigned QA candidate.

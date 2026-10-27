@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for a newer official POTV OTA release every hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=3min
+Persistent=true
+Unit=potv-ota-manifest.service
+
+[Install]
+WantedBy=timers.target
