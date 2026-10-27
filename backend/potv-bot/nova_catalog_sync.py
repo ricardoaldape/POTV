@@ -158,29 +158,48 @@ def _url_format(url):
     return None
 
 
-class _NoRedirect(HTTPRedirectHandler):
+def _public_media_url(value):
+    url = _stream_url(value)
+    if not url:
+        return False
+    try:
+        host = urlsplit(url).hostname
+        addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        return bool(addresses) and all(
+            ipaddress.ip_address(entry[4][0]).is_global
+            for entry in addresses
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+class _SafeMediaRedirect(HTTPRedirectHandler):
+    """Allow only bounded public CDN redirects without forwarding credentials."""
+
     def redirect_request(self, request, fp, code, msg, headers, newurl):
-        return None
+        hops = getattr(request, "potv_redirect_hops", 0)
+        if code not in (301, 302, 303, 307, 308) or hops >= 3:
+            return None
+        if not _public_media_url(newurl):
+            return None
+        # Never copy upstream cookies, Authorization, Referer or Origin.
+        next_request = Request(newurl, headers={
+            "User-Agent": "POTV-Authorized-Stream-Check/1.0",
+            "Range": "bytes=0-511",
+            "Accept": "*/*",
+        })
+        next_request.potv_redirect_hops = hops + 1
+        return next_request
 
 
 def probe_stream_format(url):
-    """Bounded content sniff; no redirects or access to nonpublic addresses.
+    """Bounded content sniff; public-only redirects and addresses.
 
     Never log upstream URLs, response bodies or authorization information.
     A failed probe is *not* evidence that the provider is unlicensed.
     """
     value = _stream_url(url)
-    if not value:
-        return None
-    host = urlsplit(value).hostname
-    try:
-        addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        if not addresses or any(
-            not ipaddress.ip_address(entry[4][0]).is_global
-            for entry in addresses
-        ):
-            return None
-    except (OSError, ValueError, TypeError):
+    if not value or not _public_media_url(value):
         return None
     try:
         req = Request(value, headers={
@@ -188,7 +207,7 @@ def probe_stream_format(url):
             "Range": "bytes=0-511",
             "Accept": "*/*",
         })
-        with build_opener(_NoRedirect()).open(req, timeout=3) as response:
+        with build_opener(_SafeMediaRedirect()).open(req, timeout=3) as response:
             kind = response.headers.get("Content-Type", "").lower().split(";")[0]
             if kind in ("application/vnd.apple.mpegurl",
                         "application/x-mpegurl", "audio/mpegurl",

@@ -69,3 +69,28 @@ retry, _=enrich_stream_formats(general,general_source,probe=failed_probe,
 assert len(count)==3
 assert retry[0]["format_probe_at"]==20000
 print("PASS: incremental general-TV format cache, URL invalidation and backoff")
+
+
+# CDN redirects are common for legitimate MPEG-TS live channels. Reject
+# private IP redirects and never forward any original credentials.
+from unittest.mock import patch
+from urllib.request import Request
+from nova_catalog_sync import _SafeMediaRedirect
+handler=_SafeMediaRedirect()
+request=Request("https://media.example/original",headers={
+    "Authorization":"Bearer do-not-forward",
+    "Cookie":"private-session=abc",
+})
+assert handler.redirect_request(request,None,302,"Found",{},
+                                "http://127.0.0.1/admin") is None
+with patch("nova_catalog_sync._public_media_url",return_value=True):
+    nxt=handler.redirect_request(request,None,302,"Found",{},
+                                 "https://cdn.example/live")
+    assert nxt is not None
+    assert nxt.get_header("Authorization") is None
+    assert nxt.get_header("Cookie") is None
+    assert nxt.potv_redirect_hops==1
+    nxt.potv_redirect_hops=3
+    assert handler.redirect_request(nxt,None,302,"Found",{},
+                                    "https://cdn.example/again") is None
+print("PASS: public CDN redirects permitted, private redirects denied")
