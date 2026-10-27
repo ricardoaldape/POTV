@@ -62,18 +62,21 @@ class StreamCandidateProbe {
       return ranked;
     }
 
-    return [
-      ...healthy,
-      ...unknown,
-      ...remaining,
-    ];
+    return [...healthy, ...unknown, ...remaining];
   }
 
   // A URL without .m3u8/.mp4 is not necessarily an embed. Many legitimate
   // partner CDNs serve signed media behind extensionless paths.
   Future<_ProbeAssessment> _check(StreamCandidate candidate) async {
-    if (candidate.uri.scheme != 'http' &&
-        candidate.uri.scheme != 'https') {
+    // The authorized POTV VOD gateway already returned this stream for the
+    // active subscriber. Signed CDN URLs may reject HEAD even when Media3
+    // can play GET; do not probe, consume, or discard those capabilities.
+    // Leave actual playback/failover as the authoritative health check.
+    if (candidate.id.startsWith('potv_partner_api:')) {
+      return _ProbeAssessment(_ProbeResult.unknown, candidate);
+    }
+
+    if (candidate.uri.scheme != 'http' && candidate.uri.scheme != 'https') {
       return _ProbeAssessment(_ProbeResult.unknown, candidate);
     }
 
@@ -87,8 +90,9 @@ class StreamCandidateProbe {
         );
         final contentType =
             response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
-                '';
-        final isDirect = contentType.startsWith('video/') ||
+            '';
+        final isDirect =
+            contentType.startsWith('video/') ||
             contentType.contains('mpegurl') ||
             contentType.contains('dash+xml');
         if (isDirect) {
@@ -126,8 +130,9 @@ class StreamCandidateProbe {
         );
         final type =
             response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
-                '';
-        final looksMedia = type.startsWith('video/') ||
+            '';
+        final looksMedia =
+            type.startsWith('video/') ||
             type.startsWith('audio/') ||
             type.contains('mpegurl') ||
             type.contains('octet-stream') ||
@@ -138,10 +143,7 @@ class StreamCandidateProbe {
         );
       } on DioException catch (error) {
         final status = error.response?.statusCode;
-        if (status == 401 ||
-            status == 403 ||
-            status == 404 ||
-            status == 410) {
+        if (status == 401 || status == 403 || status == 404 || status == 410) {
           return _ProbeAssessment(_ProbeResult.dead, candidate);
         }
         return _ProbeAssessment(_ProbeResult.unknown, candidate);
@@ -162,13 +164,20 @@ class StreamCandidateProbe {
 
       final body = response.data?.trimLeft() ?? '';
       return _ProbeAssessment(
-        body.startsWith('#EXTM3U')
-            ? _ProbeResult.healthy
-            : _ProbeResult.dead,
+        body.startsWith('#EXTM3U') ? _ProbeResult.healthy : _ProbeResult.dead,
         candidate,
       );
-    } on DioException {
-      return _ProbeAssessment(_ProbeResult.dead, candidate);
+    } on DioException catch (error) {
+      // A timeout, temporary CDN failure or rejected probe is not proof
+      // that Media3 cannot play the stream. Only a missing/gone resource
+      // is conclusively unavailable here.
+      final status = error.response?.statusCode;
+      return _ProbeAssessment(
+        status == 404 || status == 410
+            ? _ProbeResult.dead
+            : _ProbeResult.unknown,
+        candidate,
+      );
     }
   }
 
