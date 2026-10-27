@@ -232,7 +232,8 @@ def probe_stream_format(url):
 
 
 def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format,
-                          previous=None, now=None, max_probes=80):
+                          previous=None, now=None, max_probes=80,
+                          recheck_failures=False):
     """Classify native sources incrementally without hammering NOVA's CDN.
 
     Probe iframe backups and unknown sports first, then other extensionless
@@ -265,7 +266,7 @@ def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format,
                 last_checked = int(old.get("format_probe_at") or 0)
             except (ValueError, TypeError):
                 last_checked = 0
-            if last_checked > now - 7200:
+            if last_checked > now - 7200 and not recheck_failures:
                 reused[ident] = (None, last_checked)
                 continue
         tasks.append((ident, url))
@@ -344,15 +345,18 @@ def synchronize(*, service, destination, limit=4500):
     rows, counts = normalize_channels(channels, limit=limit)
     destination = Path(destination)
     previous = []
+    previous_probe_version = 0
     try:
         if destination.stat().st_size < 12 * 1024 * 1024:
             old = json.loads(destination.read_text(encoding="utf-8"))
             if isinstance(old.get("channels"), list):
                 previous = old["channels"]
+            previous_probe_version = int(old.get("format_probe_version") or 0)
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     rows, format_counts = enrich_stream_formats(
-        rows, channels, previous=previous
+        rows, channels, previous=previous,
+        recheck_failures=previous_probe_version != 2,
     )
     counts.update(format_counts)
     if not rows:
@@ -376,6 +380,7 @@ def synchronize(*, service, destination, limit=4500):
     )
     body = {
         "source": "nova",
+        "format_probe_version": 2,
         "movies": movies,
         "series": series,
         "upstream_app_version": version,

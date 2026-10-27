@@ -94,3 +94,13 @@ with patch("nova_catalog_sync._public_media_url",return_value=True):
     assert handler.redirect_request(nxt,None,302,"Found",{},
                                     "https://cdn.example/again") is None
 print("PASS: public CDN redirects permitted, private redirects denied")
+
+
+# A detector upgrade must recheck recent failures instead of retaining a
+# stale backoff that prevents NFL Network from gaining format=ts.
+new_retry,_=enrich_stream_formats(general,general_source,probe=general_probe,
+                                  previous=failed,now=20070,
+                                  recheck_failures=True)
+assert new_retry[0]["format"]=="ts"
+assert len(count)==4
+print("PASS: detector upgrade invalidates failed-probe backoff")
