@@ -50,7 +50,11 @@ with tempfile.TemporaryDirectory() as tmp:
         assert "format=hls" in nfl["hls_url"]
         assert "s" in parse_qs(urlsplit(nfl["hls_url"]).query)
         assert len(g.catalog()["data"]["channels"])==1
-        assert len(g.catalog_for_subscriber()["data"]["channels"])==3
+        cached=g.catalog_for_subscriber()["data"]
+        assert len(cached["channels"])==3
+        cached_nfl=next(row for row in cached["sports_channels"]
+                        if row["name"]=="NFL Network")
+        assert "format=hls" in cached_nfl["hls_url"]
         # Simulate backend restart: the media proxy must be able to re-register
         # the signed channel URL from the protected local feed.
         target_id=urlsplit(nfl["hls_url"]).path.rsplit("/",1)[-1]

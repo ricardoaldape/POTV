@@ -36,3 +36,36 @@ assert out[2]["url"]=="https://media.example/tv.ts"
 assert len(checked)==4, checked
 assert metrics["iframe_without_native_backup"]==1
 print("PASS: native iframe backup promotion and extensionless HLS detection")
+
+
+# The first sync probes unknown channels, later syncs reuse their format.
+general=[{"id":"nova:20","name":"General channel",
+          "url":"https://media.example/extensionless",
+          "is_sports":False,"backup_urls":[]}]
+general_source=[{"id":"20","is_iframe":False}]
+count=[]
+def general_probe(url):
+    count.append(url)
+    return "ts"
+first, _=enrich_stream_formats(general,general_source,probe=general_probe,now=10000)
+assert first[0]["format"]=="ts" and len(count)==1
+second, info=enrich_stream_formats(general,general_source,probe=general_probe,
+                                   previous=first,now=10050)
+assert second[0]["format"]=="ts" and len(count)==1
+assert info["format_cached"]==1
+# A changed upstream URL must invalidate the cached transport.
+changed=[{**general[0],"url":"https://media.example/new-stream"}]
+third, info=enrich_stream_formats(changed,general_source,probe=general_probe,
+                                  previous=first,now=10070)
+assert third[0]["format"]=="ts" and len(count)==2
+# A failed probe is not retried on every 30-minute sync.
+def failed_probe(url):
+    count.append(url)
+    return None
+failed, _=enrich_stream_formats(general,general_source,probe=failed_probe,
+                                now=20000)
+retry, _=enrich_stream_formats(general,general_source,probe=failed_probe,
+                               previous=failed,now=20060)
+assert len(count)==3
+assert retry[0]["format_probe_at"]==20000
+print("PASS: incremental general-TV format cache, URL invalidation and backoff")
