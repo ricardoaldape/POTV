@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from nova_partner import NovaPartner, NovaPartnerError
+from nova_anime_mapping import refresh_cache, normalize_anime
 
 
 SPORTS = ("sport", "deport", "fútbol", "futbol", "nfl", "nba", "mlb", "espn",
@@ -158,29 +159,48 @@ def _url_format(url):
     return None
 
 
-class _NoRedirect(HTTPRedirectHandler):
+def _public_media_url(value):
+    url = _stream_url(value)
+    if not url:
+        return False
+    try:
+        host = urlsplit(url).hostname
+        addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        return bool(addresses) and all(
+            ipaddress.ip_address(entry[4][0]).is_global
+            for entry in addresses
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+class _SafeMediaRedirect(HTTPRedirectHandler):
+    """Allow only bounded public CDN redirects without forwarding credentials."""
+
     def redirect_request(self, request, fp, code, msg, headers, newurl):
-        return None
+        hops = getattr(request, "potv_redirect_hops", 0)
+        if code not in (301, 302, 303, 307, 308) or hops >= 3:
+            return None
+        if not _public_media_url(newurl):
+            return None
+        # Never copy upstream cookies, Authorization, Referer or Origin.
+        next_request = Request(newurl, headers={
+            "User-Agent": "POTV-Authorized-Stream-Check/1.0",
+            "Range": "bytes=0-511",
+            "Accept": "*/*",
+        })
+        next_request.potv_redirect_hops = hops + 1
+        return next_request
 
 
 def probe_stream_format(url):
-    """Bounded content sniff; no redirects or access to nonpublic addresses.
+    """Bounded content sniff; public-only redirects and addresses.
 
     Never log upstream URLs, response bodies or authorization information.
     A failed probe is *not* evidence that the provider is unlicensed.
     """
     value = _stream_url(url)
-    if not value:
-        return None
-    host = urlsplit(value).hostname
-    try:
-        addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        if not addresses or any(
-            not ipaddress.ip_address(entry[4][0]).is_global
-            for entry in addresses
-        ):
-            return None
-    except (OSError, ValueError, TypeError):
+    if not value or not _public_media_url(value):
         return None
     try:
         req = Request(value, headers={
@@ -188,7 +208,7 @@ def probe_stream_format(url):
             "Range": "bytes=0-511",
             "Accept": "*/*",
         })
-        with build_opener(_NoRedirect()).open(req, timeout=3) as response:
+        with build_opener(_SafeMediaRedirect()).open(req, timeout=3) as response:
             kind = response.headers.get("Content-Type", "").lower().split(";")[0]
             if kind in ("application/vnd.apple.mpegurl",
                         "application/x-mpegurl", "audio/mpegurl",
@@ -213,7 +233,8 @@ def probe_stream_format(url):
 
 
 def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format,
-                          previous=None, now=None, max_probes=80):
+                          previous=None, now=None, max_probes=80,
+                          recheck_failures=False):
     """Classify native sources incrementally without hammering NOVA's CDN.
 
     Probe iframe backups and unknown sports first, then other extensionless
@@ -246,7 +267,7 @@ def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format,
                 last_checked = int(old.get("format_probe_at") or 0)
             except (ValueError, TypeError):
                 last_checked = 0
-            if last_checked > now - 7200:
+            if last_checked > now - 7200 and not recheck_failures:
                 reused[ident] = (None, last_checked)
                 continue
         tasks.append((ident, url))
@@ -320,20 +341,41 @@ def fetch_media_pages(service, method, *, cap=500):
     return rows
 
 
-def synchronize(*, service, destination, limit=4500):
+def snapshot_revision(channels, movies, series, anime):
+    """Change revision when media titles/IDs change, not only TV channels.
+
+    Ignore transient sync timestamps so AniList incremental mapping produces
+    one stable revision per distinct subscriber-visible catalog.
+    """
+    material = {
+        "channels": sorted((
+            r["id"], r["url"], r.get("format"), r.get("backup_urls")
+        ) for r in channels),
+        "movies": sorted(movies, key=lambda r: r["tmdb_id"]),
+        "series": sorted(series, key=lambda r: r["tmdb_id"]),
+        "anime": sorted(anime, key=lambda r: r["anilist_id"]),
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True,
+        separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()[:20]
+
+
+def synchronize(*, service, destination, limit=4500, anime_map_file=None):
     channels = service.channels()
     rows, counts = normalize_channels(channels, limit=limit)
     destination = Path(destination)
     previous = []
+    previous_probe_version = 0
     try:
         if destination.stat().st_size < 12 * 1024 * 1024:
             old = json.loads(destination.read_text(encoding="utf-8"))
             if isinstance(old.get("channels"), list):
                 previous = old["channels"]
+            previous_probe_version = int(old.get("format_probe_version") or 0)
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     rows, format_counts = enrich_stream_formats(
-        rows, channels, previous=previous
+        rows, channels, previous=previous,
+        recheck_failures=previous_probe_version != 2,
     )
     counts.update(format_counts)
     if not rows:
@@ -355,16 +397,26 @@ def synchronize(*, service, destination, limit=4500):
     series = normalize_media(
         fetch_media_pages(service, service.series), category="series"
     )
+    anime = []
+    if anime_map_file:
+        # AniList is the canonical anime identifier in POTV. A provider TMDb
+        # ID must never be sent to the Android anime UI as an AniList ID.
+        try:
+            anime_rows = fetch_media_pages(service, service.anime)
+            anime_map, _ = refresh_cache(anime_rows, anime_map_file)
+            anime = normalize_anime(anime_rows, anime_map)
+        except (NovaPartnerError, OSError, ValueError, TypeError):
+            # Keep TV, movies and series synchronized if AniList is down.
+            pass
     body = {
         "source": "nova",
+        "format_probe_version": 2,
         "movies": movies,
         "series": series,
+        "anime": anime,
         "upstream_app_version": version,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "revision": hashlib.sha256(json.dumps(
-            [(r["id"], r["url"], r.get("format"),
-              r.get("backup_urls")) for r in rows], separators=(",", ":")
-        ).encode()).hexdigest()[:20],
+        "revision": snapshot_revision(rows, movies, series, anime),
         "channels": rows,
     }
     destination = Path(destination)
@@ -385,6 +437,7 @@ def synchronize(*, service, destination, limit=4500):
         "published_for_subscribers": len(rows),
         "movie_catalog_sample": len(movies),
         "series_catalog_sample": len(series),
+        "anime_catalog_mapped": len(anime),
         **counts,
         "revision": body["revision"],
     }
@@ -398,7 +451,8 @@ def main():
     service = NovaPartner.from_file(service_file)
     limit = max(100, min(7000, int(os.getenv("POTV_NOVA_CHANNEL_LIMIT", "4500"))))
     try:
-        summary = synchronize(service=service, destination=output_file, limit=limit)
+        summary = synchronize(service=service, destination=output_file, limit=limit,
+                              anime_map_file=os.getenv("POTV_NOVA_ANIME_MAP_FILE") or None)
         origin = "primary"
     except NovaPartnerError as exc:
         if exc.code == "upstream_denied":
@@ -413,7 +467,8 @@ def main():
             access_token=settings.get("service_access_token") or "",
             allow_anonymous_catalog=settings.get("allow_anonymous_catalog") is True,
         )
-        summary = synchronize(service=service,destination=output_file,limit=limit)
+        summary = synchronize(service=service,destination=output_file,limit=limit,
+                              anime_map_file=os.getenv("POTV_NOVA_ANIME_MAP_FILE") or None)
         origin = "backup"
     summary["feed"] = origin
     # Counts only: upstream and snapshot URLs are sensitive.

@@ -18,7 +18,10 @@ class FixtureGateway(ContentGateway):
 with tempfile.TemporaryDirectory() as tmp:
     path = os.path.join(tmp, "nova.json")
     with open(path, "w") as fh:
-        json.dump({"revision":"nova-v1","channels":[
+        json.dump({"revision":"nova-v1","anime":[
+            {"anilist_id":195539,"tmdb_id":326788,
+             "title":"Cyberpunk: Edgerunners 2","year":"2026"}
+        ],"channels":[
             {"id":"nova:1", "name":"NFL Network", "url":"https://nova.example/nfl.m3u8",
              "group":"Deportes", "epg_id":"nfl", "format":"hls", "backup_urls":[
                  "https://nova-b.example/nfl2.m3u8"]},
@@ -40,6 +43,8 @@ with tempfile.TemporaryDirectory() as tmp:
         sports=private["data"]["sports_channels"]
         assert len(channels)==3, channels
         assert len(sports)==1,sports
+        assert private["data"]["anime"][0]["anilist_id"] == 195539
+        assert "anime" not in g.catalog()["data"], "NOVA anime must remain subscriber-only"
         assert "NFL Network" in [s["name"] for s in sports]
         assert channels[0]["name"]=="POTV Starter"
         assert all("nova.example" not in json.dumps(r) for r in channels)

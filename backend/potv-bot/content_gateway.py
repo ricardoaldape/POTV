@@ -1684,7 +1684,7 @@ class ContentGateway:
             if channel not in raw_sports
         ] + sports
         data["sports_channels"] = sports
-        for media_kind in ("movies", "series"):
+        for media_kind in ("movies", "series", "anime"):
             media_rows = snapshot.get(media_kind)
             if isinstance(media_rows, list):
                 data[media_kind] = media_rows[:1500]
