@@ -55,12 +55,14 @@ class SportsChannelResolver {
 
       for (final program in programsByChannel[id] ?? const <EpgProgram>[]) {
         if (program.startsAt.isBefore(windowStart) ||
-            program.startsAt.isAfter(windowEnd))
+            program.startsAt.isAfter(windowEnd)) {
           continue;
+        }
         if (!program.endsAt.isAfter(
           event.startsAt.subtract(const Duration(minutes: 30)),
-        ))
+        )) {
           continue;
+        }
         final summary = '${program.title} ${program.description ?? ''}';
         // Both opponents must appear in the same EPG field; combining
         // unrelated title and description can invent a fixture.

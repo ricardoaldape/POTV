@@ -34,6 +34,7 @@ class SportsChannelRail extends ConsumerWidget {
       final snapshot = await ref
           .read(partnerContentRepositoryProvider)
           .load(forceRefresh: true);
+      if (!context.mounted) return;
       final matches = [
         ...snapshot.sportsChannels,
         ...snapshot.channels,

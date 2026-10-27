@@ -650,7 +650,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               _SectionHeading(
                 label: 'EVENTOS CON SEÑAL',
                 description:
-                    '${playableEvents.length} con transmisión confirmada.',
+                    '${playableEvents.length} con enlace de evento proporcionado por socio.',
               ),
               const SizedBox(height: 10),
               for (final event in playableEvents)
@@ -883,7 +883,7 @@ class _SportsScheduleCard extends ConsumerWidget {
             Text(_subtitle(event.competition, event.startsAt)),
             if (channel != null)
               Text(
-                'Guía de TV: ' + channel.name,
+                'Guía de TV: ${channel.name}',
                 style: const TextStyle(color: Colors.white70),
               ),
           ],
@@ -952,7 +952,7 @@ class _SportsEventCard extends StatelessWidget {
                 ),
               ),
             const Text(
-              'Transmisión del evento disponible',
+              'Señal asociada por el proveedor; verificar al abrir',
               style: TextStyle(color: Colors.white70),
             ),
           ],
