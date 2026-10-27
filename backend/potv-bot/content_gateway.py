@@ -1802,6 +1802,20 @@ class ContentGateway:
         handler.end_headers()
         handler.wfile.write(raw)
 
+    def _hydrate_target(self, target_id):
+        """Restore signed media targets after an API service restart."""
+        if target_id in self._targets:
+            return
+        self.catalog(force=True)
+        # A stream signed in the private subscriber catalog must also be
+        # recoverable after a restart. Caller has already checked its signed
+        # capability and the upstream URL never enters the public catalog.
+        if target_id not in self._targets and self.nova_live_enabled:
+            with self._lock:
+                self._nova_subscriber_catalog = None
+                self._nova_subscriber_catalog_at = 0
+            self.catalog_for_subscriber()
+
     def serve_target(self, handler, target_id, query):
         if not self._validate_signature(target_id, query):
             self._json_error(handler, 403, "invalid_or_expired_stream")
@@ -1810,7 +1824,7 @@ class ContentGateway:
             # Rebuild lazy state after a process restart so stable channel IDs
             # become available again before lookup.
             if target_id not in self._targets:
-                self.catalog(force=True)
+                self._hydrate_target(target_id)
             target = self._targets.get(target_id)
             if target is None:
                 raise ContentGatewayError(404, "stream_not_found")
