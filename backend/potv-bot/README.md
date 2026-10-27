@@ -58,3 +58,12 @@ stream are intentionally omitted from the playable catalog.
 The Flutter client contract is defined in
 `lib/config/subscription_endpoint.dart`. The production base remains
 `https://potv.fxqubit.com/api/v1`.
+
+## Separate TV source aggregation
+
+For licensed multi-provider lineups, set `POTV_CONTENT_LIVE_SOURCE_MODE=merge`.
+This combines distinct live channels across sources even if
+`POTV_CONTENT_SOURCE_MODE=failover` is used for VOD. It does not
+repair HTTP 502 upstream outages or guarantee any particular channel,
+and does not change the existing stream authorization checks.
+Without this variable, live TV preserves the previous mode.

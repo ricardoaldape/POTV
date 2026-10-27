@@ -118,6 +118,13 @@ class ContentGateway:
         }
         if self.source_mode not in ("merge", "failover"):
             self.source_mode = "merge"
+        # TV catalogs can be combined even when VOD sources use first-working
+        # failover. This is deliberately opt-in for existing deployments.
+        self.live_source_mode = os.getenv(
+            "POTV_CONTENT_LIVE_SOURCE_MODE", self.source_mode
+        ).strip().lower()
+        if self.live_source_mode not in ("merge", "failover"):
+            self.live_source_mode = self.source_mode
         self.refresh_seconds = int(
             refresh_seconds
             if refresh_seconds is not None
@@ -1413,7 +1420,7 @@ class ContentGateway:
                     all_channels.append(self._channel_payload(channel))
                 except ContentGatewayError:
                     continue
-            if parsed and self.source_mode == "failover":
+            if parsed and self.live_source_mode == "failover":
                 break
 
         lmhd_events = []
