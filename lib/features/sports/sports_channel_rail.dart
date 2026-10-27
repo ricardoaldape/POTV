@@ -33,38 +33,57 @@ class SportsChannelRail extends ConsumerWidget {
           .load(forceRefresh: true);
       final matches = [...snapshot.sportsChannels, ...snapshot.channels]
           .where((item) => item.id == selected.id);
-      if (matches.isNotEmpty) {
-        channel = matches.first;
+      if (matches.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Este canal ya no está disponible. Actualiza la lista.'),
+            ),
+          );
+        }
         ref.invalidate(partnerContentProvider);
+        return;
       }
+      channel = matches.first;
+      ref.invalidate(partnerContentProvider);
     }
 
     final ordered = _language.orderedStreams(channel, preferredLanguage);
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.4),
-            ),
-            SizedBox(width: 16),
-            Expanded(child: Text('Verificando señal…')),
-          ],
+    final isSignedPartnerStream = channel.id.startsWith('partner:');
+    if (!isSignedPartnerStream) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              ),
+              SizedBox(width: 16),
+              Expanded(child: Text('Verificando señal…')),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    }
 
-    final playable = await ref.read(streamCandidateProbeProvider).preferReachable(
-          ordered,
-          dropDeadWhenCertain: true,
-        );
+    // Partner live transport streams can run forever and commonly reject
+    // HEAD probes. We have just refreshed their signed URLs from the
+    // subscription-gated POTV catalog; let Media3 verify real playback.
+    final playable = isSignedPartnerStream
+        ? ordered
+        : await ref.read(streamCandidateProbeProvider).preferReachable(
+            ordered,
+            dropDeadWhenCertain: true,
+          );
 
     if (!context.mounted) return;
-    Navigator.of(context, rootNavigator: true).pop();
+    if (!isSignedPartnerStream) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
 
     if (playable.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
