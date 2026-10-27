@@ -117,4 +117,146 @@ void main() {
     expect(matches, isNotEmpty);
     expect(matches.first.channel.id, 'mx-1');
   });
+  test('rejects teams sharing only a name prefix', () {
+    final starts = DateTime.utc(2026, 10, 28, 20);
+    final event = SportsEvent(
+      id: 'madrid-1',
+      sport: 'Soccer',
+      competition: 'Champions League',
+      home: 'Real Madrid',
+      away: 'Atletico Madrid',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'sports-1',
+      name: 'Deportes',
+      epgId: 'espn.mx',
+      stream: StreamCandidate(
+        id: 'stream-1',
+        label: 'Deportes',
+        uri: Uri.parse('https://example.com/live.m3u8'),
+      ),
+    );
+    final program = EpgProgram(
+      channelId: 'espn.mx',
+      title: 'Real Sociedad vs Atletico Madrid',
+      startsAt: starts,
+      endsAt: starts.add(const Duration(hours: 2)),
+    );
+    expect(
+      const SportsChannelResolver().resolve(
+        event: event,
+        channels: [channel],
+        programs: [program],
+      ),
+      isEmpty,
+    );
+  });
+
+  test('rejects a replay hours earlier, even if teams match', () {
+    final starts = DateTime.utc(2026, 10, 28, 20);
+    final event = SportsEvent(
+      id: 'replay-1',
+      sport: 'Soccer',
+      competition: 'Liga MX',
+      home: 'America',
+      away: 'Monterrey',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'sports-2',
+      name: 'Deportes',
+      epgId: 'espn.mx',
+      stream: StreamCandidate(
+        id: 'stream-2',
+        label: 'Deportes',
+        uri: Uri.parse('https://example.com/live.m3u8'),
+      ),
+    );
+    final program = EpgProgram(
+      channelId: 'ESPN.MX',
+      title: 'America vs Monterrey',
+      startsAt: starts.subtract(const Duration(hours: 3)),
+      endsAt: starts.subtract(const Duration(hours: 1)),
+    );
+    expect(
+      const SportsChannelResolver().resolve(
+        event: event,
+        channels: [channel],
+        programs: [program],
+      ),
+      isEmpty,
+    );
+  });
+
+  test('links exact teams with case-insensitive EPG channel ID', () {
+    final starts = DateTime.utc(2026, 10, 28, 20);
+    final event = SportsEvent(
+      id: 'confirmed-1',
+      sport: 'Soccer',
+      competition: 'Liga MX',
+      home: 'America',
+      away: 'Monterrey',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'sports-3',
+      name: 'Deportes',
+      epgId: 'ESPN.MX',
+      stream: StreamCandidate(
+        id: 'stream-3',
+        label: 'Deportes',
+        uri: Uri.parse('https://example.com/live.m3u8'),
+      ),
+    );
+    final program = EpgProgram(
+      channelId: 'espn.mx',
+      title: 'America vs Monterrey',
+      startsAt: starts.add(const Duration(minutes: 15)),
+      endsAt: starts.add(const Duration(hours: 2)),
+    );
+    final matches = const SportsChannelResolver().resolve(
+      event: event,
+      channels: [channel],
+      programs: [program],
+    );
+    expect(matches, hasLength(1));
+    expect(matches.single.channel.id, 'sports-3');
+  });
+  test('does not assemble opponents from unrelated EPG fields', () {
+    final starts = DateTime.utc(2026, 10, 28, 20);
+    final event = SportsEvent(
+      id: 'mixed-1',
+      sport: 'Soccer',
+      competition: 'Liga MX',
+      home: 'America',
+      away: 'Monterrey',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'sports-4',
+      name: 'Deportes',
+      epgId: 'espn.mx',
+      stream: StreamCandidate(
+        id: 'stream-4',
+        label: 'Deportes',
+        uri: Uri.parse('https://example.com/live.m3u8'),
+      ),
+    );
+    final program = EpgProgram(
+      channelId: 'espn.mx',
+      title: 'America vs Tigres',
+      description: 'Siguiente: Monterrey vs Pumas',
+      startsAt: starts,
+      endsAt: starts.add(const Duration(hours: 2)),
+    );
+    expect(
+      const SportsChannelResolver().resolve(
+        event: event,
+        channels: [channel],
+        programs: [program],
+      ),
+      isEmpty,
+    );
+  });
 }
