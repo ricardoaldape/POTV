@@ -1688,7 +1688,14 @@ class ContentGateway:
             target_id = unquote(parsed.path[len(prefix):])
             if target_id not in self._targets:
                 return url
-            return self._proxy_url(target_id)
+            signed = self._proxy_url(target_id)
+            # The CDN can serve HLS or MPEG-TS from an extensionless URL.
+            # Preserve a previously classified transport hint when renewing
+            # a 15-minute signature from the subscriber's cached catalog.
+            hint = (parse_qs(parsed.query).get("format") or [""])[0]
+            if hint in ("hls", "mpd", "ts", "mp4") and "format=" not in signed:
+                signed += "&format=" + hint
+            return signed
 
         for group in ("channels", "sports_channels"):
             for channel in result.get("data", {}).get(group, []):
