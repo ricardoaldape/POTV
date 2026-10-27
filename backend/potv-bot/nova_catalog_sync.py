@@ -6,7 +6,12 @@ account; never places upstream stream URLs into a public endpoint.
 import hashlib
 import json
 import os
+import ipaddress
+import socket
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -133,6 +138,130 @@ def normalize_media(items, *, category):
     return out
 
 
+# NOVA marks a few HTML iframe landing pages as live channels. Media3 cannot
+# decode HTML, and some genuine HLS sources have extensionless URLs. Probe only
+# selected sports and iframe backups, never the full 11k-item provider feed.
+_MEDIA_EXTENSIONS = (".m3u8", ".mpd", ".ts", ".mp4", ".mkv", ".webm", ".m4v")
+
+
+def _url_format(url):
+    path = urlsplit(url).path.lower()
+    if path.endswith(".m3u8"):
+        return "hls"
+    if path.endswith(".mpd"):
+        return "mpd"
+    if path.endswith(".ts"):
+        return "ts"
+    if path.endswith((".mp4", ".mkv", ".webm", ".m4v")):
+        return "mp4"
+    return None
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+def probe_stream_format(url):
+    """Bounded content sniff; no redirects or access to nonpublic addresses.
+
+    Never log upstream URLs, response bodies or authorization information.
+    A failed probe is *not* evidence that the provider is unlicensed.
+    """
+    value = _stream_url(url)
+    if not value:
+        return None
+    host = urlsplit(value).hostname
+    try:
+        addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        if not addresses or any(
+            not ipaddress.ip_address(entry[4][0]).is_global
+            for entry in addresses
+        ):
+            return None
+    except (OSError, ValueError, TypeError):
+        return None
+    try:
+        req = Request(value, headers={
+            "User-Agent": "POTV-Authorized-Stream-Check/1.0",
+            "Range": "bytes=0-511",
+            "Accept": "*/*",
+        })
+        with build_opener(_NoRedirect()).open(req, timeout=3) as response:
+            kind = response.headers.get("Content-Type", "").lower().split(";")[0]
+            if kind in ("application/vnd.apple.mpegurl",
+                        "application/x-mpegurl", "audio/mpegurl",
+                        "audio/x-mpegurl"):
+                return "hls"
+            if kind == "application/dash+xml":
+                return "mpd"
+            if kind in ("video/mp2t", "video/mpeg2"):
+                return "ts"
+            if kind in ("video/mp4", "video/x-matroska", "video/webm"):
+                return "mp4"
+            data = response.read(512).lstrip()
+            if data.startswith(b"#EXTM3U"):
+                return "hls"
+            if data.startswith(b"<MPD") or b"<MPD " in data[:100]:
+                return "mpd"
+            if data and data[0] == 0x47:
+                return "ts"
+    except (HTTPError, URLError, OSError, TimeoutError, ValueError):
+        return None
+    return None
+
+
+def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format):
+    """Promote confirmed native backups over HTML iframes, annotate HLS.
+
+    All probing is limited to at most 80 candidates in 8 concurrent workers.
+    If an iframe has no verified native backup, hide that unplayable row.
+    """
+    original = {str(row.get("id")): row for row in upstream
+                if isinstance(row, dict)}
+    tasks = []
+    for row in rows:
+        source = original.get(str(row["id"])[5:]) or {}
+        if source.get("is_iframe") is True:
+            for url in (row.get("backup_urls") or [])[:5]:
+                tasks.append((row["id"], url))
+        elif row.get("is_sports") and not _url_format(row["url"]):
+            tasks.append((row["id"], row["url"]))
+    tasks = list(dict.fromkeys(tasks))[:80]
+    results = {}
+    if tasks:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            outcomes = pool.map(lambda entry: probe(entry[1]), tasks)
+            for (ident, url), result in zip(tasks, outcomes):
+                if result in ("hls", "mpd", "ts", "mp4"):
+                    results[(ident, url)] = result
+    clean = []
+    dropped_iframes = 0
+    for row in rows:
+        item = dict(row)
+        source = original.get(str(row["id"])[5:]) or {}
+        if source.get("is_iframe") is True:
+            playable = [(url, results[(row["id"], url)])
+                        for url in (row.get("backup_urls") or [])[:5]
+                        if (row["id"], url) in results]
+            if not playable:
+                dropped_iframes += 1
+                continue
+            item["url"], item["format"] = playable[0]
+            item["backup_urls"] = [url for url, _ in playable[1:]]
+            item["backup_formats"] = [fmt for _, fmt in playable[1:]]
+        else:
+            fmt = results.get((row["id"], row["url"]))
+            if fmt:
+                item["format"] = fmt
+        clean.append(item)
+    return clean, {
+        "format_probes": len(tasks),
+        "format_identified": len(results),
+        "iframe_without_native_backup": dropped_iframes,
+    }
+
+
 def fetch_media_pages(service, method, *, cap=500):
     rows=[]
     for offset in range(0, cap, 100):
@@ -151,6 +280,8 @@ def fetch_media_pages(service, method, *, cap=500):
 def synchronize(*, service, destination, limit=4500):
     channels = service.channels()
     rows, counts = normalize_channels(channels, limit=limit)
+    rows, format_counts = enrich_stream_formats(rows, channels)
+    counts.update(format_counts)
     if not rows:
         raise NovaPartnerError("empty_channel_snapshot")
     version = {}

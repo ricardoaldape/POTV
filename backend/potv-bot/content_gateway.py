@@ -1292,6 +1292,9 @@ class ContentGateway:
             "hls_url": self._proxy_url(target_id),
             "language": channel.get("language") or None,
         }
+        hint = str(channel.get("format") or "").lower().strip()
+        if hint in ("hls", "mpd", "ts", "mp4") and "format=" not in payload["hls_url"]:
+            payload["hls_url"] += "&format=" + hint
         logo = str(channel.get("logo") or "").strip()
         if logo.startswith("https://"):
             payload["logo"] = logo
@@ -1625,12 +1628,19 @@ class ContentGateway:
             backups = []
             raw_backups = row.get("backup_urls")
             if isinstance(raw_backups, list):
-                for url in raw_backups[:4]:
+                backup_hints = row.get("backup_formats") or []
+                for backup_index, url in enumerate(raw_backups[:4]):
                     try:
                         target = self._register_target(url)
                     except (ContentGatewayError, ValueError, TypeError):
                         continue
-                    backups.append(self._proxy_url(target))
+                    signed = self._proxy_url(target)
+                    hint = (backup_hints[backup_index]
+                            if isinstance(backup_hints, list)
+                            and backup_index < len(backup_hints) else "")
+                    if hint in ("hls", "mpd", "ts", "mp4") and "format=" not in signed:
+                        signed += "&format=" + hint
+                    backups.append(signed)
             if backups:
                 channel["backup_urls"] = backups
             seen.add(key)
