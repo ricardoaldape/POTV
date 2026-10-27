@@ -134,7 +134,13 @@ current manifest untouched. The script does not install APKs or bypass
 Android's user confirmation.
 
 Deploy ops/systemd/potv-ota-manifest.service and .timer on the VPS and
-enable the timer. The unit uses --allow-beta because POTV's current
+enable the timer. Before enabling, create /opt/potv-bot/ota-state and
+copy the current version.json into ota-state/version.json. Replace the
+legacy /opt/potv-bot/version.json file with a relative symlink pointing to
+ota-state/version.json (keep a backup). This allows systemd to grant write
+access only to ota-state while the public endpoint keeps reading its old
+path. Do not grant the updater write access to the whole application tree.
+The unit uses --allow-beta because POTV's current
 official channel is prerelease; omit it for stable releases only.
 Verify before enabling with:
     python3 ota_manifest_sync.py --allow-beta --dry-run
