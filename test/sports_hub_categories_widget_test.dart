@@ -27,6 +27,69 @@ class _TestEpgController extends EpgProgramsController {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets('shows authorized sports stations without EPG or event streams',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final nfl = LiveChannel(
+      id: 'nova-nfl',
+      name: 'NFL Network',
+      group: 'Deportes',
+      stream: StreamCandidate(
+        id: 'nfl-proxy',
+        label: 'POTV',
+        uri: Uri.parse('https://potv.fxqubit.com/api/v1/content/stream/test'),
+      ),
+    );
+    final news = LiveChannel(
+      id: 'news',
+      name: 'Canal Noticias',
+      group: 'Noticias',
+      stream: StreamCandidate(
+        id: 'news-proxy',
+        label: 'POTV',
+        uri: Uri.parse('https://potv.fxqubit.com/api/v1/content/stream/news'),
+      ),
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        partnerContentProvider.overrideWith((ref) async =>
+            PartnerContentSnapshot(
+              revision: 'no-epg',
+              fetchedAt: DateTime.now(),
+              sportsChannels: [nfl],
+              channels: [news],
+            )),
+        starterSportsChannelsProvider.overrideWith((ref) => <LiveChannel>[]),
+        builtInSportsChannelsProvider.overrideWith(
+            (ref) async => <LiveChannel>[]),
+        liveChannelsProvider.overrideWith(_TestLiveChannelsController.new),
+        epgProgramsProvider.overrideWith(_TestEpgController.new),
+        sportsEventsProvider.overrideWith((ref, query) async => <SportsEvent>[]),
+        addonSportsItemsProvider.overrideWith((ref, sport) async => []),
+      ],
+      child: const MaterialApp(home: SportsHubScreen()),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('SEÑAL 24/7'), findsOneWidget);
+    expect(find.text('NFL Network'), findsWidgets);
+    expect(find.text('Canal Noticias'), findsNothing);
+    expect(find.text('EN VIVO'), findsNothing);
+    expect(find.textContaining('No hay una transmisión deportiva'), findsNothing);
+
+    await tester.tap(find.byKey(
+      const ValueKey('sports-category-americanFootball'),
+    ));
+    await tester.pump();
+    expect(find.text('SEÑAL 24/7'), findsOneWidget);
+    expect(find.text('NFL Network'), findsWidgets);
+  });
+
   testWidgets('sports categories select NFL separately from soccer', (
     tester,
   ) async {
