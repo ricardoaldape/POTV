@@ -126,9 +126,13 @@ def refresh_cache(items, path, *, batch_size=MAX_BATCH, opener=None, now=None):
         seen.add(key)
         old = entries.get(key) if isinstance(entries.get(key), dict) else {}
         if old.get("title") == title and old.get("year") == year:
-            if old.get("anilist_id") is not None:
+            if isinstance(old.get("anilist_id"), int) and old["anilist_id"] > 0:
                 continue
-            if stamp - int(old.get("checked_at") or 0) < NEGATIVE_TTL:
+            try:
+                last_checked = int(old.get("checked_at") or 0)
+            except (TypeError, ValueError):
+                last_checked = 0
+            if stamp - last_checked < NEGATIVE_TTL:
                 continue
         pending.append((key, title, year))
         if len(pending) >= max(1, min(MAX_BATCH, int(batch_size))):
@@ -159,7 +163,8 @@ def refresh_cache(items, path, *, batch_size=MAX_BATCH, opener=None, now=None):
         if len(body) > 512 * 1024:
             return entries, 0
         parsed = json.loads(body)
-        if parsed.get("errors") or not isinstance(parsed.get("data"), dict):
+        if (not isinstance(parsed, dict) or parsed.get("errors")
+                or not isinstance(parsed.get("data"), dict)):
             return entries, 0
     except (HTTPError, URLError, OSError, ValueError, TypeError, TimeoutError):
         return entries, 0
@@ -195,7 +200,9 @@ def normalize_anime(items, entries):
             continue
         if tmdb <= 0 or not title:
             continue
-        cache = entries.get(str(tmdb)) or {}
+        cache = entries.get(str(tmdb))
+        if not isinstance(cache, dict):
+            cache = {}
         if (cache.get("title") == title and cache.get("year") == year):
             ident = cache.get("anilist_id")
         else:
