@@ -326,19 +326,54 @@ def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format,
     }
 
 
-def fetch_media_pages(service, method, *, cap=500):
-    rows=[]
-    for offset in range(0, cap, 100):
+def fetch_media_pages(service, method, *, cap=500, start=0):
+    """Read a bounded page window; never request an entire partner VOD feed."""
+    rows = []
+    for offset in range(start, start + cap, 100):
         try:
-            batch=method(skip=offset,limit=min(100,cap-offset))
-        except (NovaPartnerError,ValueError,TypeError):
+            batch = method(skip=offset, limit=min(100, start + cap - offset))
+        except (NovaPartnerError, ValueError, TypeError):
             break
-        if not isinstance(batch,list) or not batch:
+        if not isinstance(batch, list) or not batch:
             break
         rows.extend(batch)
-        if len(batch)<100:
+        if len(batch) < 100:
             break
     return rows
+
+
+def progressive_media(service, method, *, category, previous=None,
+                      previous_offset=0, scan_limit=5000, batch=500):
+    """Grow a VOD shelf over consecutive partner syncs, not only first 500.
+
+    The schedule re-reads new releases on the first window of each cycle and
+    continues deeper in subsequent cycles. Preserve the previous shelf during
+    transient API failures; don't turn a provider outage into a catalog wipe.
+    Memory and payloads are bounded so the Android catalog remains responsive.
+    """
+    cached = [x for x in (previous or [])
+              if isinstance(x, dict) and isinstance(x.get("tmdb_id"), int)]
+    start = max(0, min(int(previous_offset or 0), scan_limit))
+    if start >= scan_limit:
+        start = 0
+    rows = fetch_media_pages(service, method,
+                             cap=min(batch, scan_limit - start), start=start)
+    if not rows:
+        return cached[:scan_limit], (0 if start else start), 0
+    fresh = normalize_media(rows, category=category)
+    seen = set()
+    combined = []
+    for row in [*fresh, *cached]:
+        ident = row["tmdb_id"]
+        if ident not in seen:
+            seen.add(ident)
+            combined.append(row)
+        if len(combined) >= scan_limit:
+            break
+    next_offset = start + len(rows)
+    if len(rows) < min(batch, scan_limit - start) or next_offset >= scan_limit:
+        next_offset = 0
+    return combined, next_offset, len(rows)
 
 
 def snapshot_revision(channels, movies, series, anime):
@@ -364,10 +399,13 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
     rows, counts = normalize_channels(channels, limit=limit)
     destination = Path(destination)
     previous = []
+    old_snapshot = {}
     previous_probe_version = 0
     try:
         if destination.stat().st_size < 12 * 1024 * 1024:
             old = json.loads(destination.read_text(encoding="utf-8"))
+            if isinstance(old, dict):
+                old_snapshot = old
             if isinstance(old.get("channels"), list):
                 previous = old["channels"]
             previous_probe_version = int(old.get("format_probe_version") or 0)
@@ -391,11 +429,18 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
             }
     except (NovaPartnerError, ValueError, TypeError):
         pass
-    movies = normalize_media(
-        fetch_media_pages(service, service.movies), category="movie"
+    old_offsets = old_snapshot.get("media_scan_offsets") or {}
+    if not isinstance(old_offsets, dict):
+        old_offsets = {}
+    movies, movies_offset, movie_received = progressive_media(
+        service, service.movies, category="movie",
+        previous=old_snapshot.get("movies"),
+        previous_offset=old_offsets.get("movies", 0),
     )
-    series = normalize_media(
-        fetch_media_pages(service, service.series), category="series"
+    series, series_offset, series_received = progressive_media(
+        service, service.series, category="series",
+        previous=old_snapshot.get("series"),
+        previous_offset=old_offsets.get("series", 0),
     )
     anime = []
     if anime_map_file:
@@ -413,6 +458,8 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         "format_probe_version": 2,
         "movies": movies,
         "series": series,
+        "media_scan_offsets": {"movies": movies_offset,
+                               "series": series_offset},
         "anime": anime,
         "upstream_app_version": version,
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -437,6 +484,8 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         "published_for_subscribers": len(rows),
         "movie_catalog_sample": len(movies),
         "series_catalog_sample": len(series),
+        "movie_page_received": movie_received,
+        "series_page_received": series_received,
         "anime_catalog_mapped": len(anime),
         **counts,
         "revision": body["revision"],
