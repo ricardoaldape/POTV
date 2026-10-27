@@ -224,6 +224,34 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
       );
     }
 
+    // An EPG is optional for a 24/7 sports station. Previously, an empty
+    // guide and no event-specific feeds made the entire "live" rail empty,
+    // even when NFL Network, ESPN or other licensed sports channels had
+    // usable playback candidates. Offer these *stations*, never pretend
+    // they carry a particular fixture or that video/audio was verified.
+    for (final channel in channels) {
+      if (result.length >= 18) break;
+      if (representedChannels.contains(channel.id) ||
+          channel.playbackCandidates.isEmpty) {
+        continue;
+      }
+      final category = organizer.categoryForChannel(channel);
+      if (selectedCategory != SportsHubCategory.all &&
+          selectedCategory != SportsHubCategory.sportsTv &&
+          category != selectedCategory) {
+        continue;
+      }
+      if (!organizer.isSportsChannel(channel)) continue;
+      representedChannels.add(channel.id);
+      result.add(_SportsNowItem(
+        title: channel.name,
+        subtitle: 'Canal deportivo · verificar al abrir',
+        startsAt: now,
+        candidates: channel.playbackCandidates,
+        isConfirmedLive: false,
+      ));
+    }
+
     return result.take(18).toList(growable: false);
   }
 
@@ -400,7 +428,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
           const _SectionHeading(
             label: 'PARRILLA EN VIVO',
             description:
-                'Sólo programas y eventos con transmisión confirmada ahora.',
+                'Programas actuales y señales 24/7; la reproducción se verifica al abrir.',
           ),
           const SizedBox(height: 10),
           if (nowGuide.isNotEmpty)
@@ -673,6 +701,7 @@ class _SportsNowItem {
   final DateTime? endsAt;
   final List<StreamCandidate> candidates;
   final String? nextTitle;
+  final bool isConfirmedLive;
 
   const _SportsNowItem({
     required this.title,
@@ -681,6 +710,7 @@ class _SportsNowItem {
     this.endsAt,
     required this.candidates,
     this.nextTitle,
+    this.isConfirmedLive = true,
   });
 }
 
@@ -729,18 +759,24 @@ class _SportsNowRail extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
                           Icon(
-                            Icons.circle,
-                            size: 9,
-                            color: Colors.redAccent,
+                            item.isConfirmedLive
+                                ? Icons.circle
+                                : Icons.live_tv_rounded,
+                            size: item.isConfirmedLive ? 9 : 14,
+                            color: item.isConfirmedLive
+                                ? Colors.redAccent
+                                : Colors.white70,
                           ),
-                          SizedBox(width: 6),
+                          const SizedBox(width: 6),
                           Text(
-                            'EN VIVO',
+                            item.isConfirmedLive ? 'EN VIVO' : 'SEÑAL 24/7',
                             style: TextStyle(
-                              color: Colors.redAccent,
+                              color: item.isConfirmedLive
+                                  ? Colors.redAccent
+                                  : Colors.white70,
                               fontWeight: FontWeight.w900,
                               fontSize: 11,
                             ),
