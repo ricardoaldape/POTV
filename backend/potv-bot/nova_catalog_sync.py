@@ -8,6 +8,7 @@ import json
 import os
 import ipaddress
 import socket
+import time
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError, URLError
@@ -211,23 +212,54 @@ def probe_stream_format(url):
     return None
 
 
-def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format):
-    """Promote confirmed native backups over HTML iframes, annotate HLS.
+def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format,
+                          previous=None, now=None, max_probes=80):
+    """Classify native sources incrementally without hammering NOVA's CDN.
 
-    All probing is limited to at most 80 candidates in 8 concurrent workers.
-    If an iframe has no verified native backup, hide that unplayable row.
+    Probe iframe backups and unknown sports first, then other extensionless
+    channels. Reuse a known format while its URL is unchanged; back off
+    unsuccessful checks for two hours. This converges over periodic syncs.
     """
+    now = int(time.time() if now is None else now)
     original = {str(row.get("id")): row for row in upstream
                 if isinstance(row, dict)}
+    cached = {str(row.get("id")): row for row in (previous or [])
+              if isinstance(row, dict)}
     tasks = []
+    reused = {}
     for row in rows:
-        source = original.get(str(row["id"])[5:]) or {}
+        ident, url = row["id"], row["url"]
+        source = original.get(str(ident)[5:]) or {}
         if source.get("is_iframe") is True:
-            for url in (row.get("backup_urls") or [])[:5]:
-                tasks.append((row["id"], url))
-        elif row.get("is_sports") and not _url_format(row["url"]):
-            tasks.append((row["id"], row["url"]))
-    tasks = list(dict.fromkeys(tasks))[:80]
+            for backup in (row.get("backup_urls") or [])[:5]:
+                tasks.append((ident, backup))
+            continue
+        if _url_format(url):
+            continue
+        old = cached.get(ident) or {}
+        if old.get("url") == url:
+            old_format = old.get("format")
+            if old_format in ("hls", "mpd", "ts", "mp4"):
+                reused[ident] = (old_format, old.get("format_probe_at"))
+                continue
+            try:
+                last_checked = int(old.get("format_probe_at") or 0)
+            except (ValueError, TypeError):
+                last_checked = 0
+            if last_checked > now - 7200:
+                reused[ident] = (None, last_checked)
+                continue
+        tasks.append((ident, url))
+    # Probe iframe backups before sports and general channels, with O(1)
+    # category lookups rather than scanning the 7k-row catalog per task.
+    sports_ids = {row["id"] for row in rows if row.get("is_sports")}
+    iframe_ids = {row["id"] for row in rows if
+                  (original.get(str(row["id"])[5:]) or {}).get("is_iframe") is True}
+    tasks.sort(key=lambda entry: (
+        0 if entry[0] in iframe_ids else
+        1 if entry[0] in sports_ids else 2
+    ))
+    tasks = list(dict.fromkeys(tasks))[:max(0, max_probes)]
     results = {}
     if tasks:
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -235,29 +267,40 @@ def enrich_stream_formats(rows, upstream, *, probe=probe_stream_format):
             for (ident, url), result in zip(tasks, outcomes):
                 if result in ("hls", "mpd", "ts", "mp4"):
                     results[(ident, url)] = result
+    checked = set(tasks)
     clean = []
     dropped_iframes = 0
     for row in rows:
         item = dict(row)
-        source = original.get(str(row["id"])[5:]) or {}
+        ident, url = row["id"], row["url"]
+        source = original.get(str(ident)[5:]) or {}
         if source.get("is_iframe") is True:
-            playable = [(url, results[(row["id"], url)])
-                        for url in (row.get("backup_urls") or [])[:5]
-                        if (row["id"], url) in results]
+            playable = [(backup, results[(ident, backup)])
+                        for backup in (row.get("backup_urls") or [])[:5]
+                        if (ident, backup) in results]
             if not playable:
                 dropped_iframes += 1
                 continue
             item["url"], item["format"] = playable[0]
-            item["backup_urls"] = [url for url, _ in playable[1:]]
+            item["backup_urls"] = [backup for backup, _ in playable[1:]]
             item["backup_formats"] = [fmt for _, fmt in playable[1:]]
-        else:
-            fmt = results.get((row["id"], row["url"]))
+            item["format_probe_at"] = now
+        elif ident in reused:
+            fmt, checked_at = reused[ident]
             if fmt:
                 item["format"] = fmt
+            if checked_at:
+                item["format_probe_at"] = checked_at
+        elif (ident, url) in checked:
+            fmt = results.get((ident, url))
+            if fmt:
+                item["format"] = fmt
+            item["format_probe_at"] = now
         clean.append(item)
     return clean, {
         "format_probes": len(tasks),
         "format_identified": len(results),
+        "format_cached": sum(bool(fmt) for fmt, _ in reused.values()),
         "iframe_without_native_backup": dropped_iframes,
     }
 
@@ -280,7 +323,18 @@ def fetch_media_pages(service, method, *, cap=500):
 def synchronize(*, service, destination, limit=4500):
     channels = service.channels()
     rows, counts = normalize_channels(channels, limit=limit)
-    rows, format_counts = enrich_stream_formats(rows, channels)
+    destination = Path(destination)
+    previous = []
+    try:
+        if destination.stat().st_size < 12 * 1024 * 1024:
+            old = json.loads(destination.read_text(encoding="utf-8"))
+            if isinstance(old.get("channels"), list):
+                previous = old["channels"]
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    rows, format_counts = enrich_stream_formats(
+        rows, channels, previous=previous
+    )
     counts.update(format_counts)
     if not rows:
         raise NovaPartnerError("empty_channel_snapshot")
@@ -308,7 +362,8 @@ def synchronize(*, service, destination, limit=4500):
         "upstream_app_version": version,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "revision": hashlib.sha256(json.dumps(
-            [(r["id"], r["url"]) for r in rows], separators=(",", ":")
+            [(r["id"], r["url"], r.get("format"),
+              r.get("backup_urls")) for r in rows], separators=(",", ":")
         ).encode()).hexdigest()[:20],
         "channels": rows,
     }
