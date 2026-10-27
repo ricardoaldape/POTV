@@ -67,3 +67,14 @@ This combines distinct live channels across sources even if
 repair HTTP 502 upstream outages or guarantee any particular channel,
 and does not change the existing stream authorization checks.
 Without this variable, live TV preserves the previous mode.
+
+### NOVA provider interoperability (private, opt-in)
+
+The nova_partner.py API client is compatible with paths observed in NOVA
+1.2.9's Retrofit interface. Use a provider-issued POTV service account,
+not an embedded APK session. Create a non-Git file such as
+/opt/potv-bot/secrets/nova-service.json with JSON fields api_base_url
+(HTTPS API root ending with /) and service_access_token (issued by NOVA).
+Set POTV_NOVA_SERVICE_FILE to that private file and run
+python3 nova_partner_smoke.py. It does not activate public playback routes
+or bypass POTV customer entitlement checks.
