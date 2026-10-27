@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from account_store import AccountStore, AccountError
 from content_gateway import ContentGateway, ContentGatewayError
-from content_access import has_active_subscription, requires_vod_subscription
+from content_access import has_active_subscription, requires_vod_subscription, catalog_access_status
 
 BASE=os.path.dirname(os.path.abspath(__file__))
 DB=os.getenv("POTV_DB",os.path.join(BASE,"potv.sqlite3"))
@@ -537,16 +537,15 @@ class ApiHandler(BaseHTTPRequestHandler):
 
         if path=="/api/v1/content/catalog":
             try:
-                # The public starter catalog stays readable. The licensed
-                # partner lineup is never served unless the requesting POTV
-                # session belongs to an active subscription or trial.
+                # Do not expose signed starter or licensed channel URLs to
+                # anonymous, expired, or inactive POTV sessions.
                 token=self._bearer()
                 account=ACCOUNT_STORE.session(token) if token else None
-                if account is not None and has_active_subscription(account):
-                    catalog=CONTENT_GATEWAY.catalog_for_subscriber()
-                else:
-                    catalog=CONTENT_GATEWAY.catalog()
-                self.out(200,catalog)
+                status=catalog_access_status(token, account)
+                if status != 200:
+                    error="invalid_session" if status == 401 else "subscription_required"
+                    self.out(status,{"ok":False,"error":error}); return
+                self.out(200,CONTENT_GATEWAY.catalog_for_subscriber())
             except ContentGatewayError as exc:
                 self.out(exc.status,{"ok":False,"error":exc.code})
             return
