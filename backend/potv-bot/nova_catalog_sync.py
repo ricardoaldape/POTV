@@ -321,6 +321,24 @@ def fetch_media_pages(service, method, *, cap=500):
     return rows
 
 
+def snapshot_revision(channels, movies, series, anime):
+    """Change revision when media titles/IDs change, not only TV channels.
+
+    Ignore transient sync timestamps so AniList incremental mapping produces
+    one stable revision per distinct subscriber-visible catalog.
+    """
+    material = {
+        "channels": sorted((
+            r["id"], r["url"], r.get("format"), r.get("backup_urls")
+        ) for r in channels),
+        "movies": sorted(movies, key=lambda r: r["tmdb_id"]),
+        "series": sorted(series, key=lambda r: r["tmdb_id"]),
+        "anime": sorted(anime, key=lambda r: r["anilist_id"]),
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True,
+        separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()[:20]
+
+
 def synchronize(*, service, destination, limit=4500, anime_map_file=None):
     channels = service.channels()
     rows, counts = normalize_channels(channels, limit=limit)
@@ -374,10 +392,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         "anime": anime,
         "upstream_app_version": version,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "revision": hashlib.sha256(json.dumps(
-            [(r["id"], r["url"], r.get("format"),
-              r.get("backup_urls")) for r in rows], separators=(",", ":")
-        ).encode()).hexdigest()[:20],
+        "revision": snapshot_revision(rows, movies, series, anime),
         "channels": rows,
     }
     destination = Path(destination)

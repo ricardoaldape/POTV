@@ -99,3 +99,17 @@ with tempfile.TemporaryDirectory() as tmp:
     assert retry_count == 0
     assert opener.calls == 2, "negative entries should be refreshed after a week"
 print("PASS: exact AniList IDs, year, ambiguity, privacy, cache TTL and stale title")
+
+
+# A newly mapped anime must invalidate the subscriber catalog revision.
+from nova_catalog_sync import snapshot_revision
+channel = [{"id":"nova:1", "url":"https://fixture.example/live.m3u8",
+            "format":"hls", "backup_urls":[]}]
+film = [{"tmdb_id": 10, "title": "Film"}]
+first = snapshot_revision(channel, film, [], [])
+second = snapshot_revision(channel, film, [], mapped_rows)
+assert first != second
+assert second == snapshot_revision(channel, film, [], list(reversed(mapped_rows)))
+assert second != snapshot_revision(channel, film + [{"tmdb_id": 11,
+    "title":"New film"}], [], mapped_rows)
+print("PASS: subscriber revision changes for anime and VOD catalog updates")
