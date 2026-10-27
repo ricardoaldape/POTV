@@ -186,17 +186,42 @@ class NovaPartner:
             raise ValueError("Invalid channel identifier")
         return self._source_urls(self._get("channels/stream/" + identifier))
 
+    def _source_items_from_routes(self, routes, query):
+        """Prefer the current VOD API, then NOVA's documented legacy route.
+
+        A 401/402/403 is an entitlement decision and must never be retried
+        against a second endpoint. Only unsupported or empty route responses
+        can trigger the known compatible fallback.
+        """
+        for route in routes:
+            try:
+                response = self._get(route, query)
+            except NovaPartnerError as exc:
+                if exc.code == "upstream_denied":
+                    raise
+                continue
+            rows = self._rows(response)
+            if rows:
+                return rows
+            payload = self._payload(response)
+            if isinstance(payload, dict):
+                # A direct stream response is valid; empty catalogs are not.
+                if any(payload.get(key) for key in (
+                    "primary_url", "stream_url", "hls_url", "url",
+                    "real_url", "embed_url",
+                )):
+                    return [payload]
+        return []
+
     def movie_source_items(self, tmdb_id, *, title=None, year=None):
-        response = self._get(
-            "vod/sources/movie/" + str(self._positive_id(tmdb_id)),
-            {"language": "es-MX", **({"title": title} if title else {}),
-             **({"year": str(year)} if year else {})}
+        item_id = str(self._positive_id(tmdb_id))
+        query = {"language": "es-MX",
+                 **({"title": title} if title else {}),
+                 **({"year": str(year)} if year else {})}
+        return self._source_items_from_routes(
+            ("vod/sources/movie/" + item_id, "sources/movie/" + item_id),
+            query,
         )
-        rows = self._rows(response)
-        if rows:
-            return rows
-        payload = self._payload(response)
-        return [payload] if isinstance(payload, dict) else []
 
     def movie_sources(self, tmdb_id, *, title=None, year=None):
         return self._source_urls(self.movie_source_items(
@@ -206,17 +231,15 @@ class NovaPartner:
     def episode_source_items(self, tmdb_id, season, episode, *,
                              title=None, year=None, is_anime=False):
         a,b,c = (self._positive_id(v) for v in (tmdb_id,season,episode))
-        response = self._get(
-            f"vod/sources/tv/{a}/{b}/{c}",
-            {"language": "es-MX", **({"title":title} if title else {}),
-             **({"year":str(year)} if year else {}),
-             **({"is_anime":"true"} if is_anime else {})}
-        )
-        rows = self._rows(response)
-        if rows:
-            return rows
-        payload = self._payload(response)
-        return [payload] if isinstance(payload, dict) else []
+        query = {"language": "es-MX",
+                 **({"title": title} if title else {}),
+                 **({"year": str(year)} if year else {}),
+                 **({"is_anime": "true"} if is_anime else {})}
+        routes = [f"vod/sources/tv/{a}/{b}/{c}"]
+        if is_anime:
+            routes.append(f"sources/anime/{a}/{b}/{c}")
+        routes.append(f"sources/tv/{a}/{b}/{c}")
+        return self._source_items_from_routes(routes, query)
 
     def episode_sources(self, tmdb_id, season, episode, *,
                         title=None, year=None, is_anime=False):

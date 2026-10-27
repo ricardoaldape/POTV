@@ -92,3 +92,45 @@ except ValueError:
 assert opener.calls[0][0] == "/api/v1/movies/"
 assert opener.calls[-1][0] == "/api/v1/app/version"
 print("PASS: NOVA API catalog, movie/episode playback, live backups, and input validation")
+
+
+# NOVA 1.2.9 may not enable the newer vod/sources paths while continuing to
+# serve working embeds from the legacy sources/* routes.
+from urllib.error import HTTPError
+
+class LegacyOpener(FakeOpener):
+    def open(self, request, timeout=0):
+        path=urlsplit(request.full_url).path
+        self.calls.append((path, parse_qs(urlsplit(request.full_url).query)))
+        if "/vod/sources/" in path:
+            raise HTTPError(request.full_url,404,"Not Found",{},None)
+        if path.endswith("/sources/movie/101"):
+            return FakeResponse(json.dumps({"sources":[
+                {"embed_url":"https://embed.example/movie","provider":"POTV"},
+                {"url":"https://cdn.example/legacy-film.m3u8"},
+            ]}).encode())
+        if path.endswith("/sources/tv/202/1/5"):
+            return FakeResponse(json.dumps({"sources":[
+                {"embed_url":"https://embed.example/episode","provider":"POTV"}
+            ]}).encode())
+        return super().open(request,timeout=timeout)
+
+legacy=NovaPartner(base_url="https://partner.example/api/v1/",
+                   access_token="dedicated-test",opener=LegacyOpener())
+assert len(legacy.movie_source_items(101))==2
+assert legacy.movie_sources(101)==["https://cdn.example/legacy-film.m3u8"]
+assert len(legacy.episode_source_items(202,1,5))==1
+assert len(legacy.episode_source_items(202,1,5,is_anime=True))==1
+print("PASS: NOVA 1.2.9 legacy VOD fallback accepts authorized live responses")
+
+class DeniedOpener(FakeOpener):
+    def open(self, request, timeout=0):
+        raise HTTPError(request.full_url,403,"Forbidden",{},None)
+denied=NovaPartner(base_url="https://partner.example/api/v1/",
+                   access_token="dedicated-test",opener=DeniedOpener())
+try:
+    denied.movie_source_items(101)
+    raise AssertionError("Provider denial bypassed")
+except NovaPartnerError as exc:
+    assert exc.code=="upstream_denied"
+print("PASS: 401/402/403 decisions fail closed with no fallback")
