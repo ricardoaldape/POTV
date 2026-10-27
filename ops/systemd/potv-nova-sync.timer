@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh POTV licensed NOVA catalog every 30 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=30min
+RandomizedDelaySec=75s
+Persistent=true
+Unit=potv-nova-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -50,6 +50,13 @@ with tempfile.TemporaryDirectory() as tmp:
         assert "s" in parse_qs(urlsplit(nfl["hls_url"]).query)
         assert len(g.catalog()["data"]["channels"])==1
         assert len(g.catalog_for_subscriber()["data"]["channels"])==3
+        # Simulate backend restart: the media proxy must be able to re-register
+        # the signed channel URL from the protected local feed.
+        target_id=urlsplit(nfl["hls_url"]).path.rsplit("/",1)[-1]
+        g._targets.clear()
+        g._hydrate_target(target_id)
+        assert target_id in g._targets
+        assert g._targets[target_id][0] == "https://nova.example/nfl.m3u8"
         g.nova_live_enabled=False
         assert len(g.catalog_for_subscriber()["data"]["channels"])==1
 

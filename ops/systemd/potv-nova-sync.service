@@ -1,0 +1,19 @@
+[Unit]
+Description=Synchronize NOVA authorized catalog to POTV protected snapshot
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/potv-bot/secrets/nova-service.json
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/potv-bot
+EnvironmentFile=/opt/potv-bot/.env
+ExecStart=/usr/bin/python3 /opt/potv-bot/nova_catalog_sync.py
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/potv-bot/secrets
+PrivateTmp=true
+MemoryMax=256M
+TimeoutStartSec=120

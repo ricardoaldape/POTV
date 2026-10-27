@@ -111,3 +111,11 @@ Playback caveat: native HLS/MPEG-TS channels have verified sample media
 headers, while some VOD rows contain embedding-only sources that may still
 need provider-side extraction or licensed direct streams. Real Android
 decode and OTA installation are separate release acceptance gates.
+
+Systemd timer artifacts are committed under ops/systemd. Install them at
+/etc/systemd/system and enable potv-nova-sync.timer after placing the
+provider settings and output snapshot in protected files on the VPS.
+On upstream API outage, the last known good snapshot stays intact.
+A signed subscriber stream target is rebuilt from that private snapshot
+after a POTV API process restart; anonymous clients still do not receive
+the premium catalog.
