@@ -22,8 +22,9 @@ class SportsChannelResolver {
     required List<LiveChannel> channels,
     required List<EpgProgram> programs,
   }) {
-    final windowStart = event.startsAt.subtract(const Duration(hours: 2));
-    final windowEnd = event.startsAt.add(const Duration(hours: 4));
+    // Require the scheduled broadcast to start near this fixture, not a replay.
+    final windowStart = event.startsAt.subtract(const Duration(minutes: 90));
+    final windowEnd = event.startsAt.add(const Duration(minutes: 90));
     final eventTokens = _tokens(
       '${event.home} ${event.away} ${event.competition}',
     );
@@ -37,19 +38,43 @@ class SportsChannelResolver {
     final awayTokens = _tokens(event.away);
     if (homeTokens.isEmpty || awayTokens.isEmpty) return const [];
 
+    // Index EPG once to avoid scanning every programme for every channel.
+    final programsByChannel = <String, List<EpgProgram>>{};
+    for (final program in programs) {
+      final id = _normalize(program.channelId);
+      if (id.isNotEmpty) {
+        programsByChannel.putIfAbsent(id, () => []).add(program);
+      }
+    }
     for (final channel in channels) {
+      final id = channel.epgId?.trim().isNotEmpty == true
+          ? _normalize(channel.epgId!)
+          : _normalize(channel.name);
       EpgProgram? bestProgram;
       var bestScore = 0;
 
-      for (final program in programs) {
-        if (!_sameChannel(channel, program)) continue;
-        if (program.endsAt.isBefore(windowStart)) continue;
-        if (program.startsAt.isAfter(windowEnd)) continue;
-        final summary = '${program.title} ${program.description ?? ''}';
-        if (!_containsTeam(summary, homeTokens) ||
-            !_containsTeam(summary, awayTokens)) {
+      for (final program in programsByChannel[id] ?? const <EpgProgram>[]) {
+        if (program.startsAt.isBefore(windowStart) ||
+            program.startsAt.isAfter(windowEnd)) {
           continue;
         }
+        if (!program.endsAt.isAfter(
+          event.startsAt.subtract(const Duration(minutes: 30)),
+        )) {
+          continue;
+        }
+        final summary = '${program.title} ${program.description ?? ''}';
+        // Both opponents must appear in the same EPG field; combining
+        // unrelated title and description can invent a fixture.
+        final title = program.title;
+        final description = program.description ?? '';
+        final inTitle =
+            _containsTeam(title, homeTokens) &&
+            _containsTeam(title, awayTokens);
+        final inDescription =
+            _containsTeam(description, homeTokens) &&
+            _containsTeam(description, awayTokens);
+        if (!inTitle && !inDescription) continue;
 
         final score = _scoreText(summary, eventTokens);
         if (score > bestScore) {
@@ -74,32 +99,42 @@ class SportsChannelResolver {
   }
 
   bool _containsTeam(String source, Set<String> tokens) {
-    final words = _tokens(source);
-    return tokens.any(words.contains);
-  }
-
-  bool _sameChannel(LiveChannel channel, EpgProgram program) {
-    if (channel.epgId != null && channel.epgId!.isNotEmpty) {
-      return channel.epgId == program.channelId;
+    // Require the team's tokens in order and adjacent. Looking for a set of
+    // words across the whole title incorrectly combines "Real" from Real
+    // Sociedad with "Madrid" from Atletico Madrid.
+    final words = _orderedTokens(source);
+    final team = tokens.toList(growable: false);
+    if (team.length > words.length) return false;
+    for (var i = 0; i <= words.length - team.length; i++) {
+      var same = true;
+      for (var j = 0; j < team.length; j++) {
+        if (words[i + j] != team[j]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return true;
     }
-    return _normalize(channel.name) == _normalize(program.channelId);
+    return false;
   }
 
   int _scoreText(String text, Set<String> tokens) {
-    final normalized = _normalize(text);
+    final words = _tokens(text);
     var score = 0;
     for (final token in tokens) {
-      if (normalized.contains(token)) score += token.length >= 6 ? 3 : 2;
+      if (words.contains(token)) score += token.length >= 6 ? 3 : 2;
     }
     return score;
   }
 
-  Set<String> _tokens(String value) {
+  Set<String> _tokens(String value) => _orderedTokens(value).toSet();
+
+  List<String> _orderedTokens(String value) {
     return _normalize(value)
-        .split(RegExp(r'[^a-z0-9áéíóúüñ]+'))
+        .split(RegExp(r'[^a-z0-9]+'))
         .where((token) => token.length >= 4)
         .where((token) => !_stopWords.contains(token))
-        .toSet();
+        .toList(growable: false);
   }
 
   String _normalize(String value) {

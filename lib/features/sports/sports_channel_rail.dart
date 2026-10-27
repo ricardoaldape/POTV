@@ -21,23 +21,31 @@ class SportsChannelRail extends ConsumerWidget {
     this.preferredLanguage = SportsLanguagePreference.all,
   });
 
-  Future<void> _play(
+  /// Resolve a fresh signed partner URL before playback, shared by the
+  /// channel directory and EPG-matched fixtures.
+  static Future<void> playChannel(
     BuildContext context,
     WidgetRef ref,
-    LiveChannel selected,
-  ) async {
+    LiveChannel selected, {
+    SportsLanguagePreference preferredLanguage = SportsLanguagePreference.all,
+  }) async {
     var channel = selected;
     if (selected.id.startsWith('partner:')) {
       final snapshot = await ref
           .read(partnerContentRepositoryProvider)
           .load(forceRefresh: true);
-      final matches = [...snapshot.sportsChannels, ...snapshot.channels]
-          .where((item) => item.id == selected.id);
+      if (!context.mounted) return;
+      final matches = [
+        ...snapshot.sportsChannels,
+        ...snapshot.channels,
+      ].where((item) => item.id == selected.id);
       if (matches.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Este canal ya no está disponible. Actualiza la lista.'),
+              content: Text(
+                'Este canal ya no está disponible. Actualiza la lista.',
+              ),
             ),
           );
         }
@@ -75,10 +83,9 @@ class SportsChannelRail extends ConsumerWidget {
     // subscription-gated POTV catalog; let Media3 verify real playback.
     final playable = isSignedPartnerStream
         ? ordered
-        : await ref.read(streamCandidateProbeProvider).preferReachable(
-            ordered,
-            dropDeadWhenCertain: true,
-          );
+        : await ref
+              .read(streamCandidateProbeProvider)
+              .preferReachable(ordered, dropDeadWhenCertain: true);
 
     if (!context.mounted) return;
     if (!isSignedPartnerStream) {
@@ -130,7 +137,12 @@ class SportsChannelRail extends ConsumerWidget {
               child: InkWell(
                 key: ValueKey('sports-channel-${channel.id}'),
                 autofocus: false,
-                onTap: () => _play(context, ref, channel),
+                onTap: () => playChannel(
+                  context,
+                  ref,
+                  channel,
+                  preferredLanguage: preferredLanguage,
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Column(
@@ -141,8 +153,9 @@ class SportsChannelRail extends ConsumerWidget {
                           if (channel.logo != null)
                             CircleAvatar(
                               radius: 16,
-                              backgroundImage:
-                                  NetworkImage(channel.logo.toString()),
+                              backgroundImage: NetworkImage(
+                                channel.logo.toString(),
+                              ),
                             )
                           else
                             const Icon(Icons.live_tv_rounded, size: 28),
