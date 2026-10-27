@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from nova_partner import NovaPartner, NovaPartnerError
+from nova_anime_mapping import refresh_cache, normalize_anime
 
 
 SPORTS = ("sport", "deport", "fútbol", "futbol", "nfl", "nba", "mlb", "espn",
@@ -320,7 +321,7 @@ def fetch_media_pages(service, method, *, cap=500):
     return rows
 
 
-def synchronize(*, service, destination, limit=4500):
+def synchronize(*, service, destination, limit=4500, anime_map_file=None):
     channels = service.channels()
     rows, counts = normalize_channels(channels, limit=limit)
     destination = Path(destination)
@@ -355,10 +356,22 @@ def synchronize(*, service, destination, limit=4500):
     series = normalize_media(
         fetch_media_pages(service, service.series), category="series"
     )
+    anime = []
+    if anime_map_file:
+        # AniList is the canonical anime identifier in POTV. A provider TMDb
+        # ID must never be sent to the Android anime UI as an AniList ID.
+        try:
+            anime_rows = fetch_media_pages(service, service.anime)
+            anime_map, _ = refresh_cache(anime_rows, anime_map_file)
+            anime = normalize_anime(anime_rows, anime_map)
+        except (NovaPartnerError, OSError, ValueError, TypeError):
+            # Keep TV, movies and series synchronized if AniList is down.
+            pass
     body = {
         "source": "nova",
         "movies": movies,
         "series": series,
+        "anime": anime,
         "upstream_app_version": version,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "revision": hashlib.sha256(json.dumps(
@@ -385,6 +398,7 @@ def synchronize(*, service, destination, limit=4500):
         "published_for_subscribers": len(rows),
         "movie_catalog_sample": len(movies),
         "series_catalog_sample": len(series),
+        "anime_catalog_mapped": len(anime),
         **counts,
         "revision": body["revision"],
     }
@@ -398,7 +412,8 @@ def main():
     service = NovaPartner.from_file(service_file)
     limit = max(100, min(7000, int(os.getenv("POTV_NOVA_CHANNEL_LIMIT", "4500"))))
     try:
-        summary = synchronize(service=service, destination=output_file, limit=limit)
+        summary = synchronize(service=service, destination=output_file, limit=limit,
+                              anime_map_file=os.getenv("POTV_NOVA_ANIME_MAP_FILE") or None)
         origin = "primary"
     except NovaPartnerError as exc:
         if exc.code == "upstream_denied":
@@ -413,7 +428,8 @@ def main():
             access_token=settings.get("service_access_token") or "",
             allow_anonymous_catalog=settings.get("allow_anonymous_catalog") is True,
         )
-        summary = synchronize(service=service,destination=output_file,limit=limit)
+        summary = synchronize(service=service,destination=output_file,limit=limit,
+                              anime_map_file=os.getenv("POTV_NOVA_ANIME_MAP_FILE") or None)
         origin = "backup"
     summary["feed"] = origin
     # Counts only: upstream and snapshot URLs are sensitive.
