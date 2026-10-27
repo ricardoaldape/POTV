@@ -40,3 +40,15 @@ def requires_vod_subscription(gateway, environment):
     return str(environment.get("POTV_REQUIRE_VOD_SUBSCRIPTION") or "").strip().lower() in {
         "true", "1", "yes"
     }
+
+def catalog_access_status(token, account, *, now=None):
+    """HTTP status for any catalog containing signed channel capabilities.
+
+    Signed starter streams are protected as well as the licensed NOVA catalog.
+    An invalid or missing session must never trigger a public catalog fallback.
+    """
+    if not token or not isinstance(account, dict):
+        return 401
+    if not has_active_subscription(account, now=now):
+        return 403
+    return 200
