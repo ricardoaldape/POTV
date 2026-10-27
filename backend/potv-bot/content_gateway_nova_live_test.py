@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory() as tmp:
     with open(path, "w") as fh:
         json.dump({"revision":"nova-v1","channels":[
             {"id":"nova:1", "name":"NFL Network", "url":"https://nova.example/nfl.m3u8",
-             "group":"Deportes", "epg_id":"nfl", "backup_urls":[
+             "group":"Deportes", "epg_id":"nfl", "format":"hls", "backup_urls":[
                  "https://nova-b.example/nfl2.m3u8"]},
             {"id":"nova:2", "name":"Canal MX", "url":"http://nova.example/mx.ts",
              "group":"General", "epg_id":"mx", "backup_urls":[]},
@@ -47,6 +47,7 @@ with tempfile.TemporaryDirectory() as tmp:
         nfl=sports[0]
         assert nfl["hls_url"].startswith("https://potv.example/api/v1/content/stream/")
         assert len(nfl.get("backup_urls") or [])==1
+        assert "format=hls" in nfl["hls_url"]
         assert "s" in parse_qs(urlsplit(nfl["hls_url"]).query)
         assert len(g.catalog()["data"]["channels"])==1
         assert len(g.catalog_for_subscriber()["data"]["channels"])==3
