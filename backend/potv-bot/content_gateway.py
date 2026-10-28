@@ -1645,11 +1645,17 @@ class ContentGateway:
                 value = row.get(field)
                 if not isinstance(value, str):
                     continue
-                parsed = urlsplit(value)
-                if (parsed.scheme == "https"
-                        and parsed.hostname in allowed_image_hosts
-                        and not parsed.username and not parsed.password
-                        and not parsed.query and not parsed.fragment):
+                # A malformed upstream poster URL (for example an unclosed
+                # IPv6 bracket) must not break the entire subscriber page.
+                try:
+                    parsed = urlsplit(value)
+                    valid_image = (parsed.scheme == "https"
+                                   and parsed.hostname in allowed_image_hosts
+                                   and not parsed.username and not parsed.password
+                                   and not parsed.query and not parsed.fragment)
+                except ValueError:
+                    valid_image = False
+                if valid_image:
                     item[field] = value
             items.append(item)
         return {
