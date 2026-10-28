@@ -1801,7 +1801,7 @@ class ContentGateway:
                 snapshot = json.load(fh)
             rows = snapshot.get("channels") or []
             if not isinstance(rows, list) or not rows:
-                return public
+                raise ValueError("nova_snapshot_empty_channels")
         except (OSError, ValueError, TypeError, AttributeError):
             # An upstream failure must not destroy the existing TV lineup.
             with self._lock:
