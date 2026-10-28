@@ -47,4 +47,14 @@ for name in WORKFLOWS:
 assert "POTV_RELEASE_CERT_SHA256" in (
     ROOT / ".github/workflows/ota-release.yml"
 ).read_text(encoding="utf-8"), "OTA release must retain the production certificate pin"
+ota_workflow = (ROOT / ".github/workflows/ota-release.yml").read_text(encoding="utf-8")
+assert 'git/ref/tags/$tag' in ota_workflow, (
+    "OTA must reject pre-existing tags even if no GitHub Release exists"
+)
+assert '[int]$response.StatusCode -ne 404' in ota_workflow, (
+    "Tag lookup errors other than 404 must block release"
+)
+assert 'bump pubspec version instead of retagging' in ota_workflow, (
+    "OTA must never overwrite a tag from an earlier failed workflow"
+)
 print("PASS: Windows OTA/review parser supports apksigner signer labels; pin retained")
