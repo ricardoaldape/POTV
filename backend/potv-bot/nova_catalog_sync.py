@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from nova_partner import NovaPartner, NovaPartnerError
 from nova_anime_mapping import refresh_cache, normalize_anime
+from nova_snapshot_limits import MAX_NOVA_SNAPSHOT_BYTES
 
 
 SPORTS = ("sport", "deport", "fútbol", "futbol", "nfl", "nba", "mlb", "espn",
@@ -650,7 +651,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
     old_snapshot = {}
     previous_probe_version = 0
     try:
-        if destination.stat().st_size < 12 * 1024 * 1024:
+        if destination.stat().st_size <= MAX_NOVA_SNAPSHOT_BYTES:
             old = json.loads(destination.read_text(encoding="utf-8"))
             if isinstance(old, dict):
                 old_snapshot = old
@@ -744,6 +745,10 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         with os.fdopen(descriptor, "w", encoding="utf-8") as fh:
             json.dump(body, fh, ensure_ascii=False, separators=(",", ":"))
             fh.flush()
+            if os.fstat(fh.fileno()).st_size > MAX_NOVA_SNAPSHOT_BYTES:
+                # Never publish a snapshot the gateway would reject. Keep
+                # the previous TV lineup and media index on disk intact.
+                raise NovaPartnerError("nova_snapshot_too_large")
             os.fsync(fh.fileno())
         os.replace(temp_path, destination)
         write_media_index(destination, body)

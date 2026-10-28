@@ -53,6 +53,7 @@ jobs:
           python nova_sync_outage_retention_test.py
           python nova_sports_guide_test.py
           python nova_catalog_progressive_test.py
+          python nova_snapshot_limits_test.py
       - name: Legacy OTA manifest integrity regression
         run: python ota_manifest_sync_test.py
       - name: API/database self test
