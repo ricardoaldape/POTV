@@ -38,6 +38,13 @@ jobs:
           test -s /tmp/potv-qa/app-debug.apk
           sha256sum /tmp/potv-qa/app-debug.apk | tee /tmp/potv-qa.sha256
 
+      - name: Enable KVM acceleration on disposable hosted runner
+        run: |
+          set -eu
+          test -e /dev/kvm || { echo 'KVM device unavailable on runner'; exit 1; }
+          sudo chmod 0666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
       - name: Install and launch POTV QA on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -60,9 +67,15 @@ jobs:
             adb logcat -d -t 1600 > /tmp/potv-qa-logcat.txt
             adb shell screencap -p /sdcard/potv-qa-screen.png
             adb pull /sdcard/potv-qa-screen.png /tmp/potv-qa-screen.png
-            adb shell pidof com.potv.potv.qa | grep -Eq '[0-9]' || { echo 'POTV QA process not alive; inspect uploaded evidence'; exit 1; }
-            echo 'POTV QA process still alive after launch'
+            # A running PID alone is not proof that the app is visible.
+            # Earlier CI passed while a Google Play services ANR covered a black screen.
+            adb shell dumpsys activity activities > /tmp/potv-qa-activity.txt
+            adb shell dumpsys window > /tmp/potv-qa-window.txt
+            adb shell pidof com.potv.potv.qa | grep -Eq '[0-9]' || { echo 'POTV QA process not alive'; exit 1; }
+            grep -E 'topResumedActivity|mResumedActivity' /tmp/potv-qa-activity.txt | grep -F 'com.potv.potv.qa/' || { echo 'POTV QA is not the resumed activity'; exit 1; }
+            grep 'mCurrentFocus=' /tmp/potv-qa-window.txt | grep -F 'com.potv.potv.qa/' || { echo 'POTV QA is not the focused window (possible system ANR/dialog)'; exit 1; }
             ! grep -E 'FATAL EXCEPTION:|Process: com[.]potv[.]potv[.]qa.*FATAL' /tmp/potv-qa-logcat.txt
+            echo 'POTV QA process alive, resumed and foreground focused'
 
       - name: Preserve QA logs and launch screenshot
         if: always()
@@ -72,6 +85,8 @@ jobs:
           path: |
             /tmp/potv-qa-screen.png
             /tmp/potv-qa-logcat.txt
+            /tmp/potv-qa-activity.txt
+            /tmp/potv-qa-window.txt
             /tmp/potv-qa.sha256
           if-no-files-found: warn
           retention-days: 7
