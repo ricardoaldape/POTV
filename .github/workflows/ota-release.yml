@@ -63,6 +63,19 @@ jobs:
             Accept = 'application/vnd.github+json'
             'X-GitHub-Api-Version' = '2022-11-28'
           }
+          # A previous failed tag-triggered build may have created a Git tag
+          # without publishing a Release. Never attach a new APK to that old
+          # source commit, and never move or reuse an existing release tag.
+          $tagRefUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag"
+          try {
+            $existingTag = Invoke-RestMethod -Headers $headers -Uri $tagRefUri
+            throw "Tag ref $tag already exists; bump pubspec version instead of retagging."
+          } catch {
+            $response = $_.Exception.Response
+            if ($null -eq $response -or [int]$response.StatusCode -ne 404) {
+              throw
+            }
+          }
           $releases = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
           $publishedCodes = @()
           foreach ($release in @($releases)) {
