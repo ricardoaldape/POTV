@@ -1884,11 +1884,20 @@ class ContentGateway:
                     "mpegurl" in content_type.lower()
                     or urlsplit(url).path.lower().endswith(".m3u8")
                 )
+                # Some licensed CDNs serve extensionless HLS as text/plain
+                # or application/octet-stream. Forwarding such a manifest
+                # verbatim would expose its upstream segment/key URLs and
+                # prevent nested requests from using the signed POTV proxy.
+                # Sniff only a small prefix, preserving it for binary streams.
+                prefix = b"" if is_hls else response.read(512)
+                if not is_hls:
+                    is_hls = prefix.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"#EXTM3U")
                 if is_hls:
-                    body = response.read(4 * 1024 * 1024 + 1)
-                    if len(body) > 4 * 1024 * 1024:
+                    limit = 4 * 1024 * 1024
+                    body = prefix + response.read(limit + 1 - len(prefix))
+                    if len(body) > limit:
                         raise ContentGatewayError(413, "playlist_too_large")
-                    text = body.decode("utf-8", errors="replace")
+                    text = body.decode("utf-8-sig", errors="replace")
                     rewritten = self._rewrite_hls(text, url, headers).encode("utf-8")
                     handler.send_response(200)
                     handler.send_header(
@@ -1908,6 +1917,8 @@ class ContentGateway:
                         handler.send_header(header, value)
                 handler.send_header("Cache-Control", "no-store")
                 handler.end_headers()
+                if prefix:
+                    handler.wfile.write(prefix)
                 while True:
                     chunk = response.read(64 * 1024)
                     if not chunk:
