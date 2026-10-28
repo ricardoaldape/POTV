@@ -51,4 +51,26 @@ void main() {
 
     expect(ranked, hasLength(1));
   });
+  test('a Spanish 4K HTML page never outranks a native 480p video', () {
+    final sorted = ranker.rank([
+      StreamCandidate(
+        id: 'html',
+        label: 'Latino 4K',
+        uri: Uri.parse('https://html.example.test/embed'),
+        language: 'es-MX',
+        quality: '2160p',
+        backend: PlaybackBackend.webView,
+      ),
+      StreamCandidate(
+        id: 'native',
+        label: 'Original 480p',
+        uri: Uri.parse('https://cdn.example.test/file.mp4'),
+        language: 'en',
+        quality: '480p',
+      ),
+    ]);
+    expect(sorted.first.id, 'native');
+    expect(sorted.last.id, 'html');
+  });
+
 }
