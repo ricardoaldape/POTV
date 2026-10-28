@@ -135,7 +135,18 @@ class _PartnerMediaBrowseScreenState
           else if (_items.isEmpty && _error != null)
             Expanded(
               child: Center(
-                child: Text(_error!, textAlign: TextAlign.center),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _loadNext,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
               ),
             )
           else if (_items.isEmpty && !_hasMore)
@@ -239,7 +250,7 @@ class _PartnerMediaBrowseScreenState
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                else if (_hasMore)
+                else if (_hasMore && (_items.isNotEmpty || _error == null))
                   TextButton(
                     onPressed: _loadNext,
                     child: Text(_error == null ? 'Cargar más' : 'Reintentar'),
