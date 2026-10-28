@@ -39,10 +39,10 @@ required={
     "android/app/src/main/res/drawable/launch_background.xml":["@android:color/black"],
 }
 for path,needles in required.items():
-    content=(root/path).read_text()
+    content=(root/path).read_text(encoding="utf-8")
     for needle in needles:require(needle in content,path+" missing "+needle)
 for file in (root/"lib").rglob("*.dart"):
-    source=file.read_text()
+    source=file.read_text(encoding="utf-8")
     require(not re.search(r"\bCircularProgressIndicator\s*\(",source),str(file)+" reintroduced circular loader")
     require(not re.search(r"\bLinearProgressIndicator\(\s*(?:minHeight:\s*[\d.]+\s*,?\s*)?\)",source),str(file)+" reintroduced an unbranded indeterminate loader")
 print("POTV permanent animated branding OK")
