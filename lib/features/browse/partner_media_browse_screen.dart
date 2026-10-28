@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -131,7 +132,7 @@ class _PartnerMediaBrowseScreenState
       body: Column(
         children: [
           if (_loading && _items.isEmpty)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
+            const Expanded(child: Center(child: PotvLoadingFlag(width: 44)))
           else if (_items.isEmpty && _error != null)
             Expanded(
               child: Center(
@@ -248,7 +249,7 @@ class _PartnerMediaBrowseScreenState
                   const SizedBox(
                     width: 22,
                     height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: PotvLoadingFlag(width: 44),
                   )
                 else if (_hasMore && (_items.isNotEmpty || _error == null))
                   TextButton(
