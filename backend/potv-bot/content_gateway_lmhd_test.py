@@ -44,7 +44,10 @@ gateway.lmhd = AuthorizedFixture()
 assert gateway.resolve_movie(title="La Casa", year="2023")["sources"] == []
 gateway.lmhd_vod_enabled = True  # explicit fixture-only authorization
 gateway.lmhd_live_catalog_enabled = True
-payload = gateway.catalog(force=True)["data"]
+public = gateway.catalog(force=True)["data"]
+assert len(public["channels"]) == 0, "paid LMHD TV leaked into public"
+assert len(public["sports_events"]) == 0, "paid LMHD events leaked into public"
+payload = gateway.catalog_for_subscriber()["data"]
 assert len(payload["channels"]) == 1, payload
 assert len(payload["sports_channels"]) == 0, payload
 assert len(payload["sports_events"]) == 1, payload
@@ -72,3 +75,30 @@ url = urlsplit(episode[0]["real_url"])
 assert "s" in parse_qs(url.query)  # short-lived POTV signature
 assert "token" not in url.query
 print("PASS: LMHD provider movie, episode, TV and exact-match sports integrated via POTV gateway")
+
+
+# Account-authorized subscriber refresh must actually reflect provider changes.
+fixture = gateway.lmhd
+gateway.refresh_seconds = 0
+fixture.tv_channels = lambda: [{
+    "name": "Canal Dos",
+    "url": "https://media.partner.example/live/dos.m3u8",
+    "group": "México", "epg_id": "two",
+}]
+new_private = gateway.catalog_for_subscriber()["data"]
+assert [x["name"] for x in new_private["channels"]] == ["Canal Dos"]
+assert gateway.catalog(force=True)["data"]["channels"] == []
+assert "media.partner.example" not in str(new_private)
+print("PASS: LMHD partner changes appear for subscribers on scheduled catalog refresh")
+
+# Entitlement denial or offline partner must not expose cached private URLs.
+from lmhd_partner import PartnerApiError
+def denied():
+    raise PartnerApiError("partner_session_denied")
+fixture.tv_channels = denied
+gateway.refresh_seconds = 0
+failed = gateway.catalog_for_subscriber()["data"]
+assert not failed["channels"], failed
+assert not failed["sports_events"], failed
+assert not gateway.catalog(force=True)["data"]["channels"]
+print("PASS: denied partner stays private and fails closed")
