@@ -53,19 +53,16 @@ jobs:
             set -eu
             adb wait-for-device
             adb install -r /tmp/potv-qa/app-debug.apk
-            adb shell am start -W -n com.potv.potv.qa/com.potv.potv.MainActivity
-            sleep 18
-            pid=$(adb shell pidof com.potv.potv.qa | tr -d '\r')
-            test -n "$pid" || { echo "POTV QA process died after launch"; exit 1; }
-            echo "POTV QA process still alive after launch"
+            # Each emulator action line runs in its own /bin/sh.
+            # Keep the PID check in one command; retain diagnostics on failure.
+            adb shell am start -n com.potv.potv.qa/com.potv.potv.MainActivity
+            sleep 25
+            adb logcat -d -t 1600 > /tmp/potv-qa-logcat.txt
             adb shell screencap -p /sdcard/potv-qa-screen.png
             adb pull /sdcard/potv-qa-screen.png /tmp/potv-qa-screen.png
-            adb logcat -d -t 1000 > /tmp/potv-qa-logcat.txt
-            if grep -E 'FATAL EXCEPTION:|Process: com\.potv\.potv\.qa.*FATAL' \
-                /tmp/potv-qa-logcat.txt; then
-              echo "POTV process crashed during smoke test"
-              exit 1
-            fi
+            adb shell pidof com.potv.potv.qa | grep -Eq '[0-9]' || { echo 'POTV QA process not alive; inspect uploaded evidence'; exit 1; }
+            echo 'POTV QA process still alive after launch'
+            ! grep -E 'FATAL EXCEPTION:|Process: com[.]potv[.]potv[.]qa.*FATAL' /tmp/potv-qa-logcat.txt
 
       - name: Preserve QA logs and launch screenshot
         if: always()
