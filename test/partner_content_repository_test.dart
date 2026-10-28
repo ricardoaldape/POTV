@@ -152,6 +152,60 @@ void main() {
     expect(after.movies.single.title, 'Cached');
   });
 
+  for (final deniedStatus in [401, 403]) {
+    test('first-party catalog clears cached signed channels on $deniedStatus',
+        () async {
+      var status = 200;
+      final requests = <RequestOptions>[];
+      final dio = Dio();
+      dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        requests.add(options);
+        if (status != 200) {
+          handler.reject(DioException(
+            requestOptions: options,
+            response: Response<Object?>(
+              requestOptions: options,
+              statusCode: status,
+              data: {'ok': false, 'error': 'subscription_required'},
+            ),
+            type: DioExceptionType.badResponse,
+          ));
+          return;
+        }
+        handler.resolve(Response<Object?>(
+          requestOptions: options,
+          statusCode: 200,
+          headers: Headers.fromMap({'etag': ['"old-session"']}),
+          data: {
+            'data': {
+              'revision': 'old-session',
+              'channels': [
+                {
+                  'id': 'licensed-1',
+                  'name': 'Premium Channel',
+                  'hls_url': 'https://potv.fxqubit.com/api/v1/content/stream/one?sig=old',
+                }
+              ],
+            }
+          },
+        ));
+      }));
+      final repo = PartnerContentRepository(
+        dio,
+        endpoint: Uri.parse('https://potv.fxqubit.com/api/v1/content/catalog'),
+      );
+      expect((await repo.load()).channels, hasLength(1));
+      status = deniedStatus;
+      expect((await repo.load(forceRefresh: true)).channels, isEmpty);
+      // Denial must not be cached; even a regular load retries authentication.
+      expect((await repo.load()).channels, isEmpty);
+      expect(requests, hasLength(3));
+      status = 200;
+      expect((await repo.load()).channels, hasLength(1));
+      expect(requests.last.headers.containsKey('If-None-Match'), isFalse);
+    });
+  }
+
   test('cannot make unconfigured or insecure backend requests', () async {
     final dio = Dio();
     var requests = 0;

@@ -179,9 +179,23 @@ class PartnerContentRepository {
       _etag = response.headers.value('etag');
       _validatedAt = now;
       return parsed;
+    } on DioException catch (error) {
+      // A revoked session or expired entitlement is not a connectivity issue.
+      // Never serve a previously cached signed catalog after the first-party
+      // gateway explicitly denies access. Clear the ETag as well, so a later
+      // successful login cannot accidentally reuse the old user's revision.
+      final denied = PotvContentAuthHeaders.isFirstPartyGateway(endpoint) &&
+          (error.response?.statusCode == 401 ||
+              error.response?.statusCode == 403);
+      if (denied) {
+        _snapshot = null;
+        _validatedAt = null;
+        _etag = null;
+        return PartnerContentSnapshot.empty();
+      }
+      // Preserve last-known metadata only for transient network failures.
+      return _snapshot ?? PartnerContentSnapshot.empty();
     } on Object {
-      // Keep an in-memory last-known catalog for transient connectivity loss.
-      // Expiring signed stream URLs must still be resolved before playback.
       return _snapshot ?? PartnerContentSnapshot.empty();
     }
   }
