@@ -42,6 +42,28 @@ fresh = [{"channel_id":"epg:1", "now":program("Actual",
     now-timedelta(minutes=1),now+timedelta(minutes=59))}]
 assert retain_recent_guide(fresh,old,channels,now=now)==fresh
 assert retain_recent_guide([], {**old,"updated_at":"invalid"},channels,now=now)==[]
+
+# A provider can respond successfully but send an expired NOW; it must not
+# suppress the recent, still-valid cached guide for that same EPG ID.
+stale_now = program("Caducado upstream", now-timedelta(hours=2),
+                    now-timedelta(minutes=10),
+                    stream_url="https://private.example/SHOULD-NOT-LEAK")
+fallback = retain_recent_guide(
+    [{"channel_id":"epg:1", "now":stale_now}], old, channels, now=now)
+assert len(fallback)==1 and fallback[0]["now"]["title"]=="Juego confirmado", fallback
+assert "SHOULD-NOT-LEAK" not in json.dumps(fallback)
+# Keep only valid parts of a fresh row, without copying secret metadata.
+mixed = retain_recent_guide(
+    [{"channel_id":"epg:1", "now":active, "next":stale_now,
+      "url":"https://private.example/SHOULD-NOT-LEAK"}],
+    old, channels, now=now)
+assert len(mixed)==1 and "next" not in mixed[0], mixed
+assert "stream_url" not in json.dumps(mixed)
+# A malformed fresh response cannot make EPG survive beyond the 45-minute TTL.
+assert retain_recent_guide(
+    [{"channel_id":"epg:1", "now":stale_now}],
+    {**old, "updated_at":(now-timedelta(minutes=46)).isoformat()},
+    channels, now=now)==[]
 print("PASS: EPG retained only for active authorized channels within 45min")
 
 class Service:
