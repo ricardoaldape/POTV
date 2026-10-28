@@ -30,7 +30,8 @@ from urllib.request import (
     build_opener,
 )
 
-from lmhd_partner import LmhdPartner, PartnerApiError
+from lmhd_partner import LmhdPartner, LmhdLoginPartner, PartnerApiError
+from partner_lmhd_api import PartnerAccessError
 from nova_partner import NovaPartner, NovaPartnerError
 from nova_snapshot_limits import MAX_NOVA_SNAPSHOT_BYTES
 
@@ -186,6 +187,14 @@ class ContentGateway:
             try:
                 self.lmhd = LmhdPartner.from_file(lmhd_file)
             except (OSError, ValueError, KeyError, TypeError):
+                self.lmhd = None
+        if self.lmhd is None and not lmhd_file:
+            # A dedicated LMHD service username/password may be issued in
+            # place of a static session token. This uses the normal login API
+            # with in-memory token refresh. Partial env config fails closed.
+            try:
+                self.lmhd = LmhdLoginPartner.from_environment()
+            except (PartnerAccessError, ValueError, TypeError):
                 self.lmhd = None
         self.lmhd_live_catalog_enabled = (
             os.getenv("POTV_LMHD_INCLUDE_LIVE_CATALOG", "").strip().lower()
