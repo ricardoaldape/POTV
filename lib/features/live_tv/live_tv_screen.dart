@@ -12,6 +12,9 @@ import '../../data/sources/stream_candidate_probe.dart';
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
+import 'live_tv_program_guide.dart';
+
+enum _TvDisplayMode { cards, guide }
 
 class LiveTvScreen extends ConsumerStatefulWidget {
   const LiveTvScreen({super.key});
@@ -65,6 +68,8 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
   String searchQuery = '';
   LiveTvCategory selectedCategory = LiveTvCategory.all;
   bool favoritesOnly = false;
+  bool guideOnly = false;
+  _TvDisplayMode displayMode = _TvDisplayMode.cards;
   Timer? _guideClock;
   DateTime _guideNow = DateTime.now();
   String? _openingChannelId;
@@ -184,6 +189,14 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
       ...filtered.where((c) => _isFavorite(c, favorites)),
       ...filtered.where((c) => !_isFavorite(c, favorites)),
     ];
+    final guideCoverage = onlyFavorites.where((channel) =>
+        guide.onAir(channel, _guideNow) != null ||
+        guide.upNext(channel, _guideNow) != null).length;
+    final displayed = displayMode == _TvDisplayMode.guide && guideOnly
+        ? onlyFavorites.where((channel) =>
+            guide.onAir(channel, _guideNow) != null ||
+            guide.upNext(channel, _guideNow) != null).toList()
+        : onlyFavorites;
     final loading = channelsState.isLoading || partnerState.isLoading;
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 600;
@@ -279,6 +292,57 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
               ],
             ),
           ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(compact ? 16 : 24, 3,
+                compact ? 16 : 24, 8),
+            child: SegmentedButton<_TvDisplayMode>(
+              key: const ValueKey('live-tv-display-mode'),
+              segments: const [
+                ButtonSegment(
+                  value: _TvDisplayMode.cards,
+                  label: Text('Canales'),
+                  icon: Icon(Icons.grid_view_rounded, size: 18),
+                ),
+                ButtonSegment(
+                  value: _TvDisplayMode.guide,
+                  label: Text('Parrilla'),
+                  icon: Icon(Icons.view_list_rounded, size: 18),
+                ),
+              ],
+              selected: {displayMode},
+              onSelectionChanged: (selection) =>
+                  setState(() => displayMode = selection.first),
+            ),
+          ),
+          if (displayMode == _TvDisplayMode.guide)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                  compact ? 16 : 24, 0, compact ? 16 : 24, 8),
+              child: Row(
+                children: [
+                  FilterChip(
+                    key: const ValueKey('live-tv-with-schedule'),
+                    label: const Text('Con programación'),
+                    avatar: const Icon(Icons.schedule_rounded, size: 18),
+                    selected: guideOnly,
+                    onSelected: (value) =>
+                        setState(() => guideOnly = value),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '$guideCoverage de ' + onlyFavorites.length.toString() +
+                          ' canales con guía',
+                      textAlign: TextAlign.end,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.white60),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (loading) const LinearProgressIndicator(minHeight: 2),
           if (channels.isNotEmpty && channelsState.hasError)
             const Padding(
@@ -293,8 +357,35 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
                 ? const Center(child: CircularProgressIndicator())
                 : channels.isEmpty
                 ? const _EmptyTv()
-                : onlyFavorites.isEmpty
-                ? const Center(child: Text('No hay canales con ese filtro.'))
+                : displayed.isEmpty
+                ? Center(child: Text(
+                    guideOnly && displayMode == _TvDisplayMode.guide
+                    ? 'No hay programación disponible para este filtro.'
+                    : 'No hay canales con ese filtro.'))
+                : displayMode == _TvDisplayMode.guide
+                ? ListView.builder(
+                    key: const ValueKey('live-tv-guide-list'),
+                    padding: EdgeInsets.fromLTRB(
+                        compact ? 12 : 20, 4, compact ? 12 : 20, 24),
+                    itemCount: displayed.length,
+                    itemBuilder: (context, index) {
+                      final channel = displayed[index];
+                      return LiveTvProgramGuideRow(
+                        channel: channel,
+                        category: _organizer.categoryFor(channel),
+                        current: guide.onAir(channel, _guideNow),
+                        next: guide.upNext(channel, _guideNow),
+                        now: _guideNow,
+                        compact: compact,
+                        favorite: _isFavorite(channel, favorites),
+                        opening: _openingChannelId == channel.id,
+                        onOpen: () => _playChannel(channel),
+                        onFavorite: () => ref
+                            .read(liveTvFavoritesProvider.notifier)
+                            .toggle(channel),
+                      );
+                    },
+                  )
                 : GridView.builder(
                     key: const ValueKey('live-tv-channel-grid'),
                     padding: EdgeInsets.fromLTRB(
@@ -309,9 +400,9 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
                     ),
-                    itemCount: onlyFavorites.length,
+                    itemCount: displayed.length,
                     itemBuilder: (context, index) {
-                      final channel = onlyFavorites[index];
+                      final channel = displayed[index];
                       return _LiveChannelCard(
                         channel: channel,
                         category: _organizer.categoryFor(channel),

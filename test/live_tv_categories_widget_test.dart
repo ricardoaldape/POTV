@@ -202,4 +202,69 @@ void main() {
     expect(find.text('Noticias Uno'), findsOneWidget);
     expect(find.text('Canal Cine'), findsNothing);
   });
-}
+
+
+  testWidgets('Parrilla shows verified programs and keeps unlisted TV visible', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1360, 1040);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final now = DateTime.now();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          partnerContentProvider.overrideWith(
+            (ref) async => PartnerContentSnapshot(
+              revision: 'guide-one',
+              fetchedAt: now,
+              guidePrograms: [
+                EpgProgram(
+                  channelId: 'news-1',
+                  title: 'Noticias verificadas',
+                  startsAt: now.subtract(const Duration(minutes: 8)),
+                  endsAt: now.add(const Duration(minutes: 22)),
+                ),
+                EpgProgram(
+                  channelId: 'news-1',
+                  title: 'Después en noticias',
+                  startsAt: now.add(const Duration(minutes: 22)),
+                  endsAt: now.add(const Duration(minutes: 52)),
+                ),
+              ],
+            ),
+          ),
+          builtInSportsChannelsProvider.overrideWith((ref) async => []),
+          liveChannelsProvider.overrideWith(_Channels.new),
+          epgProgramsProvider.overrideWith(_Guide.new),
+        ],
+        child: const MaterialApp(home: LiveTvScreen()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.text('Parrilla'));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('live-tv-guide-list')), findsOneWidget);
+    expect(find.textContaining('Noticias verificadas'), findsWidgets);
+    expect(find.text('Noticias Uno'), findsOneWidget);
+    expect(find.text('Canal Cine'), findsOneWidget);
+    expect(find.text('Sin datos de programación'), findsWidgets);
+
+    await tester.tap(find.byKey(const ValueKey('live-tv-with-schedule')));
+    await tester.pump();
+    expect(find.text('Noticias Uno'), findsOneWidget);
+    expect(find.text('Canal Cine'), findsNothing);
+    expect(find.textContaining('Después en noticias'), findsOneWidget);
+
+    await tester.tap(find.text('Canales'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('live-tv-channel-grid')), findsOneWidget);
+    expect(find.text('Canal Cine'), findsOneWidget);
+  });
+\n}\n
