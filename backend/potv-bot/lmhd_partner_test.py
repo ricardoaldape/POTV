@@ -113,6 +113,10 @@ class LmhdContractTest(unittest.TestCase):
         self.assertEqual(channels[0]["group"], "México")
         self.assertEqual(channels[0]["name"], "Canal Uno")
         self.assertEqual(channels[0]["url"].split("/")[-1], "one.m3u8")
+        self.assertEqual(channels[0]["epg_id"], "lmhd:1")
+        # Invalid historic EPG from fixture does not become on-air.
+        self.assertEqual(channels[0]["epg"], [])
+        self.assertEqual(channels[0]["provider_id"], "1")
 
     def test_event_urls_match_explicit_event_ids(self):
         events = self.api.sports_events()
