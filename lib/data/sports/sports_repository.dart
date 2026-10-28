@@ -24,9 +24,16 @@ class SportsRepository {
   );
 
   final Dio _dio;
-  final Map<String, List<SportsEvent>> _cache = {};
+  final Duration cacheTtl;
+  final DateTime Function() _now;
+  final Map<String, ({DateTime fetchedAt, List<SportsEvent> events})>
+      _cache = {};
 
-  SportsRepository(this._dio);
+  SportsRepository(
+    this._dio, {
+    this.cacheTtl = const Duration(minutes: 2),
+    DateTime Function()? clock,
+  }) : _now = clock ?? DateTime.now;
 
   Future<List<SportsEvent>> eventsForDay(
     DateTime day, {
@@ -36,7 +43,10 @@ class SportsRepository {
     final normalizedSport = sport?.trim() ?? '';
     final cacheKey = '$date|$normalizedSport';
     final cached = _cache[cacheKey];
-    if (cached != null) return cached;
+    if (cached != null &&
+        _now().difference(cached.fetchedAt) < cacheTtl) {
+      return cached.events;
+    }
 
     final query = <String, String>{'d': date};
     if (normalizedSport.isNotEmpty) query['s'] = normalizedSport;
@@ -63,8 +73,9 @@ class SportsRepository {
       if (score != 0) return score;
       return a.startsAt.compareTo(b.startsAt);
     });
-    _cache[cacheKey] = List.unmodifiable(events);
-    return _cache[cacheKey]!;
+    final result = List<SportsEvent>.unmodifiable(events);
+    _cache[cacheKey] = (fetchedAt: _now(), events: result);
+    return result;
   }
 
   int _eventPriority(SportsEvent event) {
@@ -100,6 +111,9 @@ class SportsRepository {
     final away = _text(raw['strAwayTeam']);
     if (id == null || home == null || away == null) return null;
 
+    final startsAt = _parseStart(raw);
+    // Never invent a fixture start time when the schedule is incomplete.
+    if (startsAt == null) return null;
     final status = _text(raw['strStatus'])?.toLowerCase() ?? '';
     return SportsEvent(
       id: id,
@@ -107,23 +121,32 @@ class SportsRepository {
       competition: _text(raw['strLeague']) ?? 'Evento',
       home: home,
       away: away,
-      startsAt: _parseStart(raw),
+      startsAt: startsAt,
       isLive: status.contains('live') ||
           status.contains('progress') ||
           status.contains('playing'),
     );
   }
 
-  DateTime _parseStart(Map<String, dynamic> raw) {
+  DateTime? _parseStart(Map<String, dynamic> raw) {
     final timestamp = _text(raw['strTimestamp']);
-    final parsedTimestamp =
-        timestamp == null ? null : DateTime.tryParse(timestamp);
-    if (parsedTimestamp != null) return parsedTimestamp.toLocal();
+    if (timestamp != null) {
+      // TheSportsDB timestamps are UTC; do not interpret an unzoned value
+      // in the viewer's timezone.
+      final utcTimestamp = RegExp(r'(Z|[+-]\d{2}:?\d{2})$',
+              caseSensitive: false)
+          .hasMatch(timestamp)
+          ? timestamp
+          : '${timestamp}Z';
+      final parsed = DateTime.tryParse(utcTimestamp);
+      if (parsed != null) return parsed.toLocal();
+    }
 
     final date = _text(raw['dateEvent']);
-    final time = _text(raw['strTime']) ?? '00:00:00';
-    final parsed = date == null ? null : DateTime.tryParse('${date}T$time');
-    return parsed?.toLocal() ?? DateTime.now();
+    final time = _text(raw['strTime']);
+    if (date == null || time == null) return null;
+    // dateEvent + strTime are UTC as documented by TheSportsDB.
+    return DateTime.tryParse('${date}T${time}Z')?.toLocal();
   }
 
   String? _text(Object? value) {

@@ -102,7 +102,16 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
 
   void _startRefreshTimer() {
     _catalogTimer ??= Timer.periodic(const Duration(minutes: 2), (_) {
-      if (mounted) ref.invalidate(partnerContentProvider);
+      if (!mounted) return;
+      ref.invalidate(partnerContentProvider);
+      // Refresh fixture status as well: a live match may finish while the
+      // user keeps SportsHub open, without navigating away or pressing reload.
+      if (!selectedCategory.isTelevision) {
+        ref.invalidate(sportsEventsProvider((
+          day: selectedDay,
+          sport: selectedCategory.apiSport,
+        )));
+      }
     });
   }
 
