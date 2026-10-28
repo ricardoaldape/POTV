@@ -259,4 +259,101 @@ void main() {
       isEmpty,
     );
   });
+
+  test('requires two separate team mentions when names overlap', () {
+    final starts = DateTime.utc(2026, 10, 28, 20);
+    final event = SportsEvent(
+      id: 'overlap-1',
+      sport: 'Soccer',
+      competition: 'Cup',
+      home: 'New York City',
+      away: 'York City',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'sports-overlap',
+      name: 'Sports',
+      epgId: 'sports.epg',
+      stream: StreamCandidate(
+        id: 'overlap-stream',
+        label: 'Sports',
+        uri: Uri.parse('https://example.com/sports.m3u8'),
+      ),
+    );
+    EpgProgram program(String title) => EpgProgram(
+      channelId: 'sports.epg',
+      title: title,
+      startsAt: starts,
+      endsAt: starts.add(const Duration(hours: 2)),
+    );
+    const resolver = SportsChannelResolver();
+    expect(
+      resolver.resolve(
+        event: event,
+        channels: [channel],
+        programs: [program('New York City: pre-game coverage')],
+      ),
+      isEmpty,
+    );
+    expect(
+      resolver.resolve(
+        event: event,
+        channels: [channel],
+        programs: [program('New York City vs York City')],
+      ),
+      hasLength(1),
+    );
+  });
+
+  test('never links a replay or highlights EPG entry as live', () {
+    final starts = DateTime.utc(2026, 10, 28, 20);
+    final event = SportsEvent(
+      id: 'replay-near-start',
+      sport: 'Soccer',
+      competition: 'Liga MX',
+      home: 'América',
+      away: 'Monterrey',
+      startsAt: starts,
+    );
+    final channel = LiveChannel(
+      id: 'sports-replay',
+      name: 'Sports',
+      epgId: 'sports.epg',
+      stream: StreamCandidate(
+        id: 'replay-stream',
+        label: 'Sports',
+        uri: Uri.parse('https://example.com/sports.m3u8'),
+      ),
+    );
+    EpgProgram program(String title) => EpgProgram(
+      channelId: 'sports.epg',
+      title: title,
+      startsAt: starts,
+      endsAt: starts.add(const Duration(hours: 2)),
+    );
+    const resolver = SportsChannelResolver();
+    for (final title in [
+      'Repetición: América vs Monterrey',
+      'America vs Monterrey - Highlights',
+      'America vs Monterrey (diferido)',
+    ]) {
+      expect(
+        resolver.resolve(
+          event: event,
+          channels: [channel],
+          programs: [program(title)],
+        ),
+        isEmpty,
+        reason: title,
+      );
+    }
+    expect(
+      resolver.resolve(
+        event: event,
+        channels: [channel],
+        programs: [program('América vs Monterrey en vivo')],
+      ),
+      hasLength(1),
+    );
+  });
 }
