@@ -1778,69 +1778,82 @@ class ContentGateway:
         partner_events = []
         try:
             partner_rows = self.lmhd.tv_channels()
-            if not isinstance(partner_rows, list):
-                partner_rows = []
-            for row in partner_rows[:600]:
-                if not isinstance(row, dict):
-                    continue
-                name = str(row.get("name") or "").strip()
-                group = str(row.get("group") or "").strip()
-                if not name or self._is_adult_entry(name, group):
-                    continue
-                key = (name.casefold(),
-                       str(row.get("epg_id") or "").strip().casefold())
-                if key in seen:
-                    continue
-                try:
-                    channel = self._channel_payload(row)
-                except ContentGatewayError:
-                    continue
-                # A provider's playback URL may rotate at every refresh.
-                # Keep a stable public channel ID for favourites/progress.
-                provider_id = str(row.get("provider_id") or "").strip()
-                if provider_id.isdecimal() and int(provider_id) > 0:
-                    channel["id"] = "lmhd:" + provider_id
-                seen.add(key)
-                appended.append(channel)
-                if channel.get("epg_id"):
-                    slots = []
-                    for entry in (row.get("epg") or [])[:32]:
-                        if isinstance(entry, dict) and entry.get("title"):
-                            slots.append(entry)
-                    # Map EpgProg time windows to currently on-air and next
-                    # slots; missing data remains "Sin programación".
-                    now_utc = datetime.now(timezone.utc)
-                    relevant = []
-                    for entry in slots:
-                        try:
-                            start_at = datetime.fromisoformat(
-                                entry["starts_at"].replace("Z", "+00:00"))
-                            end_at = datetime.fromisoformat(
-                                entry["ends_at"].replace("Z", "+00:00"))
-                        except (ValueError, TypeError, KeyError):
-                            continue
-                        if now_utc - timedelta(hours=2) <= end_at and (
-                            start_at <= now_utc + timedelta(hours=36)
-                        ):
-                            relevant.append((start_at, end_at, entry))
-                    if relevant:
-                        relevant.sort(key=lambda v: v[0])
-                        airing = next((p[2] for p in relevant if
-                                       p[0] <= now_utc < p[1]), None)
-                        next_item = next((p[2] for p in relevant if
-                                          p[0] > now_utc), None)
-                        if airing or next_item:
-                            partner_guide.append({
-                                "channel_id": channel["epg_id"],
-                                **({"now": airing} if airing else {}),
-                                **({"next": next_item} if next_item else {}),
-                            })
+        except PartnerApiError as error:
+            if error.code in ("partner_session_denied", "partner_authorization_or_api_error"):
+                return payload
+            partner_rows = []
+        except (OSError, ValueError, TypeError):
+            partner_rows = []
+        if not isinstance(partner_rows, list):
+            partner_rows = []
+        source_digests = []
+        for row in partner_rows[:6000]:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            group = str(row.get("group") or "").strip()
+            if not name or self._is_adult_entry(name, group):
+                continue
+            key = (name.casefold(),
+                   str(row.get("epg_id") or "").strip().casefold())
+            if key in seen:
+                continue
+            try:
+                channel = self._channel_payload(row)
+            except ContentGatewayError:
+                continue
+            # A provider's playback URL may rotate at every refresh.
+            # Keep a stable public channel ID for favourites/progress.
+            provider_id = str(row.get("provider_id") or "").strip()
+            if provider_id.isdecimal() and int(provider_id) > 0:
+                channel["id"] = "lmhd:" + provider_id
+            seen.add(key)
+            appended.append(channel)
+            source_digests.append(hashlib.sha256((
+                str(channel.get("id") or "") + "|" +
+                str(row.get("url") or "")
+            ).encode("utf-8")).hexdigest()[:20])
+            if channel.get("epg_id"):
+                slots = []
+                for entry in (row.get("epg") or [])[:32]:
+                    if isinstance(entry, dict) and entry.get("title"):
+                        slots.append(entry)
+                # Map EpgProg time windows to currently on-air and next
+                # slots; missing data remains "Sin programación".
+                now_utc = datetime.now(timezone.utc)
+                relevant = []
+                for entry in slots:
+                    try:
+                        start_at = datetime.fromisoformat(
+                            entry["starts_at"].replace("Z", "+00:00"))
+                        end_at = datetime.fromisoformat(
+                            entry["ends_at"].replace("Z", "+00:00"))
+                    except (ValueError, TypeError, KeyError):
+                        continue
+                    if now_utc - timedelta(hours=2) <= end_at and (
+                        start_at <= now_utc + timedelta(hours=36)
+                    ):
+                        relevant.append((start_at, end_at, entry))
+                if relevant:
+                    relevant.sort(key=lambda v: v[0])
+                    airing = next((p[2] for p in relevant if
+                                   p[0] <= now_utc < p[1]), None)
+                    next_item = next((p[2] for p in relevant if
+                                      p[0] > now_utc), None)
+                    if airing or next_item:
+                        partner_guide.append({
+                            "channel_id": channel["epg_id"],
+                            **({"now": airing} if airing else {}),
+                            **({"next": next_item} if next_item else {}),
+                        })
+        try:
             partner_events = self.lmhd.sports_events()
-        except (PartnerApiError, OSError, ValueError, TypeError):
-            # Never serve guessed partner URLs after a session denial.
+        except PartnerApiError as error:
+            if error.code in ("partner_session_denied", "partner_authorization_or_api_error"):
+                return payload
             partner_events = []
-            appended = []
-            partner_guide = []
+        except (OSError, ValueError, TypeError):
+            partner_events = []
         if not appended and not partner_events:
             return payload
         data["channels"] = list(channels) + appended
@@ -1863,6 +1876,9 @@ class ContentGateway:
                     sports_channels=sports))
         revision_piece = "|".join(
             sorted(str(row.get("id") or "") for row in appended))
+        # A URL rotation must advance the catalog revision even when EPG
+        # and stable channel IDs have not changed. Never expose source URLs.
+        revision_piece += "|sources=" + "|".join(sorted(source_digests))
         revision_piece += "|events=" + str(len(data.get("sports_events") or []))
         revision_piece += "|guide=" + json.dumps(
             partner_guide, ensure_ascii=False, sort_keys=True, separators=(",", ":")

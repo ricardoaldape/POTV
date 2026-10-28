@@ -139,3 +139,54 @@ assert not failed["channels"], failed
 assert not failed["sports_events"], failed
 assert not gateway.catalog(force=True)["data"]["channels"]
 print("PASS: denied partner stays private and fails closed")
+
+# Two independent LMHD endpoints must not take each other down. A transient
+# sports failure should still show entitled television and its EPG.
+fixture.tv_channels = lambda: [{
+    "name": f"Canal {i}",
+    "url": f"https://media.partner.example/live/{i}.m3u8",
+    "group": "México", "epg_id": f"lmhd:{i}", "provider_id": str(i),
+} for i in range(1, 602)]
+def network_outage():
+    raise PartnerApiError("partner_network_unavailable")
+fixture.sports_events = network_outage
+gateway.refresh_seconds = 0
+many = gateway.catalog_for_subscriber()["data"]
+assert len(many["channels"]) == 601, "LMHD was silently truncated to 600"
+assert not many["sports_events"]
+assert gateway.catalog(force=True)["data"]["channels"] == []
+print("PASS: all 601 LMHD channels survive sports endpoint outage")
+
+# Provider URL change must advance revision even when IDs and EPG stay the
+# same. Private upstream URL still never appears in the catalog.
+fixture.tv_channels = lambda: [{
+    "name": "Canal 1", "url": "https://media.partner.example/live/one.m3u8",
+    "group": "México", "epg_id": "lmhd:1", "provider_id": "1",
+}]
+first = gateway.catalog_for_subscriber()["data"]
+fixture.tv_channels = lambda: [{
+    "name": "Canal 1", "url": "https://media.partner.example/live/rotated.m3u8",
+    "group": "México", "epg_id": "lmhd:1", "provider_id": "1",
+}]
+second = gateway.catalog_for_subscriber()["data"]
+assert first["channels"][0]["id"] == second["channels"][0]["id"] == "lmhd:1"
+assert first["revision"] != second["revision"]
+assert "media.partner.example" not in str(second)
+print("PASS: upstream stream rotation changes revision, not stable channel ID")
+
+# When TV is down, exact partner events may still be viewed.
+fixture.tv_channels = network_outage
+fixture.sports_events = AuthorizedFixture().sports_events
+only_events = gateway.catalog_for_subscriber()["data"]
+assert not only_events["channels"]
+assert len(only_events["sports_events"]) == 1
+print("PASS: sports stream survives TV endpoint outage")
+
+# An explicit refusal from either partner endpoint fails closed.
+fixture.tv_channels = lambda: [{
+    "name": "Canal 1", "url": "https://media.partner.example/live/one.m3u8",
+    "group": "México", "epg_id": "lmhd:1", "provider_id": "1",
+}]
+fixture.sports_events = denied
+assert not gateway.catalog_for_subscriber()["data"]["channels"]
+print("PASS: explicit partner denial never leaks partial private catalog")
