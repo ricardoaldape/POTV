@@ -56,4 +56,49 @@ void main() {
     expect(preferences.media3SubtitlePreference, 'disabled');
     expect(preferences.autoplayNext, isFalse);
   });
+  test('manual quality and audio survive failover for active profile only', () async {
+    SharedPreferences.setMockInitialValues({
+      'potv_active_profile_id': 'second',
+      'potv_user_profiles_v2': jsonEncode([
+        {'id': 'first', 'preferences': {'audioLanguage': 'original',
+          'autoplayNext': false, 'customSetting': 'unchanged'}},
+        {'id': 'second', 'preferences': {'audioLanguage': 'es-419',
+          'autoplayNext': true, 'customSetting': 'keep-me'}},
+      ]),
+    });
+    final updated = await PlayerPreferences.updateCurrent(
+      audioLanguage: 'en',
+      subtitleLanguage: 'off',
+      preferredVideoHeight: 720,
+      preferredAudioBitrate: 192000,
+    );
+    expect(updated.audioLanguage, 'en');
+    expect(updated.preferredVideoHeight, 720);
+    expect(updated.preferredAudioBitrate, 192000);
+    expect(updated.media3AudioPreference, 'english');
+    expect(updated.media3SubtitlePreference, 'disabled');
+
+    final restored = await PlayerPreferences.load();
+    expect(restored.preferredVideoHeight, 720);
+    expect(restored.preferredAudioBitrate, 192000);
+    expect(restored.audioLanguage, 'en');
+    expect(restored.autoplayNext, true);
+
+    final prefs = await SharedPreferences.getInstance();
+    final profiles = jsonDecode(prefs.getString('potv_user_profiles_v2')!) as List;
+    expect(profiles[0]['preferences']['audioLanguage'], 'original');
+    expect(profiles[0]['preferences']['customSetting'], 'unchanged');
+    expect(profiles[1]['preferences']['customSetting'], 'keep-me');
+    expect(profiles[1]['preferences']['preferredVideoHeight'], 720);
+  });
+
+  test('without an active profile, manual override is safe and local', () async {
+    SharedPreferences.setMockInitialValues({});
+    final updated = await PlayerPreferences.updateCurrent(
+      preferredVideoHeight: 1080,
+    );
+    expect(updated.preferredVideoHeight, 1080);
+    expect((await PlayerPreferences.load()).preferredVideoHeight, 0);
+  });
+
 }

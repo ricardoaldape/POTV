@@ -70,6 +70,10 @@ private class Media3CastPlayerView(
     private val subtitlePreference =
         params["subtitlePreference"]?.toString() ?: "whenNoSpanishAudio"
     private val autoplay = params["autoplay"] != false
+    private val preferredVideoHeight =
+        (params["preferredVideoHeight"] as? Number)?.toInt() ?: 0
+    private val preferredAudioBitrate =
+        (params["preferredAudioBitrate"] as? Number)?.toInt() ?: 0
     private var automaticSelectionApplied = false
 
     init {
@@ -199,6 +203,7 @@ private class Media3CastPlayerView(
 
         playerView.player = castPlayer
         playerView.useController = false
+        // POTV's Flutter overlay owns all loading/transport controls.
         playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
 
         root.addView(
@@ -267,6 +272,12 @@ private class Media3CastPlayerView(
             }
         }
 
+        if (preferredAudioBitrate > 0) {
+            builder.setMaxAudioBitrate(preferredAudioBitrate)
+        }
+        if (preferredVideoHeight > 0) {
+            builder.setMaxVideoSize(Int.MAX_VALUE, preferredVideoHeight)
+        }
         player.trackSelectionParameters = builder.build()
     }
 
@@ -390,6 +401,9 @@ private class Media3CastPlayerView(
                         "sampleMimeType" to format.sampleMimeType,
                         "selected" to group.isTrackSelected(trackIndex),
                         "supported" to group.isTrackSupported(trackIndex),
+                        "height" to format.height,
+                        "bitrate" to format.bitrate,
+                        "channelCount" to format.channelCount,
                     ),
                 )
             }
@@ -528,11 +542,42 @@ private class Media3CastPlayerView(
             }
 
             "getAudioTracks" -> result.success(trackList(C.TRACK_TYPE_AUDIO))
+            "setAudioQualityAuto" -> {
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .setMaxAudioBitrate(Int.MAX_VALUE)
+                        .build()
+                result.success(null)
+            }
+            "getVideoTracks" -> result.success(trackList(C.TRACK_TYPE_VIDEO))
+            "setVideoQualityAuto" -> {
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                        .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                        .build()
+                result.success(null)
+            }
+            "selectVideoTrack" -> {
+                val groupIndex = call.argument<Number>("groupIndex")?.toInt() ?: -1
+                val trackIndex = call.argument<Number>("trackIndex")?.toInt() ?: -1
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                        .build()
+                selectTrack(groupIndex, trackIndex)
+                result.success(null)
+            }
             "getSubtitleTracks" -> result.success(trackList(C.TRACK_TYPE_TEXT))
 
             "selectAudioTrack" -> {
                 val groupIndex = call.argument<Number>("groupIndex")?.toInt() ?: -1
                 val trackIndex = call.argument<Number>("trackIndex")?.toInt() ?: -1
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .setMaxAudioBitrate(Int.MAX_VALUE)
+                        .build()
                 selectTrack(groupIndex, trackIndex)
                 logSelectedTracks(castPlayer.currentTracks)
                 result.success(null)

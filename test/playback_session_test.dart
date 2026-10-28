@@ -22,4 +22,26 @@ void main() {
     );
     expect(session.isLive, isTrue);
   });
+  test('episode queues are optional and keep the same playback surface', () {
+    const current = PlaybackContext(
+      mediaId: 7, mediaType: 'tv', title: 'POTV Series',
+      season: 2, episode: 3,
+    );
+    const before = PlaybackContext(
+      mediaId: 7, mediaType: 'tv', title: 'POTV Series',
+      season: 2, episode: 2,
+    );
+    const after = PlaybackContext(
+      mediaId: 7, mediaType: 'tv', title: 'POTV Series',
+      season: 2, episode: 4,
+    );
+    final session = PlaybackSession(
+      title: 'POTV Series', candidates: [stream], playbackContext: current,
+      previousQueue: const [before], autoplayQueue: const [after],
+    );
+    expect(session.previousQueue.single.episode, 2);
+    expect(session.autoplayQueue.single.episode, 4);
+    expect(session.playbackContext?.historyKey, 'tv:7:s2:e3');
+  });
+
 }
