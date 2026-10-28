@@ -15,6 +15,10 @@ with tempfile.TemporaryDirectory() as folder:
     ]
     movies[1490]["poster"] = "https://private.example/poster?password=secret"
     movies[1491]["backdrop"] = "https://image.tmdb.org/t/p/w500/backdrop.jpg"
+    # urlsplit() raises ValueError on malformed IPv6 brackets. Such a row
+    # must be returned with its title/id, omitting only the unsafe image.
+    movies[1492]["poster"] = "https://[broken"
+    movies[1493]["backdrop"] = "https://[::1"
     snapshot = {"revision": "fixture-revision", "channels": [],
                 "movies": movies, "series": [], "anime": []}
     with open(path, "w", encoding="utf-8") as fh:
@@ -37,6 +41,10 @@ with tempfile.TemporaryDirectory() as folder:
     assert page["items"][-1]["tmdb_id"] == 1690
     assert "poster" not in page["items"][0]
     assert "backdrop" in page["items"][1]
+    assert page["items"][2]["tmdb_id"] == 1493
+    assert "poster" not in page["items"][2]
+    assert page["items"][3]["tmdb_id"] == 1494
+    assert "backdrop" not in page["items"][3]
     assert "url" not in page["items"][0]
     assert "token" not in page["items"][0]
     assert "private.example" not in json.dumps(page)
