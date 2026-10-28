@@ -25,6 +25,10 @@ with tempfile.TemporaryDirectory() as tmp:
             {"channel_id":"nfl","now":{"title":"Football previo",
              "starts_at":"2026-10-28T04:00:00+00:00",
              "ends_at":"2026-10-28T05:00:00+00:00"}},
+            {"channel_id":"orphan-from-removed-channel","now":{
+             "title":"Never show",
+             "starts_at":"2026-10-28T04:00:00+00:00",
+             "ends_at":"2026-10-28T05:00:00+00:00"}},
         ],"channels":[
             {"id":"nova:1", "name":"NFL Network", "url":"https://nova.example/nfl.m3u8",
              "group":"Deportes", "epg_id":"nfl", "format":"hls", "backup_urls":[
@@ -51,6 +55,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert "anime" not in g.catalog()["data"], "NOVA anime must remain subscriber-only"
         assert private["data"]["now_next"][0]["channel_id"] == "nfl"
         assert private["data"]["now_next"][0]["current"]["title"] == "Football previo"
+        assert len(private["data"]["now_next"]) == 1, "orphan EPG published"
         assert not g.catalog()["data"]["now_next"], "private sports guide leaked publicly"
         assert private["data"]["sports_events"] == [], "program guide is not a verified event feed"
         assert "NFL Network" in [s["name"] for s in sports]
