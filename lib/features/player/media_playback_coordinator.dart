@@ -139,7 +139,7 @@ class MediaPlaybackCoordinator {
     int? episode,
   }) async {
     if (episode == null || item.type == MediaType.movie) {
-      return (previous: const [], next: const []);
+      return (previous: const <PlaybackContext>[], next: const <PlaybackContext>[]);
     }
 
     PlaybackContext contextFor(int? seasonValue, int episodeValue) =>
@@ -174,7 +174,7 @@ class MediaPlaybackCoordinator {
       final index = episodes.indexWhere(
         (value) => value.season == season && value.episode == episode,
       );
-      if (index < 0) return (previous: const [], next: const []);
+      if (index < 0) return (previous: const <PlaybackContext>[], next: const <PlaybackContext>[]);
       return (
         previous: [
           for (final e in episodes.take(index).toList().reversed.take(20))
@@ -186,7 +186,7 @@ class MediaPlaybackCoordinator {
         ],
       );
     } catch (_) {
-      return (previous: const [], next: const []);
+      return (previous: const <PlaybackContext>[], next: const <PlaybackContext>[]);
     }
   }
 
