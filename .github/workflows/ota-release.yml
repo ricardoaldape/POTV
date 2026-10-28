@@ -238,6 +238,29 @@ jobs:
           # external-process exit code after every verification passed.
           exit 0
 
+      - name: Require real device QA for official publication
+        if: ${{ inputs.publish }}
+        shell: powershell
+        env:
+          ANDROID_QA_SHA: ${{ vars.POTV_ANDROID_QA_APPROVED_SHA }}
+          ANDROID_TV_QA_SHA: ${{ vars.POTV_ANDROID_TV_QA_APPROVED_SHA }}
+          QA_APK_SHA256: ${{ vars.POTV_ANDROID_QA_APPROVED_APK_SHA256 }}
+          BUILT_APK_SHA256: ${{ steps.verify.outputs.sha256 }}
+        run: |
+          $expected = '${{ github.sha }}'
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_QA_SHA) -or
+              $env:ANDROID_QA_SHA.Trim() -ne $expected) {
+            throw 'Android physical-device QA approval for this exact commit is required'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ANDROID_TV_QA_SHA) -or
+              $env:ANDROID_TV_QA_SHA.Trim() -ne $expected) {
+            throw 'Android TV physical-device QA approval for this exact commit is required'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:QA_APK_SHA256) -or
+              $env:QA_APK_SHA256.Trim().ToLowerInvariant() -ne $env:BUILT_APK_SHA256.Trim().ToLowerInvariant()) {
+            throw 'Official OTA APK must match the exact signed binary installed during device QA'
+          }
+
       - name: Create release notes
         shell: powershell
         env:

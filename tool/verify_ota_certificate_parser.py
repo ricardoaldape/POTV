@@ -57,4 +57,15 @@ assert '[int]$response.StatusCode -ne 404' in ota_workflow, (
 assert 'bump pubspec version instead of retagging' in ota_workflow, (
     "OTA must never overwrite a tag from an earlier failed workflow"
 )
+assert 'Require real device QA for official publication' in ota_workflow
+assert 'if: ${{ inputs.publish }}' in ota_workflow
+for qa_var in (
+    "POTV_ANDROID_QA_APPROVED_SHA",
+    "POTV_ANDROID_TV_QA_APPROVED_SHA",
+    "POTV_ANDROID_QA_APPROVED_APK_SHA256",
+):
+    assert qa_var in ota_workflow, f"OTA release missing required QA attestation: {qa_var}"
+assert "steps.verify.outputs.sha256" in ota_workflow, (
+    "OTA publication must match the exact APK binary tested on real devices"
+)
 print("PASS: Windows OTA/review parser supports apksigner signer labels; pin retained")
