@@ -32,6 +32,7 @@ from urllib.request import (
 
 from lmhd_partner import LmhdPartner, PartnerApiError
 from nova_partner import NovaPartner, NovaPartnerError
+from nova_snapshot_limits import MAX_NOVA_SNAPSHOT_BYTES
 
 _EXTINF_ATTR = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
 _HLS_URI_ATTR = re.compile(r'URI="([^"]+)"')
@@ -1794,8 +1795,8 @@ class ContentGateway:
             ):
                 return self._resign_cached_catalog(self._nova_subscriber_catalog)
         try:
-            if os.path.getsize(self.nova_sync_file) > 12 * 1024 * 1024:
-                return public
+            if os.path.getsize(self.nova_sync_file) > MAX_NOVA_SNAPSHOT_BYTES:
+                raise ValueError("nova_snapshot_too_large")
             with open(self.nova_sync_file, "r", encoding="utf-8") as fh:
                 snapshot = json.load(fh)
             rows = snapshot.get("channels") or []
