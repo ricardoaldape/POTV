@@ -1,0 +1,78 @@
+name: POTV Android emulator QA smoke
+
+# Deliberately independent from signed OTA releases. Debug APKs use the
+# .qa suffix; never overwrite subscribers' production installation.
+on:
+  workflow_dispatch:
+    inputs:
+      successful_ci_run_id:
+        description: "Successful POTV CI run ID containing POTV-QA-DEBUG-APK"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  android-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch QA APK from previously validated CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.successful_ci_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]{8,15}$ ]] || { echo "Invalid run identifier"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+            --jq '.workflow_id,.conclusion,.head_branch' > /tmp/qa-source-run.txt
+          test "$(sed -n '2p' /tmp/qa-source-run.txt)" = success
+          test "$(sed -n '3p' /tmp/qa-source-run.txt)" = main
+          mkdir -p /tmp/potv-qa
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name POTV-QA-DEBUG-APK \
+            --dir /tmp/potv-qa
+          test -s /tmp/potv-qa/app-debug.apk
+          sha256sum /tmp/potv-qa/app-debug.apk | tee /tmp/potv-qa.sha256
+
+      - name: Install and launch POTV QA on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_4a
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            set -euo pipefail
+            adb wait-for-device
+            adb install -r /tmp/potv-qa/app-debug.apk
+            adb shell am start -W -n com.potv.potv.qa/com.potv.potv.MainActivity
+            sleep 18
+            pid=$(adb shell pidof com.potv.potv.qa | tr -d '\r')
+            test -n "$pid" || { echo "POTV QA process died after launch"; exit 1; }
+            echo "POTV QA process still alive after launch"
+            adb shell screencap -p /sdcard/potv-qa-screen.png
+            adb pull /sdcard/potv-qa-screen.png /tmp/potv-qa-screen.png
+            adb logcat -d -t 1000 > /tmp/potv-qa-logcat.txt
+            if grep -E 'FATAL EXCEPTION:|Process: com\.potv\.potv\.qa.*FATAL' \
+                /tmp/potv-qa-logcat.txt; then
+              echo "POTV process crashed during smoke test"
+              exit 1
+            fi
+
+      - name: Preserve QA logs and launch screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: POTV-ANDROID-EMULATOR-QA
+          path: |
+            /tmp/potv-qa-screen.png
+            /tmp/potv-qa-logcat.txt
+            /tmp/potv-qa.sha256
+          if-no-files-found: warn
+          retention-days: 7
