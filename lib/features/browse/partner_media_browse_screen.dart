@@ -250,7 +250,7 @@ class _PartnerMediaBrowseScreenState
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                else if (_hasMore)
+                else if (_hasMore && (_items.isNotEmpty || _error == null))
                   TextButton(
                     onPressed: _loadNext,
                     child: Text(_error == null ? 'Cargar más' : 'Reintentar'),
