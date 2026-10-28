@@ -112,6 +112,17 @@ class LmhdPartner:
         config = json.loads(path.read_text(encoding="utf8"))
         if not isinstance(config, dict) or config.get("enabled") is not True:
             return None
+        # A provider may issue a named service account rather than a
+        # long-lived token. Follow the app's public login contract and
+        # refresh the session server-side; no APK/session scraping required.
+        if config.get("username") and config.get("password"):
+            return SessionLmhdPartner(
+                base_url=config["base_url"],
+                username=config["username"],
+                password=config["password"],
+                device=config["device"],
+                opener=opener,
+            )
         return cls(
             base_url=config["base_url"],
             token=config["token"],
@@ -363,3 +374,30 @@ class LmhdPartner:
                 candidate = self._playable_media(refreshed.get("media"))
                 return [candidate] if candidate else []
         return []
+
+
+class SessionLmhdPartner(LmhdPartner):
+    """Dynamic service login through the LMHD API's normal login endpoint.
+
+    Preserve the same TV/VOD/events normalization used for static tokens.
+    Session renewal is delegated to the existing authorized-login client.
+    """
+
+    def __init__(self, *, base_url, username, password, device, opener=None):
+        from partner_lmhd_api import LMHDPartnerAdapter
+        self._session = LMHDPartnerAdapter(
+            base_url=base_url, username=username, password=password,
+            device=device, opener=opener.open if hasattr(opener, "open") else opener,
+        )
+
+    def _request(self, filename, **fields):
+        from partner_lmhd_api import PartnerAccessError
+        if filename not in {
+            "tv.php", "channels.php", "vod.php", "series.php",
+            "stream.php", "heartbeat.php",
+        }:
+            raise PartnerApiError("unsupported_partner_route")
+        try:
+            return self._session._authenticated(filename, fields)
+        except PartnerAccessError:
+            raise PartnerApiError("partner_session_denied") from None

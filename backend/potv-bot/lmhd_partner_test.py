@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from urllib.error import URLError
 
 from lmhd_partner import LmhdPartner, PartnerApiError
 
@@ -164,6 +165,73 @@ class LmhdContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             LmhdPartner(base_url="https://127.0.0.1/",
                         token="test", device="device")
+
+    def test_approved_service_login_auto_renews_without_app_token(self):
+        class LoginOpener:
+            def __init__(self):
+                self.calls = []
+            def open(self, request, timeout=8):
+                url = urlsplit(request.full_url)
+                route = url.path.rsplit("/", 1)[-1]
+                q = parse_qs(url.query)
+                form = parse_qs((request.data or b"").decode("utf-8"))
+                self.calls.append((route, q, form))
+                if route == "login.php":
+                    assert form == {
+                        "username": ["potv-service"],
+                        "password": ["private-fixture-password"],
+                    }
+                    return Response(request.full_url, {
+                        "ok": True, "token": "fresh-session-from-login",
+                    })
+                assert q["token"] == ["fresh-session-from-login"]
+                assert q["device"] == ["dedicated-device"]
+                if route == "tv.php":
+                    return Response(request.full_url, {"ok": True, "categorias": [
+                        {"nombre": "MX", "canales": [{
+                            "id": 9, "nombre": "TV Prueba",
+                            "media": "https://media.partner.example/9.m3u8",
+                        }]}
+                    ]})
+                return Response(request.full_url, {"ok": True, "channels": []})
+
+        opening = LoginOpener()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "licensed-service.json"
+            path.write_text(json.dumps({
+                "enabled": True,
+                "base_url": "https://api.partner.example/",
+                "username": "potv-service",
+                "password": "private-fixture-password",
+                "device": "dedicated-device",
+            }))
+            client = LmhdPartner.from_file(str(path), opener=opening)
+            first = client.tv_channels()
+            second = client.tv_channels()
+            self.assertEqual(first[0]["provider_id"], "9")
+            self.assertEqual(second[0]["name"], "TV Prueba")
+            self.assertEqual([c[0] for c in opening.calls].count("login.php"), 1)
+            client._session._token_at = -3601
+            self.assertEqual(client.tv_channels()[0]["name"], "TV Prueba")
+            self.assertEqual([c[0] for c in opening.calls].count("login.php"), 2)
+            self.assertNotIn("fresh-session-from-login", repr(first))
+            self.assertNotIn("private-fixture-password", repr(first))
+
+    def test_expired_partner_session_does_not_expose_login_fields(self):
+        def denied(req, timeout=9):
+            raise URLError("provider_not_available: private-fixture-password")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "approved-service.json"
+            path.write_text(json.dumps({
+                "enabled": True, "base_url": "https://api.partner.example/",
+                "username": "potv-service", "password": "private-fixture-password",
+                "device": "test-device",
+            }))
+            client = LmhdPartner.from_file(str(path), opener=denied)
+            with self.assertRaises(PartnerApiError) as error:
+                client.tv_channels()
+            self.assertEqual(error.exception.code, "partner_session_denied")
+            self.assertNotIn("private-fixture-password", str(error.exception))
 
     def test_disabled_configuration_is_not_connected(self):
         with tempfile.TemporaryDirectory() as tmp:

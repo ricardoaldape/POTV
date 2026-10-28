@@ -187,6 +187,7 @@ class ContentGateway:
                 self.lmhd = LmhdPartner.from_file(lmhd_file)
             except (OSError, ValueError, KeyError, TypeError):
                 self.lmhd = None
+        self.lmhd_sync_file = os.getenv("POTV_LMHD_SYNC_FILE", "").strip()
         self.lmhd_live_catalog_enabled = (
             os.getenv("POTV_LMHD_INCLUDE_LIVE_CATALOG", "").strip().lower()
             == "true"
@@ -1777,7 +1778,27 @@ class ContentGateway:
         partner_guide = []
         partner_events = []
         try:
-            partner_rows = self.lmhd.tv_channels()
+            # Prefer the independently refreshed, private provider snapshot.
+            # Never use it after its 12-minute freshness limit, and fall back
+            # to a live provider fetch if the background worker is unavailable.
+            partner_rows = None
+            if self.lmhd_sync_file:
+                try:
+                    if time.time() - os.path.getmtime(self.lmhd_sync_file) <= 720:
+                        if os.path.getsize(self.lmhd_sync_file) > 8 * 1024 * 1024:
+                            raise ValueError("oversize_lmhd_snapshot")
+                        with open(self.lmhd_sync_file, "r", encoding="utf-8") as fh:
+                            approved = json.load(fh)
+                        if (approved.get("version") == 1
+                                and isinstance(approved.get("channels"), list)
+                                and isinstance(approved.get("sports_events"), list)):
+                            partner_rows = approved["channels"]
+                            partner_events = approved["sports_events"]
+                except (OSError, ValueError, TypeError, AttributeError):
+                    partner_rows = None
+            if partner_rows is None:
+                partner_rows = self.lmhd.tv_channels()
+                partner_events = self.lmhd.sports_events()
             if not isinstance(partner_rows, list):
                 partner_rows = []
             for row in partner_rows[:600]:
@@ -1835,7 +1856,6 @@ class ContentGateway:
                                 **({"now": airing} if airing else {}),
                                 **({"next": next_item} if next_item else {}),
                             })
-            partner_events = self.lmhd.sports_events()
         except (PartnerApiError, OSError, ValueError, TypeError):
             # Never serve guessed partner URLs after a session denial.
             partner_events = []
