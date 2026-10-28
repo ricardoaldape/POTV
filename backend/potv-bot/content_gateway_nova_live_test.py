@@ -52,6 +52,8 @@ with tempfile.TemporaryDirectory() as tmp:
         sports=private["data"]["sports_channels"]
         assert len(channels)==3, channels
         assert len(sports)==1,sports
+        assert sports[0]["id"] == "nova:1", "provider ID must survive URL rotation"
+        assert next(c for c in channels if c["name"] == "Canal MX")["id"] == "nova:2"
         assert private["data"]["anime"][0]["anilist_id"] == 195539
         assert "anime" not in g.catalog()["data"], "NOVA anime must remain subscriber-only"
         assert private["data"]["now_next"][0]["channel_id"] == "nfl"
@@ -81,6 +83,20 @@ with tempfile.TemporaryDirectory() as tmp:
         g._hydrate_target(target_id)
         assert target_id in g._targets
         assert g._targets[target_id][0] == "https://nova.example/nfl.m3u8"
+        # A new provider stream address must NOT change the TV favorite ID.
+        with open(path, encoding="utf-8") as fh:
+            rotated = json.load(fh)
+        rotated["revision"] = "nova-v2"
+        rotated["channels"][0]["url"] = "https://nova.example/nfl-new-token.m3u8"
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(rotated, fh)
+        g._nova_subscriber_catalog = None
+        updated = g.catalog_for_subscriber()["data"]
+        newer_nfl = next(c for c in updated["sports_channels"]
+                         if c["name"] == "NFL Network")
+        assert newer_nfl["id"] == "nova:1"
+        assert newer_nfl["hls_url"] != nfl["hls_url"]
+        assert updated["revision"] != private["data"]["revision"]
         g.nova_live_enabled=False
         assert len(g.catalog_for_subscriber()["data"]["channels"])==1
 

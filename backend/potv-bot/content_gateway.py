@@ -1921,6 +1921,10 @@ class ContentGateway:
             for item in all_channels
         }
         appended = 0
+        # The source URL is not a stable channel identity: NOVA may rotate
+        # signed CDN URLs on every scheduled catalog synchronization.
+        # Preserve the partner-issued channel ID so user favorites survive.
+        known_ids = {str(item.get("id") or "") for item in all_channels}
         for row in rows[:7000]:
             if not isinstance(row, dict):
                 continue
@@ -1935,6 +1939,11 @@ class ContentGateway:
                 channel = self._channel_payload(row)
             except ContentGatewayError:
                 continue
+            source_id = str(row.get("id") or "").strip()
+            if (re.fullmatch(r"nova:[0-9]{1,14}", source_id)
+                    and source_id not in known_ids):
+                channel["id"] = source_id
+            known_ids.add(channel["id"])
             backups = []
             raw_backups = row.get("backup_urls")
             if isinstance(raw_backups, list):
