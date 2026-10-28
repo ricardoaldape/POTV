@@ -25,6 +25,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import (
     HTTPCookieProcessor,
+    HTTPRedirectHandler,
     Request,
     build_opener,
 )
@@ -47,6 +48,42 @@ class ContentGatewayError(Exception):
         super().__init__(code)
         self.status = int(status)
         self.code = str(code)
+
+
+
+
+class _SafeUpstreamRedirect(HTTPRedirectHandler):
+    """Allow CDN redirects, never redirect media fetches to local services.
+
+    Initial URLs are checked by ContentGateway._allowed_upstream, but urllib
+    otherwise follows Location headers without checking their destinations.
+    """
+
+    def __init__(self, allow_url):
+        self._allow_url = allow_url
+
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        destination = urlsplit(newurl)
+        source = urlsplit(request.full_url)
+        if (
+            not self._allow_url(newurl)
+            or destination.username is not None
+            or destination.password is not None
+            or (source.scheme == "https" and destination.scheme != "https")
+        ):
+            raise ContentGatewayError(400, "upstream_not_allowed")
+        redirected = super().redirect_request(
+            request, fp, code, msg, headers, newurl
+        )
+        if redirected is not None:
+            # A redirect to another CDN must not receive origin credentials.
+            for key in tuple(redirected.headers):
+                if key.lower() in (
+                    "authorization", "proxy-authorization", "cookie",
+                    "x-api-key",
+                ):
+                    del redirected.headers[key]
+        return redirected
 
 
 def _load_source_urls():
@@ -180,7 +217,10 @@ class ContentGateway:
         self._nova_subscriber_catalog = None
         self._nova_subscriber_catalog_at = 0.0
         self._nova_subscriber_revision = None
-        self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
+        self.opener = opener or build_opener(
+            HTTPCookieProcessor(CookieJar()),
+            _SafeUpstreamRedirect(self._allowed_upstream),
+        )
         self._lock = threading.RLock()
         # A cold-start stream URL may have been signed before the API
         # restarted. Rehydrate public and private targets ONCE rather than
@@ -218,14 +258,9 @@ class ContentGateway:
             return False
         try:
             ip = ipaddress.ip_address(host.strip("[]"))
-            if (
-                ip.is_private
-                or ip.is_loopback
-                or ip.is_link_local
-                or ip.is_multicast
-                or ip.is_reserved
-                or ip.is_unspecified
-            ):
+            # Includes CGNAT (100.64/10), private, link-local, loopback,
+            # documentation and reserved IP ranges, IPv4 and IPv6.
+            if not ip.is_global:
                 return False
         except ValueError:
             pass

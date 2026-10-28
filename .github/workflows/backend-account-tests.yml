@@ -42,6 +42,7 @@ jobs:
           python content_gateway_m3u_parser_test.py
           python content_gateway_transport_test.py
           python content_gateway_hls_secret_test.py
+          python content_gateway_redirect_test.py
           python content_gateway_hls_sniff_test.py
           python content_gateway_media_page_test.py
           python content_gateway_sports_exact_link_test.py
