@@ -11,11 +11,18 @@ import threading
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 class PartnerAccessError(RuntimeError):
     pass
+
+
+class _NoRedirects(HTTPRedirectHandler):
+    """Never forward a provider session token to a redirected destination."""
+
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
 
 
 def _public_https(value):
@@ -45,7 +52,10 @@ class LMHDPartnerAdapter:
         self._username = str(username)
         self._password = str(password)
         self._device = str(device)
-        self._opener = opener or urlopen
+        # urllib.urlopen follows 30x by default, including redirects that carry
+        # the token and device query parameters to another host. Partner
+        # sessions must never follow redirects, even to another HTTPS URL.
+        self._opener = opener if opener is not None else build_opener(_NoRedirects()).open
         self._lock = threading.RLock()
         self._token = None
         self._token_at = 0.0
