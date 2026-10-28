@@ -493,6 +493,86 @@ def all_channel_guide(service, channels, *, max_channels=6000):
     return channel_guide(service, channels,max_channels=max_channels)
 
 
+
+def retain_recent_guide(fresh, previous, channels, *, now=None):
+    """Keep still-valid EPG entries for at most 45 minutes during partial outages.
+
+    Only channel IDs still present in the new authorized snapshot are eligible.
+    Revalidate cached dates and copy only public EPG fields, never stream URLs.
+    A missing/old timestamp fails closed instead of displaying stale schedules.
+    """
+    from datetime import timedelta
+
+    now = now or datetime.now(timezone.utc)
+    allowed = {str(row.get("epg_id") or "") for row in channels
+               if isinstance(row, dict) and row.get("epg_id")}
+    result = [row for row in fresh if isinstance(row, dict)
+              and str(row.get("channel_id") or "") in allowed]
+    seen = {str(row["channel_id"]) for row in result}
+    if not isinstance(previous, dict):
+        return result
+    previous_seen_at = previous.get("guide_seen_at")
+    if not isinstance(previous_seen_at, dict):
+        previous_seen_at = {}
+
+    def recent(channel_id):
+        # A snapshot can be rewritten every 30 minutes with cached entries.
+        # Per-channel source timestamps prevent that from extending their TTL.
+        stamp_text = previous_seen_at.get(
+            channel_id, previous.get("updated_at"))
+        try:
+            stamp = datetime.fromisoformat(
+                str(stamp_text or "").replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                return False
+            age = now - stamp.astimezone(timezone.utc)
+            return -timedelta(minutes=2) <= age <= timedelta(minutes=45)
+        except (ValueError, TypeError, OverflowError):
+            return False
+
+    def valid_program(value):
+        if not isinstance(value, dict):
+            return None
+        title = str(value.get("title") or "").strip()[:160]
+        try:
+            start = datetime.fromisoformat(
+                str(value.get("starts_at") or "").replace("Z", "+00:00"))
+            end = datetime.fromisoformat(
+                str(value.get("ends_at") or "").replace("Z", "+00:00"))
+            if start.tzinfo is None or end.tzinfo is None:
+                return None
+            start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+            if not title or not (start < end <= start + timedelta(hours=16)):
+                return None
+            if end <= now or start > now + timedelta(hours=36):
+                return None
+        except (ValueError, TypeError, OverflowError):
+            return None
+        description = str(value.get("description") or "").strip()[:160]
+        return {"title": title, "starts_at": start.isoformat(),
+                "ends_at": end.isoformat(),
+                **({"description": description} if description else {})}
+
+    old_guide = previous.get("now_next")
+    if not isinstance(old_guide, list):
+        return result
+    for row in old_guide:
+        if not isinstance(row, dict):
+            continue
+        channel_id = str(row.get("channel_id") or "")
+        if channel_id not in allowed or channel_id in seen or not recent(channel_id):
+            continue
+        current = valid_program(row.get("now"))
+        next_program = valid_program(row.get("next"))
+        if not current and not next_program:
+            continue
+        result.append({"channel_id": channel_id,
+                       **({"now": current} if current else {}),
+                       **({"next": next_program} if next_program else {})})
+        seen.add(channel_id)
+    return result
+
+
 def snapshot_revision(channels, movies, series, anime, guide=()):
     """Change revision when media titles/IDs change, not only TV channels.
 
@@ -595,16 +675,35 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
     )
     anime = []
     if anime_map_file:
-        # AniList is the canonical anime identifier in POTV. A provider TMDb
-        # ID must never be sent to the Android anime UI as an AniList ID.
+        # Preserve mapped AniList IDs during a temporary partner/API outage.
+        # Never use provider TMDb IDs as AniList IDs.
+        old_anime = old_snapshot.get("anime")
+        if isinstance(old_anime, list):
+            anime = [row for row in old_anime if isinstance(row, dict)
+                     and isinstance(row.get("anilist_id"), int)
+                     and not isinstance(row["anilist_id"], bool)
+                     and row["anilist_id"] > 0]
         try:
             anime_rows = fetch_media_pages(service, service.anime)
             anime_map, _ = refresh_cache(anime_rows, anime_map_file)
             anime = normalize_anime(anime_rows, anime_map)
         except (NovaPartnerError, OSError, ValueError, TypeError):
-            # Keep TV, movies and series synchronized if AniList is down.
+            # Do not wipe the previous valid anime shelf on transient errors.
             pass
-    guide = all_channel_guide(service, rows)
+    fresh_guide = all_channel_guide(service, rows)
+    guide = retain_recent_guide(fresh_guide, old_snapshot, rows)
+    now_stamp = datetime.now(timezone.utc).isoformat()
+    old_seen_at = old_snapshot.get("guide_seen_at")
+    if not isinstance(old_seen_at, dict):
+        old_seen_at = {}
+    fresh_ids = {str(row.get("channel_id") or "") for row in fresh_guide}
+    guide_seen_at = {
+        str(row["channel_id"]): (
+            now_stamp if str(row["channel_id"]) in fresh_ids
+            else old_seen_at.get(str(row["channel_id"]),
+                                 old_snapshot.get("updated_at") or ""))
+        for row in guide
+    }
     body = {
         "source": "nova",
         "format_probe_version": 2,
@@ -614,6 +713,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
                                "series": series_offset},
         "anime": anime,
         "now_next": guide,
+        "guide_seen_at": guide_seen_at,
         "upstream_app_version": version,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "revision": snapshot_revision(rows, movies, series, anime, guide),
