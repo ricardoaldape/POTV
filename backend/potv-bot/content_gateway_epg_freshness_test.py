@@ -53,4 +53,16 @@ cached = {"data": {"channels": [], "sports_channels": [],
 fresh = g._resign_cached_catalog(cached)
 assert [row["channel_id"] for row in fresh["data"]["now_next"]] == ["live"], fresh
 assert len(cached["data"]["now_next"]) == 2, "cached source was mutated"
-print("PASS: NOW/NEXT timezones, expired guides and cached refresh")
+# A delayed Xtream EPG worker can populate the cold-start cache after the
+# first sanitation pass. The final merged guide must still be validated.
+class ColdStart(ContentGateway):
+    def _build_catalog(self):
+        return {"data": {"channels": [], "sports_channels": [],
+                         "sports_events": [], "now_next": [], "revision": "test"}}
+
+
+cold = ColdStart(sources=["https://fixture.example"],
+                 signing_secret=b"cold-fixture")
+cold._sports_guide_cache = [{"channel_id": "stale-worker", "current": old}]
+assert cold.catalog()["data"]["now_next"] == []
+print("PASS: NOW/NEXT timezones, expired guides, cached and cold-start refresh")

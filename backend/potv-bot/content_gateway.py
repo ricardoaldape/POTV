@@ -1971,7 +1971,9 @@ class ContentGateway:
                     if key not in seen:
                         existing.append(row)
                         seen.add(key)
-                payload["data"]["now_next"] = existing
+                payload["data"]["now_next"] = self._guide_payload(
+                    {"now_next": existing}
+                )
             self._catalog = payload
             self._catalog_at = time.monotonic()
         return payload
