@@ -31,9 +31,15 @@ raw = [
     {"channel_id": "future-now", "now": future},
     {"channel_id": "too-long", "now": long},
     {"channel_id": "past-next", "next": expired},
+    {"channel_id": "promoted", "now": expired,
+     "next": slot("Programado en curso", fixed - timedelta(minutes=7),
+                  fixed + timedelta(minutes=53))},
 ]
 clean = g._guide_payload({"now_next": raw}, now=fixed)
-assert len(clean) == 1 and clean[0]["channel_id"] == "valid", clean
+assert len(clean) == 2 and clean[0]["channel_id"] == "valid", clean
+assert clean[1]["channel_id"] == "promoted", clean
+assert clean[1]["current"]["title"] == "Programado en curso"
+assert "next" not in clean[1]
 assert clean[0]["current"]["title"] == "Ahora real"
 assert clean[0]["next"]["title"] == "Después"
 assert "stream_url" not in str(clean) and "private.example" not in str(clean)
@@ -49,10 +55,12 @@ cached = {"data": {"channels": [], "sports_channels": [],
                    "sports_events": [], "now_next": [
                        {"channel_id": "old", "current": old},
                        {"channel_id": "live", "current": live},
+                       {"channel_id": "promoted", "current": old, "next": live},
                    ]}}
 fresh = g._resign_cached_catalog(cached)
-assert [row["channel_id"] for row in fresh["data"]["now_next"]] == ["live"], fresh
-assert len(cached["data"]["now_next"]) == 2, "cached source was mutated"
+assert [row["channel_id"] for row in fresh["data"]["now_next"]] == ["live", "promoted"], fresh
+assert fresh["data"]["now_next"][1]["current"]["title"] == "En curso"
+assert len(cached["data"]["now_next"]) == 3, "cached source was mutated"
 # A delayed Xtream EPG worker can populate the cold-start cache after the
 # first sanitation pass. The final merged guide must still be validated.
 class ColdStart(ContentGateway):

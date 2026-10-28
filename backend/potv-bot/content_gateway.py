@@ -1458,11 +1458,16 @@ class ContentGateway:
                         continue
                     if slot in ("current", "now") and starts > now + timedelta(minutes=2):
                         continue
-                    if slot in ("next", "upcoming") and starts < now - timedelta(minutes=2):
-                        continue
                 except (ValueError, TypeError, OverflowError):
                     continue
                 key = "current" if slot in ("current", "now") else "next"
+                # A provider's real NEXT programme may begin between the
+                # 30-minute catalog syncs. Promote its published schedule to
+                # NOW when it is currently on, without inventing a title.
+                if key == "next" and starts <= now:
+                    if "current" in clean:
+                        continue
+                    key = "current"
                 clean[key] = {
                     "title": title,
                     "starts_at": starts.isoformat(),
