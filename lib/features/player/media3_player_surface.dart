@@ -33,6 +33,9 @@ class Media3Track {
   final String? label;
   final bool selected;
   final bool supported;
+  final int height;
+  final int bitrate;
+  final int channelCount;
 
   const Media3Track({
     required this.groupIndex,
@@ -41,6 +44,9 @@ class Media3Track {
     this.label,
     required this.selected,
     required this.supported,
+    this.height = 0,
+    this.bitrate = 0,
+    this.channelCount = 0,
   });
 
   factory Media3Track.fromMap(Map<Object?, Object?> raw) => Media3Track(
@@ -50,7 +56,20 @@ class Media3Track {
         label: raw['label']?.toString(),
         selected: raw['selected'] == true,
         supported: raw['supported'] == true,
+        height: (raw['height'] as num?)?.toInt() ?? 0,
+        bitrate: (raw['bitrate'] as num?)?.toInt() ?? 0,
+        channelCount: (raw['channelCount'] as num?)?.toInt() ?? 0,
       );
+
+  String get audioDisplayName {
+    final details = <String>[
+      if (channelCount >= 6) '5.1'
+      else if (channelCount == 2) 'Estéreo'
+      else if (channelCount > 0) channelCount.toString() + ' canales',
+      if (bitrate > 0) (bitrate ~/ 1000).toString() + ' kbps',
+    ];
+    return details.isEmpty ? displayName : displayName + ' · ' + details.join(' · ');
+  }
 
   String get displayName {
     final values = [
@@ -85,11 +104,11 @@ class Media3PlayerController {
         case 'playbackStarted':
           onStarted((call.arguments as num?)?.toInt() ?? 0);
           break;
-        case 'bufferingChanged':
-          onBuffering(call.arguments == true);
-          break;
         case 'playbackEnded':
           onEnded();
+          break;
+        case 'bufferingChanged':
+          onBuffering(call.arguments == true);
           break;
       }
       return null;
@@ -112,6 +131,7 @@ class Media3PlayerController {
   }
 
   Future<List<Media3Track>> audioTracks() => _tracks('getAudioTracks');
+  Future<List<Media3Track>> videoTracks() => _tracks('getVideoTracks');
   Future<List<Media3Track>> subtitleTracks() => _tracks('getSubtitleTracks');
 
   Future<List<Media3Track>> _tracks(String method) async {
@@ -137,6 +157,18 @@ class Media3PlayerController {
 
   Future<void> disableSubtitles() =>
       _channel.invokeMethod<void>('disableSubtitles');
+
+  Future<void> selectVideo(Media3Track track) =>
+      _channel.invokeMethod<void>('selectVideoTrack', {
+        'groupIndex': track.groupIndex,
+        'trackIndex': track.trackIndex,
+      });
+
+  Future<void> setVideoQualityAuto() =>
+      _channel.invokeMethod<void>('setVideoQualityAuto');
+
+  Future<void> setAudioQualityAuto() =>
+      _channel.invokeMethod<void>('setAudioQualityAuto');
 }
 
 class Media3PlayerSurface extends StatelessWidget {
@@ -145,6 +177,8 @@ class Media3PlayerSurface extends StatelessWidget {
   final Duration? resumeAt;
   final String audioPreference;
   final String subtitlePreference;
+  final int preferredVideoHeight;
+  final int preferredAudioBitrate;
   final List<PlaybackSubtitle> subtitles;
   final ValueChanged<Media3PlayerController> onController;
 
@@ -155,6 +189,8 @@ class Media3PlayerSurface extends StatelessWidget {
     required this.resumeAt,
     required this.audioPreference,
     required this.subtitlePreference,
+    required this.preferredVideoHeight,
+    required this.preferredAudioBitrate,
     required this.subtitles,
     required this.onController,
   });
@@ -170,6 +206,8 @@ class Media3PlayerSurface extends StatelessWidget {
         'startPositionMs': resumeAt?.inMilliseconds ?? 0,
         'audioPreference': audioPreference,
         'subtitlePreference': subtitlePreference,
+        'preferredVideoHeight': preferredVideoHeight,
+        'preferredAudioBitrate': preferredAudioBitrate,
         'autoplay': true,
         'subtitles': [
           for (final subtitle in subtitles)

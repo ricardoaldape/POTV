@@ -49,6 +49,8 @@ class PlaybackSession {
   final PlaybackContext? playbackContext;
   final List<PlaybackSubtitle> subtitles;
   final List<PlaybackContext> autoplayQueue;
+  /// Earlier episodes, nearest first. Used by the same in-app player.
+  final List<PlaybackContext> previousQueue;
   final bool isLive;
 
   const PlaybackSession({
@@ -58,6 +60,7 @@ class PlaybackSession {
     this.playbackContext,
     this.subtitles = const [],
     this.autoplayQueue = const [],
+    this.previousQueue = const [],
     this.isLive = false,
   });
 

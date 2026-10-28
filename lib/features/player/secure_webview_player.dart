@@ -9,10 +9,14 @@ import '../../domain/models/stream_candidate.dart';
 
 class SecureWebViewPlayer extends StatefulWidget {
   final StreamCandidate stream;
+  final ValueChanged<bool>? onLoadingChanged;
+  final ValueChanged<String>? onMainFrameError;
 
   const SecureWebViewPlayer({
     super.key,
     required this.stream,
+    this.onLoadingChanged,
+    this.onMainFrameError,
   });
 
   @override
@@ -60,10 +64,19 @@ class _SecureWebViewPlayerState extends State<SecureWebViewPlayer> {
           },
           onPageStarted: (_) {
             if (mounted && !_loading) setState(() => _loading = true);
+            widget.onLoadingChanged?.call(true);
           },
           onPageFinished: (_) {
             _hardenPage();
             if (mounted) setState(() => _loading = false);
+            widget.onLoadingChanged?.call(false);
+          },
+          onWebResourceError: (error) {
+            if (error.isForMainFrame == true) {
+              if (mounted) setState(() => _loading = false);
+              widget.onLoadingChanged?.call(false);
+              widget.onMainFrameError?.call('WebView no cargó el contenido');
+            }
           },
         ),
       );
