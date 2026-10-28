@@ -196,6 +196,9 @@ class ContentGateway:
                 self.lmhd = LmhdLoginPartner.from_environment()
             except (PartnerAccessError, ValueError, TypeError):
                 self.lmhd = None
+        # Private synchronizer publishes atomically; never expose raw upstream
+        # media entries to an anonymous catalog or unentitled account.
+        self.lmhd_sync_file = os.getenv("POTV_LMHD_SYNC_FILE", "").strip()
         self.lmhd_live_catalog_enabled = (
             os.getenv("POTV_LMHD_INCLUDE_LIVE_CATALOG", "").strip().lower()
             == "true"
@@ -1785,8 +1788,28 @@ class ContentGateway:
         appended = []
         partner_guide = []
         partner_events = []
+        # Sync can refresh the upstream independently of active sessions.
+        # Signed URLs must only be minted after POTV account entitlement.
+        partner_rows = None
+        snapshot_events = None
+        if self.lmhd_sync_file:
+            try:
+                stat = os.stat(self.lmhd_sync_file)
+                if (0 <= time.time() - stat.st_mtime <= 720
+                        and stat.st_size <= 8 * 1024 * 1024):
+                    with open(self.lmhd_sync_file, "r", encoding="utf-8") as stream:
+                        approved = json.load(stream)
+                    if (approved.get("version") == 1
+                            and isinstance(approved.get("channels"), list)
+                            and isinstance(approved.get("sports_events"), list)):
+                        partner_rows = approved["channels"]
+                        snapshot_events = approved["sports_events"]
+            except (OSError, ValueError, TypeError, AttributeError):
+                partner_rows = None
+                snapshot_events = None
         try:
-            partner_rows = self.lmhd.tv_channels()
+            if partner_rows is None:
+                partner_rows = self.lmhd.tv_channels()
         except PartnerApiError as error:
             if error.code in ("partner_session_denied", "partner_authorization_or_api_error"):
                 return payload
@@ -1856,7 +1879,8 @@ class ContentGateway:
                             **({"next": next_item} if next_item else {}),
                         })
         try:
-            partner_events = self.lmhd.sports_events()
+            partner_events = (snapshot_events if snapshot_events is not None
+                              else self.lmhd.sports_events())
         except PartnerApiError as error:
             if error.code in ("partner_session_denied", "partner_authorization_or_api_error"):
                 return payload
