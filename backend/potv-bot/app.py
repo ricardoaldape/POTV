@@ -434,7 +434,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         # The authenticated NOVA catalog can exceed 4 MB. Compress it only
         # when the client explicitly accepts gzip; never compress login,
         # entitlement, payment or source-resolution responses.
-        catalog = urlsplit(self.path).path == "/api/v1/content/catalog"
+        catalog = urlsplit(self.path).path in (
+            "/api/v1/content/catalog", "/api/v1/content/media"
+        )
         if catalog:
             raw, compressed = encode_catalog(
                 obj, self.headers.get("Accept-Encoding", "")
@@ -560,6 +562,27 @@ class ApiHandler(BaseHTTPRequestHandler):
                     error="invalid_session" if status == 401 else "subscription_required"
                     self.out(status,{"ok":False,"error":error}); return
                 self.out(200,CONTENT_GATEWAY.catalog_for_subscriber())
+            except ContentGatewayError as exc:
+                self.out(exc.status,{"ok":False,"error":exc.code})
+            return
+        if path=="/api/v1/content/media":
+            # A VOD metadata page is still private subscriber content. Reuse
+            # the same entitlement gate as the signed live-TV catalog.
+            token=self._bearer()
+            account=ACCOUNT_STORE.session(token) if token else None
+            status=catalog_access_status(token, account)
+            if status != 200:
+                error="invalid_session" if status == 401 else "subscription_required"
+                self.out(status,{"ok":False,"error":error}); return
+            try:
+                kind=q("kind")
+                offset=int(q("offset") or "0")
+                limit=int(q("limit") or "200")
+                self.out(200,CONTENT_GATEWAY.media_page(
+                    kind=kind, offset=offset, limit=limit
+                ))
+            except (ValueError, TypeError):
+                self.out(400,{"ok":False,"error":"invalid_media_page"})
             except ContentGatewayError as exc:
                 self.out(exc.status,{"ok":False,"error":exc.code})
             return

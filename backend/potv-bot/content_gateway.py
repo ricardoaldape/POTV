@@ -1595,6 +1595,64 @@ class ContentGateway:
             }
         }
 
+    def media_page(self, *, kind, offset=0, limit=200):
+        """A bounded, metadata-only page from the licensed NOVA VOD snapshot.
+
+        Caller MUST enforce the POTV paid/trial session before invoking this
+        method. No upstream playback URL or provider credential is returned.
+        """
+        if kind not in ("movies", "series", "anime"):
+            raise ContentGatewayError(400, "invalid_media_kind")
+        if (not isinstance(offset, int) or isinstance(offset, bool)
+                or offset < 0 or offset > 100000
+                or not isinstance(limit, int) or isinstance(limit, bool)
+                or limit < 1 or limit > 500):
+            raise ContentGatewayError(400, "invalid_media_page")
+        if not self.nova_live_enabled:
+            raise ContentGatewayError(503, "nova_catalog_unavailable")
+        try:
+            if os.path.getsize(self.nova_sync_file) > 12 * 1024 * 1024:
+                raise ContentGatewayError(503, "nova_catalog_too_large")
+            with open(self.nova_sync_file, "r", encoding="utf-8") as fh:
+                snapshot = json.load(fh)
+            rows = snapshot.get(kind)
+            if not isinstance(rows, list):
+                raise ContentGatewayError(503, "nova_media_unavailable")
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            raise ContentGatewayError(503, "nova_media_unavailable") from exc
+        # Explicit allowlist: future provider fields such as direct links,
+        # tokens, cookies or internal IDs must never reach an Android client.
+        fields = ("tmdb_id", "anilist_id", "title", "year", "overview")
+        allowed_image_hosts = {"image.tmdb.org", "s4.anilist.co", "tioanime.com"}
+        items = []
+        for row in rows[offset:offset + limit]:
+            if not isinstance(row, dict):
+                continue
+            item = {key: row[key] for key in fields if key in row}
+            for field in ("poster", "backdrop"):
+                value = row.get(field)
+                if not isinstance(value, str):
+                    continue
+                parsed = urlsplit(value)
+                if (parsed.scheme == "https"
+                        and parsed.hostname in allowed_image_hosts
+                        and not parsed.username and not parsed.password
+                        and not parsed.query and not parsed.fragment):
+                    item[field] = value
+            items.append(item)
+        return {
+            "ok": True,
+            "data": {
+                "kind": kind,
+                "revision": str(snapshot.get("revision") or ""),
+                "total": len(rows),
+                "offset": offset,
+                "limit": limit,
+                "has_more": offset + limit < len(rows),
+                "items": items,
+            },
+        }
+
     def catalog_for_subscriber(self):
         """A POTV-authenticated subscriber's TV catalog with authorized NOVA.
 
