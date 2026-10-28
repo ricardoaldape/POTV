@@ -141,9 +141,11 @@ jobs:
           $signer = Join-Path $tools.FullName 'apksigner.bat'
           $certificate = & $signer verify --print-certs $apk
           if ($LASTEXITCODE -ne 0) { throw 'Android signature verification failed' }
-          $certLines = @($certificate | Select-String 'Signer #1 certificate')
-          $digestLine = @($certificate | Select-String 'Signer #1 certificate SHA-256 digest:')
-          if ($digestLine.Count -ne 1) { throw 'Signer certificate digest missing' }
+          # Support both apksigner labels: "Signer #1" and "V2 Signer #1".
+          # Reject missing or ambiguous digests, including multiple signers.
+          $digestMatches = @($certificate | Select-String -Pattern '(?i)certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$')
+          if ($digestMatches.Count -ne 1) { throw 'Expected exactly one signing certificate SHA-256 digest' }
+          $digest = $digestMatches[0].Matches[0].Groups[1].Value.ToLowerInvariant()
           if ($certificate -match 'CN=Android Debug') {
             throw 'Signed review release uses Android Debug certificate; refuse packaging'
           }
@@ -165,7 +167,7 @@ jobs:
           Copy-Item $apk $target -Force
           Write-Output ('POTV_SIGNED_REVIEW_APK=' + $target)
           Write-Output ('POTV_SIGNED_REVIEW_SHA256=' + (Get-FileHash $target -Algorithm SHA256).Hash)
-          Write-Output ('POTV_SIGNING_CERT_SHA256=' + ($digestLine[0].ToString().Split(':')[-1].Trim()))
+          Write-Output ('POTV_SIGNING_CERT_SHA256=' + $digest)
           Write-Output ('POTV_SIGNED_REVIEW_SIZE_MB=' + [math]::Round((Get-Item $target).Length / 1MB, 2))
           Write-Output 'SIGNED_REVIEW_BUILD_SUCCESS; no GitHub-hosted minutes or public release created.'
 

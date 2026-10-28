@@ -26,6 +26,9 @@ jobs:
       - name: Require permanent POTV animated branding
         run: python3 tool/verify_branding_assets.py
 
+      - name: Verify OTA certificate parser compatibility
+        run: python3 tool/verify_ota_certificate_parser.py
+
       - name: Flutter
         uses: subosito/flutter-action@v2
         with:

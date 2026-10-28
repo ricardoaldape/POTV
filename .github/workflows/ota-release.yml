@@ -182,9 +182,12 @@ jobs:
           $cert = & $apksigner verify --print-certs $apk
           if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
           if ($cert -match 'CN=Android Debug') { throw 'Refusing OTA signed with Android Debug certificate' }
-          $digestLine = @($cert | Select-String 'Signer #1 certificate SHA-256 digest:')
-          if ($digestLine.Count -ne 1) { throw 'Signing certificate SHA-256 missing' }
-          $digest = $digestLine[0].ToString().Split(':')[-1].Trim().ToLowerInvariant()
+          # apksigner may print "Signer #1" or "V2 Signer #1". Parse the
+          # certificate digest itself, never the signer label; fail closed
+          # on missing/ambiguous certificates instead of weakening the pin.
+          $digestMatches = @($cert | Select-String -Pattern '(?i)certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$')
+          if ($digestMatches.Count -ne 1) { throw 'Expected exactly one signing certificate SHA-256 digest' }
+          $digest = $digestMatches[0].Matches[0].Groups[1].Value.ToLowerInvariant()
 
           if ($env:PUBLISH -eq 'true' -and [string]::IsNullOrWhiteSpace($env:EXPECTED_CERT)) {
             throw 'Set repository variable POTV_RELEASE_CERT_SHA256 before publishing OTA.'
