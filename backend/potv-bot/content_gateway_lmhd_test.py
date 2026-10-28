@@ -1,5 +1,6 @@
 """Integration smoke: optional approved LMHD adapter attaches to POTV gateway."""
 from urllib.parse import urlsplit, parse_qs
+from datetime import datetime, timedelta, timezone
 from content_gateway import ContentGateway
 
 
@@ -10,6 +11,23 @@ class AuthorizedFixture:
             "url": "https://media.partner.example/live/uno.m3u8",
             "logo": "https://images.partner.example/logo.jpg",
             "group": "México", "headers": {},
+            "epg_id": "lmhd:1", "provider_id": "1",
+            "epg": [
+                {
+                    "title": "Noticias LMHD en vivo",
+                    "starts_at": (datetime.now(timezone.utc) -
+                                  timedelta(minutes=5)).isoformat(),
+                    "ends_at": (datetime.now(timezone.utc) +
+                                timedelta(minutes=55)).isoformat(),
+                },
+                {
+                    "title": "Después en LMHD",
+                    "starts_at": (datetime.now(timezone.utc) +
+                                  timedelta(minutes=55)).isoformat(),
+                    "ends_at": (datetime.now(timezone.utc) +
+                                timedelta(minutes=115)).isoformat(),
+                },
+            ],
         }]
 
     def sports_events(self):
@@ -51,6 +69,14 @@ payload = gateway.catalog_for_subscriber()["data"]
 assert len(payload["channels"]) == 1, payload
 assert len(payload["sports_channels"]) == 0, payload
 assert len(payload["sports_events"]) == 1, payload
+assert payload["channels"][0]["id"] == "lmhd:1"
+assert len(payload["now_next"]) == 1, payload
+assert payload["now_next"][0]["channel_id"] == "lmhd:1"
+assert payload["now_next"][0]["current"]["title"] == "Noticias LMHD en vivo"
+assert payload["now_next"][0]["next"]["title"] == "Después en LMHD"
+assert payload["revision"] != public["revision"], "EPG not reflected in revision"
+assert not public["now_next"], "LMHD guide leaked into public"
+
 assert payload["sports_events"][0]["home"] == "América"
 assert payload["sports_events"][0]["away"] == "Pumas"
 assert "media.partner.example" not in str(payload)
@@ -80,6 +106,17 @@ print("PASS: LMHD provider movie, episode, TV and exact-match sports integrated 
 # Account-authorized subscriber refresh must actually reflect provider changes.
 fixture = gateway.lmhd
 gateway.refresh_seconds = 0
+fixture.tv_channels = lambda: [{
+    "name": "Canal Uno",
+    "url": "https://media.partner.example/live/uno-rotated.m3u8",
+    "group": "México", "epg_id": "lmhd:1", "provider_id": "1",
+}]
+rotated = gateway.catalog_for_subscriber()["data"]
+assert rotated["channels"][0]["id"] == "lmhd:1"
+assert rotated["channels"][0]["hls_url"] != payload["channels"][0]["hls_url"]
+assert not rotated["now_next"], "stale guide survived missing provider EPG"
+print("PASS: LMHD channel identity survives signed source URL rotation")
+
 fixture.tv_channels = lambda: [{
     "name": "Canal Dos",
     "url": "https://media.partner.example/live/dos.m3u8",

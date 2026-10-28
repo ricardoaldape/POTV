@@ -221,13 +221,40 @@ class LmhdPartner:
                 name = _clean(row.get("nombre"))
                 if not name or media is None:
                     continue
+                provider_id = _clean(row.get("id"))
+                epg_id = ("lmhd:" + provider_id) if (
+                    provider_id.isdecimal() and int(provider_id) > 0
+                ) else ""
+                epg = []
+                for program in (row.get("epg") or [])[:32]:
+                    if not isinstance(program, dict):
+                        continue
+                    try:
+                        start = int(program.get("s"))
+                        end = int(program.get("e"))
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    title = _clean(program.get("t"))[:160]
+                    # APK TvApi uses Unix seconds (EpgProg.start/stop).
+                    # Reject invalid timestamps before converting to UTC.
+                    if not (title and 946684800 <= start < end <= 4102444800
+                            and end - start <= 16 * 3600):
+                        continue
+                    epg.append({
+                        "title": title,
+                        "starts_at": datetime.fromtimestamp(
+                            start, timezone.utc).isoformat(),
+                        "ends_at": datetime.fromtimestamp(
+                            end, timezone.utc).isoformat(),
+                    })
                 channels.append({
                     "name": name,
                     "group": group_name,
                     "url": media["url"],
                     "logo": _clean(row.get("logo")),
-                    "epg_id": "",
-                    "provider_id": _clean(row.get("id")),
+                    "epg_id": epg_id,
+                    "provider_id": provider_id,
+                    "epg": epg,
                     "headers": {},
                 })
         return channels
