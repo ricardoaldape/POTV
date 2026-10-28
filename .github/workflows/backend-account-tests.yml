@@ -55,6 +55,10 @@ jobs:
           python nova_catalog_progressive_test.py
           python nova_snapshot_limits_test.py
           python content_gateway_nova_empty_snapshot_test.py
+      - name: Partner API authentication and redirect safety
+        run: |
+          python lmhd_partner_test.py
+          python partner_lmhd_api_test.py
       - name: Legacy OTA manifest integrity regression
         run: python ota_manifest_sync_test.py
       - name: API/database self test
