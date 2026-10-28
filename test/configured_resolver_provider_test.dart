@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:potv/data/resolution/configured_resolver_provider.dart';
 import 'package:potv/domain/resolution/provider_resolver.dart';
+import 'package:potv/domain/models/stream_candidate.dart';
 import 'package:potv/domain/resolution/resolver_endpoint_config.dart';
 
 void main() {
@@ -323,6 +324,81 @@ void main() {
     expect(updated.last.uri.host, 'new.example');
     expect(updated.last.backend.name, 'native');
     expect(updated.any((s) => s.uri.host == 'disabled.example'), isFalse);
+  });
+
+  test('native partner URL wins over HTML embed in one source response', () {
+    final provider = ConfiguredResolverProvider(
+      ResolverEndpointConfig.fromJson({
+        'id': 'dual',
+        'name': 'Partner',
+        'endpoint': 'https://api.example.test/resolve',
+        'media_types': ['movie'],
+      }),
+    );
+    final streams = provider.parseResponse({
+      'streams': [
+        {
+          'name': 'Video de prueba',
+          'backend': 'webview',
+          'is_iframe': true,
+          'requires_extraction': true,
+          'stream_url': 'https://cdn.example.test/video/master.m3u8',
+          'embed_url': 'https://player.example.test/embed/demo',
+          'language': 'es-419',
+          'headers': {'Authorization': 'Bearer demo-private-value'},
+        },
+      ],
+    });
+    expect(streams, hasLength(2));
+    expect(streams.first.backend, PlaybackBackend.native);
+    expect(streams.first.uri.host, 'cdn.example.test');
+    expect(streams.first.language, 'es-419');
+    expect(streams.last.backend, PlaybackBackend.webView);
+    expect(streams.last.uri.host, 'player.example.test');
+    expect(streams.last.headers, isEmpty,
+        reason: 'CDN credentials must never reach an HTML embed.');
+  });
+
+  test('extensionless authorized video remains native with MIME evidence', () {
+    final provider = ConfiguredResolverProvider(
+      ResolverEndpointConfig.fromJson({
+        'id': 'signed',
+        'name': 'Signed partner',
+        'endpoint': 'https://api.example.test/resolve',
+        'media_types': ['tv'],
+      }),
+    );
+    final streams = provider.parseResponse({
+      'streams': [
+        {
+          'streamUrl': 'https://cdn.example.test/play?session=demo',
+          'embedUrl': 'https://player.example.test/view/demo',
+          'content_type': 'application/vnd.apple.mpegurl',
+          'is_iframe': true,
+        },
+      ],
+    });
+    expect(streams, hasLength(2));
+    expect(streams.first.backend, PlaybackBackend.native);
+    expect(streams.last.backend, PlaybackBackend.webView);
+  });
+
+  test('HTML-only source is never incorrectly labelled native', () {
+    final provider = ConfiguredResolverProvider(
+      ResolverEndpointConfig.fromJson({
+        'id': 'html',
+        'name': 'HTML partner',
+        'endpoint': 'https://api.example.test/resolve',
+        'media_types': ['movie'],
+      }),
+    );
+    final streams = provider.parseResponse({
+      'streams': [
+        {'embed_url': 'https://player.example.test/embed/demo', 'is_iframe': true},
+      ],
+    });
+    expect(streams, hasLength(1));
+    expect(streams.single.backend, PlaybackBackend.webView);
   });
 
 }

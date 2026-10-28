@@ -175,20 +175,50 @@ class ConfiguredResolverProvider extends ProviderResolver {
         final label = alternate == 0
             ? 'Servidor ${index + 1} · $name'
             : 'Servidor ${index + 1} · $name (respaldo $alternate)';
+        final backend = _backend(source, uri);
+        final language =
+            _text(source['language']) ?? _text(source['idioma']);
+        final quality = _text(source['quality']) ?? _text(source['calidad']);
+        final headers = _headers(source['headers']);
+        final allowedHosts =
+            _stringSet(source['allowed_hosts'] ?? source['allowedHosts']);
         result.add(StreamCandidate(
           id: '${config.id}:${index + 1}:$alternate',
           label: label,
           uri: uri,
-          language: _text(source['language']) ?? _text(source['idioma']),
-          quality: _text(source['quality']) ?? _text(source['calidad']),
-          backend: _backend(source, uri),
-          headers: _headers(source['headers']),
-          allowedHosts: _stringSet(
-            source['allowed_hosts'] ?? source['allowedHosts'],
-          ),
+          language: language,
+          quality: quality,
+          backend: backend,
+          headers: headers,
+          allowedHosts: allowedHosts,
           directWebView: source['direct_webview'] == true ||
               source['directWebView'] == true,
         ));
+
+        // Use a provider's native media and keep its distinct HTML embed as
+        // an optional fallback; never scrape cross-origin iframe contents.
+        final embedText =
+            _text(source['embed_url']) ?? _text(source['embedUrl']);
+        final embedUri = Uri.tryParse(embedText ?? '');
+        if (backend == PlaybackBackend.native &&
+            embedUri != null &&
+            embedUri != uri &&
+            (embedUri.scheme == 'https' || embedUri.scheme == 'http') &&
+            embedUri.host.isNotEmpty &&
+            embedUri.userInfo.isEmpty) {
+          result.add(StreamCandidate(
+            id: '${config.id}:${index + 1}:$alternate:embed',
+            label: '$label (alternativa web)',
+            uri: embedUri,
+            language: language,
+            quality: quality,
+            backend: PlaybackBackend.webView,
+            // Do not forward CDN authorization headers to another HTML host.
+            headers: const {},
+            allowedHosts: allowedHosts,
+            directWebView: true,
+          ));
+        }
       }
     }
     return result;
@@ -205,8 +235,45 @@ class ConfiguredResolverProvider extends ProviderResolver {
 
   PlaybackBackend _backend(Map<String, dynamic> item, Uri uri) {
     final explicit = item['backend']?.toString().trim().toLowerCase();
-    // Embedded web URLs are passed through POTV's configured extractor
-    // pipeline; never mislabel them as native video without verification.
+    if (explicit == 'external') return PlaybackBackend.external;
+
+    final embedUrl = _text(item['embed_url']) ?? _text(item['embedUrl']);
+    // Classify the selected URI, not an unrelated HTML fallback.
+    if (embedUrl != null && Uri.tryParse(embedUrl) == uri) {
+      return PlaybackBackend.webView;
+    }
+
+    final contentType = (_text(item['content_type']) ??
+            _text(item['mime_type']) ??
+            _text(item['mimeType']) ??
+            '')
+        .toLowerCase();
+    final typedMedia = contentType.startsWith('video/') ||
+        contentType.startsWith('audio/') ||
+        contentType.contains('mpegurl') ||
+        contentType.contains('dash+xml');
+    final declaredStream = [
+      'real_url',
+      'realUrl',
+      'stream_url',
+      'streamUrl',
+      'playback_url',
+      'resolved_m3u8',
+    ].any((key) => Uri.tryParse(_text(item[key]) ?? '') == uri);
+
+    // Keep authorized HLS/DASH/MP4 even when the provider also sends
+    // metadata describing its HTML player or an extensionless CDN URL.
+    final nativeEvidence = _looksLikeDirectMedia(uri) ||
+        typedMedia ||
+        (_text(item['resolved_m3u8']) != null &&
+            Uri.tryParse(_text(item['resolved_m3u8'])!) == uri);
+    if (nativeEvidence &&
+        (declaredStream ||
+            explicit == 'native' ||
+            embedUrl == null ||
+            (embedUrl != uri.toString() && _looksLikeDirectMedia(uri)))) {
+      return PlaybackBackend.native;
+    }
     if (item['requires_extraction'] == true ||
         item['requiresExtraction'] == true ||
         item['is_iframe'] == true) {
@@ -218,28 +285,9 @@ class ConfiguredResolverProvider extends ProviderResolver {
       case 'webview':
       case 'web':
         return PlaybackBackend.webView;
-      case 'external':
-        return PlaybackBackend.external;
     }
-
-    if (_text(item['embed_url']) != null ||
-        _text(item['embedUrl']) != null) {
-      return PlaybackBackend.webView;
-    }
-    final contentType = (_text(item['content_type']) ??
-            _text(item['mime_type']) ??
-            _text(item['mimeType']) ??
-            '')
-        .toLowerCase();
-    if (contentType.startsWith('video/') ||
-        contentType.contains('mpegurl') ||
-        contentType.contains('dash+xml') ||
-        _text(item['resolved_m3u8']) != null ||
-        _looksLikeDirectMedia(uri)) {
-      return PlaybackBackend.native;
-    }
-
-    return PlaybackBackend.webView;
+    if (embedUrl != null) return PlaybackBackend.webView;
+    return nativeEvidence ? PlaybackBackend.native : PlaybackBackend.webView;
   }
 
   bool _looksLikeDirectMedia(Uri uri) {

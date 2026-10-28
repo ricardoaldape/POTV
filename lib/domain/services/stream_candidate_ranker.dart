@@ -20,9 +20,20 @@ class StreamCandidateRanker {
     }
 
     final ranked = deduped.values.toList();
-    ranked.sort((a, b) => score(b).compareTo(score(a)));
+    // A 4K-labeled HTML iframe cannot outrank native-compatible media.
+    ranked.sort((a, b) {
+      final byBackend =
+          _backendPriority(b.backend).compareTo(_backendPriority(a.backend));
+      return byBackend != 0 ? byBackend : score(b).compareTo(score(a));
+    });
     return ranked;
   }
+
+  int _backendPriority(PlaybackBackend backend) => switch (backend) {
+        PlaybackBackend.native => 3,
+        PlaybackBackend.webView => 2,
+        PlaybackBackend.external => 1,
+      };
 
   int score(StreamCandidate candidate) {
     var total = switch (candidate.backend) {
