@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/catalog/partner_content_repository.dart';
 import '../../domain/models/media_item.dart';
-import '../home/widgets/media_rail.dart';
 import '../player/media_playback_coordinator.dart';
 
 /// Progressive browse for the private, licensed VOD metadata catalog.
@@ -163,10 +162,64 @@ class _PartnerMediaBrowseScreenState
                     mainAxisSpacing: 12,
                   ),
                   itemCount: _items.length,
-                  itemBuilder: (context, index) => PotvMediaCard(
-                    item: _items[index],
-                    onPlay: () => _open(_items[index]),
-                  ),
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    return Card(
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _open(item),
+                        onLongPress: () =>
+                            context.push('/detail', extra: item),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: item.poster == null
+                                  ? const ColoredBox(
+                                      color: Color(0xFF122430),
+                                      child: Icon(Icons.movie_outlined, size: 48),
+                                    )
+                                  : Image.network(
+                                      item.poster.toString(),
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stack) =>
+                                          const ColoredBox(
+                                        color: Color(0xFF122430),
+                                        child: Icon(Icons.broken_image_outlined),
+                                      ),
+                                    ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    [item.typeLabel, item.year]
+                                        .whereType<String>()
+                                        .join(' · '),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.white60,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
