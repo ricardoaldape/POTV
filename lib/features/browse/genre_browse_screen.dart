@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -60,7 +61,7 @@ class GenreBrowseScreen extends ConsumerWidget {
       ),
       body: state.when(
         loading: () => const Center(
-          child: CircularProgressIndicator(),
+          child: PotvLoadingFlag(width: 44),
         ),
         error: (error, stack) => Center(
           child: Padding(

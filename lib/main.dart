@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'app/potv_app.dart';
+import 'ui/branding/potv_animated_assets.dart';
 import 'data/bootstrap/default_manifest_bootstrap.dart';
 
 Future<void> main() async {
@@ -16,7 +17,7 @@ Future<void> main() async {
   runApp(
     UncontrolledProviderScope(
       container: container,
-      child: const PotvApp(),
+      child: const PotvStartupSplash(child: PotvApp()),
     ),
   );
 

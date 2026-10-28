@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -354,7 +355,8 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
                 ],
               ),
             ),
-          if (loading) const LinearProgressIndicator(minHeight: 2),
+          if (loading && channels.isNotEmpty) const PotvLoadingFlag(width: 72),
+
           if (channels.isNotEmpty && channelsState.hasError)
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 6, 20, 2),
@@ -365,7 +367,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
             ),
           Expanded(
             child: channels.isEmpty && loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: PotvLoadingFlag(width: 44))
                 : channels.isEmpty
                 ? const _EmptyTv()
                 : displayed.isEmpty
@@ -535,7 +537,7 @@ class _LiveChannelCard extends StatelessWidget {
               ),
               const Spacer(),
               if (opening)
-                const LinearProgressIndicator(minHeight: 3)
+                const PotvLoadingFlag(width: 72)
               else if (current != null) ...[
                 Text(
                   'AHORA · ${current!.title}',

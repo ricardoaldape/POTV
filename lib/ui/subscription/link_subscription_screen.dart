@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/user_providers.dart';
@@ -106,7 +107,7 @@ class _LinkSubscriptionScreenState
                             ? const SizedBox.square(
                                 dimension: 20,
                                 child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                    PotvLoadingFlag(width: 44),
                               )
                             : const Text('Vincular'),
                       ),

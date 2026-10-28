@@ -77,8 +77,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   List<StremioSubtitle> _externalSubtitleOptions = const [];
   bool _audioAutoSelected = false;
   bool _videoAutoSelected = false;
-  bool media3Buffering = false;
-  bool webViewLoading = false;
+  bool _media3Buffering = false;
   bool _subtitleAutoSelected = false;
   bool _subtitleUserSelected = false;
   bool _startupPlaying = false;
@@ -164,8 +163,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _tracksSubscription = null;
     _audioAutoSelected = false;
     _videoAutoSelected = false;
-    media3Buffering = false;
-    webViewLoading = false;
+    _media3Buffering = false;
     _subtitleAutoSelected = false;
     _subtitleUserSelected = false;
     _externalSubtitleOptions = const [];
@@ -207,7 +205,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           if (Platform.isAndroid && !_preferMediaKitNative) {
             media3ResumeAt = effectiveResumeAt;
             media3Ready = true;
-            media3Buffering = true;
+            _media3Buffering = true;
             media3BootstrapTimer?.cancel();
             media3BootstrapTimer = Timer(const Duration(seconds: 3), () {
               if (!mounted ||
@@ -247,6 +245,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             if (!mounted || generation != _openGeneration) return;
             if (isPlaying && !_startupPlaying) {
               _startupPlaying = true;
+              setState(() {});
               _playbackStartedAt = DateTime.now();
               final seconds = DateTime.now().difference(openedAt).inSeconds;
               addDebugLog(
@@ -462,8 +461,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     controller.setHandlers(
       onBuffering: (buffering) {
         if (mounted && media3Controller == controller &&
-            media3Buffering != buffering) {
-          setState(() => media3Buffering = buffering);
+            _media3Buffering != buffering) {
+          setState(() => _media3Buffering = buffering);
         }
       },
       onLog: (message) {
@@ -475,7 +474,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       onStarted: (startupMs) {
         if (!mounted) return;
         _startupPlaying = true;
-        media3Buffering = false;
+        _media3Buffering = false;
         _playbackStartedAt = DateTime.now();
         startupTimer?.cancel();
         addDebugLog(
@@ -537,7 +536,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     media3Controller = null;
     media3State = null;
     media3Ready = false;
-    media3Buffering = false;
+    _media3Buffering = false;
     if (mounted) setState(() {});
     await _openCurrent(resumeAt: resumeAt);
   }
@@ -1271,11 +1270,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         PlaybackBackend.webView => SecureWebViewPlayer(
           key: ValueKey(currentStream.id),
           stream: currentStream,
-          onLoadingChanged: (loading) {
-            if (mounted && webViewLoading != loading) {
-              setState(() => webViewLoading = loading);
-            }
-          },
           onMainFrameError: (reason) {
             if (mounted) unawaited(_recoverFromPlayerError(reason));
           },
@@ -1302,15 +1296,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             fit: StackFit.expand,
             children: [
               content,
-              if (playbackError == null && (media3Buffering ||
-                  (media3Ready && !_startupPlaying) || webViewLoading))
-                const IgnorePointer(
-                  child: Center(child: PotvPlayerLoader()),
-                ),
-              if (playbackError == null && player != null)
+              if (playbackError == null) ...[
+                if (_media3Buffering)
+                  const IgnorePointer(
+                    child: Center(child: PotvPlayerLoader()),
+                  ),
+                if (media3Ready && !_startupPlaying && !_media3Buffering)
+                  const IgnorePointer(
+                    child: Center(child: PotvPlayerLoader()),
+                  ),
+              ],
+              if (playbackError == null && p != null)
                 StreamBuilder<bool>(
-                  stream: player!.stream.buffering,
-                  initialData: player!.state.buffering,
+                  stream: p.stream.buffering,
+                  initialData: p.state.buffering,
                   builder: (context, snapshot) => snapshot.data == true
                       ? const IgnorePointer(
                           child: Center(child: PotvPlayerLoader()))

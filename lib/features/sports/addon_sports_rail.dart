@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -30,7 +31,7 @@ class AddonSportsRail extends ConsumerWidget {
             SizedBox(
               width: 24,
               height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.4),
+              child: PotvLoadingFlag(width: 44),
             ),
             SizedBox(width: 16),
             Expanded(child: Text('Preparando transmisión…')),

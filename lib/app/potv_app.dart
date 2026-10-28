@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/user_providers.dart';
@@ -90,21 +91,7 @@ class _PotvSplash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const Scaffold(
-    body: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'POTV',
-            style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900),
-          ),
-          SizedBox(height: 20),
-          SizedBox.square(
-            dimension: 26,
-            child: CircularProgressIndicator(strokeWidth: 2.5),
-          ),
-        ],
-      ),
-    ),
+    backgroundColor: Colors.black,
+    body: PotvLoadingFlag(width: 200),
   );
 }

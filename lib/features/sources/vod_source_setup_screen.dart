@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -147,7 +148,7 @@ class _VodSourceSetupScreenState extends ConsumerState<VodSourceSetupScreen> {
                           icon: busy
                               ? const SizedBox.square(
                                   dimension: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: PotvLoadingFlag(width: 44),
                                 )
                               : const Icon(Icons.link_rounded),
                           label: Text(busy ? 'Conectando…' : 'Conectar fuente'),

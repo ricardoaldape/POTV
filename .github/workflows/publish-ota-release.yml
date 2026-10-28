@@ -50,6 +50,9 @@ jobs:
       - name: Block OTA when subscription contract is broken
         run: python3 tool/verify_subscription_contract.py
 
+      - name: Require permanent POTV animated branding
+        run: python3 tool/verify_branding_assets.py
+
       - name: Java 17
         uses: actions/setup-java@v4
         with:

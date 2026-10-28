@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 
 import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
@@ -104,7 +105,7 @@ class LiveTvProgramGuideRow extends StatelessWidget {
                   _program(current, 'Sin datos de programación', true),
                   const SizedBox(height: 7),
                   _program(next, 'Próximo programa no disponible', false),
-                  if (opening) const LinearProgressIndicator(minHeight: 2),
+                  if (opening) const PotvLoadingFlag(width: 44),
                 ],
               )
             : Row(
@@ -119,7 +120,7 @@ class LiveTvProgramGuideRow extends StatelessWidget {
                   const SizedBox(width: 8),
                   if (opening)
                     const SizedBox(width: 20, height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        child: PotvLoadingFlag(width: 20))
                   else
                     const Icon(Icons.play_arrow_rounded, size: 22),
                 ],

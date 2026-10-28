@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/security/media_url_logging.dart';
@@ -338,7 +339,7 @@ class SourcesScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           plugins.when(
-            loading: () => const LinearProgressIndicator(minHeight: 2),
+            loading: () => const PotvLoadingFlag(width: 72),
             error: (error, stack) => _ErrorCard(error: error),
             data: (items) => items.isEmpty
                 ? const _EmptySection(text: 'No hay plugins instalados.')
@@ -370,7 +371,7 @@ class SourcesScreen extends ConsumerWidget {
             ),
             children: [
               verifiedAddons.when(
-                loading: () => const LinearProgressIndicator(minHeight: 2),
+                loading: () => const PotvLoadingFlag(width: 72),
                 error: (_, _) => const _EmptySection(
                   text: 'No fue posible cargar el catálogo de complementos.',
                 ),
@@ -451,7 +452,7 @@ class SourcesScreen extends ConsumerWidget {
                 onAdd: () => _addStremioAddon(context, ref),
               ),
               addons.when(
-                loading: () => const LinearProgressIndicator(minHeight: 2),
+                loading: () => const PotvLoadingFlag(width: 72),
                 error: (error, stack) => _ErrorCard(error: error),
                 data: (items) => items.isEmpty
                     ? const _EmptySection(text: 'No hay addons configurados.')
@@ -474,7 +475,7 @@ class SourcesScreen extends ConsumerWidget {
                 onAdd: () => _addSource(context, ref),
               ),
               httpSources.when(
-                loading: () => const LinearProgressIndicator(minHeight: 2),
+                loading: () => const PotvLoadingFlag(width: 72),
                 error: (error, stack) => _ErrorCard(error: error),
                 data: (items) => items.isEmpty
                     ? const _EmptySection(

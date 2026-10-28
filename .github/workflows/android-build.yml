@@ -17,6 +17,9 @@ jobs:
       - name: Enforce subscription gate before APK build
         run: python3 tool/verify_subscription_contract.py
 
+      - name: Require permanent POTV animated branding
+        run: python3 tool/verify_branding_assets.py
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
