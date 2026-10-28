@@ -1452,10 +1452,29 @@ class ContentGateway:
                 result.append(clean)
         return result
 
-    def _events_payload(self, metadata):
+    def _events_payload(self, metadata, *, sports_channels=()):
+        """Only explicit streams or unambiguous exact sports-channel IDs play.
+
+        A fixture's teams, competition or channel name are never sufficient to
+        guess a broadcast. Channel fallbacks use already-authorized, signed
+        POTV URLs, not provider credentials or unsigned upstream URLs.
+        """
         raw = metadata.get("sports_events") or []
         if not isinstance(raw, list):
             return []
+        by_id = {}
+        ambiguous = set()
+        for channel in sports_channels:
+            if not isinstance(channel, dict):
+                continue
+            for field in ("id", "epg_id"):
+                key = str(channel.get(field) or "").strip()
+                if not key:
+                    continue
+                if key in by_id and by_id[key].get("id") != channel.get("id"):
+                    ambiguous.add(key)
+                else:
+                    by_id[key] = channel
         result = []
         for row in raw:
             if not isinstance(row, dict):
@@ -1466,13 +1485,20 @@ class ContentGateway:
             starts_at = str(row.get("starts_at") or row.get("startsAt") or "").strip()
             if not event_id or not home or not away or not starts_at:
                 continue
+            try:
+                when = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+                if when.tzinfo is None or not (2020 <= when.year <= 2100):
+                    continue
+            except ValueError:
+                continue
             values = row.get("streams") or []
-            if not isinstance(values, list):
-                values = [values]
+            # Do not mutate a provider's cached list when prepending direct URL.
+            values = list(values) if isinstance(values, list) else [values]
             direct = row.get("stream_url") or row.get("primary_url")
             if direct:
                 values.insert(0, direct)
             streams = []
+            seen_targets = set()
             for value in values:
                 if isinstance(value, dict):
                     url = value.get("url") or value.get("stream_url") or value.get("hls_url")
@@ -1486,9 +1512,20 @@ class ContentGateway:
                     target_id = self._register_target(str(url), headers)
                 except ContentGatewayError:
                     continue
+                if target_id in seen_targets:
+                    continue
+                seen_targets.add(target_id)
                 streams.append({"url": self._proxy_url(target_id)})
             if not streams:
-                # Never advertise an event as playable without an explicit stream.
+                # Link a scheduled event only to an exact ID present in the
+                # authorized sports catalog. Never infer by team or channel name.
+                channel_key = str(row.get("channel_id") or row.get("epg_id") or "").strip()
+                channel = by_id.get(channel_key) if channel_key not in ambiguous else None
+                signed = channel.get("hls_url") if channel else None
+                if (isinstance(signed, str) and signed.startswith(
+                        self.public_base + "/api/v1/content/stream/")):
+                    streams.append({"url": signed})
+            if not streams:
                 continue
             result.append(
                 {
@@ -1583,11 +1620,11 @@ class ContentGateway:
             *self._guide_payload(metadata),
             *xtream_guide,
         ]
-        events = self._events_payload(metadata)
+        events = self._events_payload(metadata, sports_channels=sports)
         if lmhd_events:
             events.extend(self._events_payload({
                 "sports_events": lmhd_events
-            }))
+            }, sports_channels=sports))
         revision_material = "|".join(sorted(channel["id"] for channel in all_channels))
         revision_material += f"|{len(guide)}|{len(events)}"
         revision = hashlib.sha256(revision_material.encode("utf-8")).hexdigest()[:20]
