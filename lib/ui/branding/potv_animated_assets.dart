@@ -44,7 +44,7 @@ class _PotvStartupSplashState extends State<PotvStartupSplash> {
         children: [
           widget.child,
           if (_show)
-            const Positioned.fill(
+            Positioned.fill(
               child: ColoredBox(
                 color: Colors.black,
                 child: Center(
