@@ -17,6 +17,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from partner_lmhd_api import LMHDPartnerAdapter, PartnerAccessError
+
 
 class PartnerApiError(Exception):
     """Sanitized error code: never contains URLs, tokens or partner responses."""
@@ -217,7 +219,15 @@ class LmhdPartner:
             for row in rows[:600]:
                 if not isinstance(row, dict):
                     continue
-                media = self._playable_media({"url": row.get("media")})
+                # LMHD Android versions expose the TV stream as either a
+                # direct URL string or a media object {url, format, quality}.
+                # Treating the object as a string silently dropped that
+                # entire class of paid TV channels from POTV.
+                raw_media = row.get("media")
+                media = self._playable_media(
+                    raw_media if isinstance(raw_media, dict)
+                    else {"url": raw_media}
+                )
                 name = _clean(row.get("nombre"))
                 if not name or media is None:
                     continue
@@ -266,7 +276,11 @@ class LmhdPartner:
         for row in payload.get("channels") or []:
             if not isinstance(row, dict):
                 continue
-            media = self._playable_media({"url": row.get("url")})
+            raw_media = row.get("media")
+            media = self._playable_media(
+                raw_media if isinstance(raw_media, dict)
+                else {"url": row.get("url") or raw_media}
+            )
             name = _clean(row.get("name"))
             event_id = _clean(row.get("id"))
             if media is None or not name or not event_id or row.get("finalizado") in (1, True):
@@ -363,3 +377,30 @@ class LmhdPartner:
                 candidate = self._playable_media(refreshed.get("media"))
                 return [candidate] if candidate else []
         return []
+
+class LmhdLoginPartner(LmhdPartner):
+    """Official service-account login alternative to a pre-issued token.
+
+    Both configurations use the same catalog parser and subscription gate.
+    The adapter authenticates server-side, rotates its session and rejects
+    redirects; nothing is embedded in the POTV Android APK.
+    """
+
+    def __init__(self, adapter):
+        self._login_adapter = adapter
+
+    @classmethod
+    def from_environment(cls):
+        adapter = LMHDPartnerAdapter.from_environment()
+        return cls(adapter) if adapter is not None else None
+
+    def _request(self, filename, **fields):
+        try:
+            return self._login_adapter._authenticated(filename, fields)
+        except PartnerAccessError as error:
+            # No upstream URLs, usernames, passwords or session keys ever
+            # escape into a client-visible exception.
+            if str(error) in ("partner_authorization_rejected",
+                              "partner_login_rejected"):
+                raise PartnerApiError("partner_session_denied") from None
+            raise PartnerApiError("partner_network_unavailable") from None

@@ -9,7 +9,10 @@ import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from lmhd_partner import LmhdPartner, PartnerApiError
+from lmhd_partner import LmhdPartner, LmhdLoginPartner, PartnerApiError
+from partner_lmhd_api import PartnerAccessError
+from unittest.mock import patch
+import os
 
 
 class Response(io.BytesIO):
@@ -46,7 +49,10 @@ class Opener:
                      "media": "https://media.partner.example/mx/one.m3u8",
                      "logo": "https://images.partner.example/one.jpg",
                      "epg": [{"t": "Noticias", "s": 1000, "e": 1100}]},
-                    {"id": 2, "nombre": "Falso", "media": ""}
+                    {"id": 2, "nombre": "Canal Dos",
+                     "media": {"url": "https://media.partner.example/mx/two.m3u8",
+                               "format": "hls", "language": "es-MX"}},
+                    {"id": 3, "nombre": "Falso", "media": ""}
                 ]
             }]})
         if name == "channels.php":
@@ -54,7 +60,11 @@ class Opener:
                 {"id": 22, "name": "América vs Pumas",
                  "url": "https://media.partner.example/events/22.m3u8",
                  "kickoff": 1792411200, "competencia": "Liga MX"},
-                {"id": 23, "name": "Promo", "url": "", "kickoff": 1792411200},
+                {"id": 23, "name": "B vs C",
+                 "media": {"url": "https://media.partner.example/events/23.m3u8",
+                           "format": "hls"},
+                 "kickoff": 1792411200},
+                {"id": 25, "name": "Promo", "url": "", "kickoff": 1792411200},
                 {"id": 24, "name": "A vs B",
                  "url": "https://media.partner.example/events/24.m3u8",
                  "kickoff": 1792411200, "finalizado": 1},
@@ -109,7 +119,9 @@ class LmhdContractTest(unittest.TestCase):
 
     def test_tv_categories_and_streams_are_mapped(self):
         channels = self.api.tv_channels()
-        self.assertEqual(len(channels), 1)
+        self.assertEqual(len(channels), 2)
+        self.assertEqual(channels[1]["name"], "Canal Dos")
+        self.assertEqual(channels[1]["url"], "https://media.partner.example/mx/two.m3u8")
         self.assertEqual(channels[0]["group"], "México")
         self.assertEqual(channels[0]["name"], "Canal Uno")
         self.assertEqual(channels[0]["url"].split("/")[-1], "one.m3u8")
@@ -120,7 +132,9 @@ class LmhdContractTest(unittest.TestCase):
 
     def test_event_urls_match_explicit_event_ids(self):
         events = self.api.sports_events()
-        self.assertEqual(len(events), 1)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[1]["streams"][0]["url"],
+                         "https://media.partner.example/events/23.m3u8")
         self.assertEqual(events[0]["id"], "lmhd:22")
         self.assertEqual(events[0]["home"], "América")
         self.assertEqual(events[0]["away"], "Pumas")
@@ -164,6 +178,48 @@ class LmhdContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             LmhdPartner(base_url="https://127.0.0.1/",
                         token="test", device="device")
+
+    def test_login_service_account_uses_same_tv_and_event_parser(self):
+        class LoggedIn:
+            def __init__(self):
+                self.paths = []
+            def _authenticated(self, route, fields):
+                self.paths.append(route)
+                if route == "tv.php":
+                    return {"ok": True, "categorias": [{
+                        "nombre": "México", "canales": [{
+                            "id": 31, "nombre": "Canal con media objeto",
+                            "media": {"url": "https://media.partner.example/31.m3u8",
+                                      "format": "hls"},
+                        }]}]}
+                if route == "channels.php":
+                    return {"ok": True, "channels": []}
+                return {"ok": True, "items": []}
+        adapter = LoggedIn()
+        partner = LmhdLoginPartner(adapter)
+        rows = partner.tv_channels()
+        self.assertEqual(rows[0]["provider_id"], "31")
+        self.assertEqual(rows[0]["url"], "https://media.partner.example/31.m3u8")
+        self.assertEqual(partner.sports_events(), [])
+        self.assertEqual(adapter.paths, ["tv.php", "channels.php"])
+
+    def test_login_session_denial_does_not_expose_password(self):
+        class Denied:
+            def _authenticated(self, route, fields):
+                raise PartnerAccessError("partner_login_rejected")
+        with self.assertRaises(PartnerApiError) as failure:
+            LmhdLoginPartner(Denied()).tv_channels()
+        self.assertEqual(failure.exception.code, "partner_session_denied")
+
+    def test_login_adapter_disabled_without_credentials(self):
+        keys = {
+            "POTV_LMHD_API_BASE_URL": "",
+            "POTV_LMHD_SERVICE_USERNAME": "",
+            "POTV_LMHD_SERVICE_PASSWORD": "",
+            "POTV_LMHD_SERVICE_DEVICE": "",
+        }
+        with patch.dict(os.environ, keys):
+            self.assertIsNone(LmhdLoginPartner.from_environment())
 
     def test_disabled_configuration_is_not_connected(self):
         with tempfile.TemporaryDirectory() as tmp:
