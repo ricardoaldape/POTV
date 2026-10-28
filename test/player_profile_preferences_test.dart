@@ -70,14 +70,17 @@ void main() {
       audioLanguage: 'en',
       subtitleLanguage: 'off',
       preferredVideoHeight: 720,
+      preferredAudioBitrate: 192000,
     );
     expect(updated.audioLanguage, 'en');
     expect(updated.preferredVideoHeight, 720);
+    expect(updated.preferredAudioBitrate, 192000);
     expect(updated.media3AudioPreference, 'english');
     expect(updated.media3SubtitlePreference, 'disabled');
 
     final restored = await PlayerPreferences.load();
     expect(restored.preferredVideoHeight, 720);
+    expect(restored.preferredAudioBitrate, 192000);
     expect(restored.audioLanguage, 'en');
     expect(restored.autoplayNext, true);
 

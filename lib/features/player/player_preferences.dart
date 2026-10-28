@@ -11,12 +11,15 @@ class PlayerPreferences {
   final bool autoplayNext;
   /// 0 = adaptive/automatic, otherwise cap native video height in pixels.
   final int preferredVideoHeight;
+  /// 0 = best/automatic; >0 = chosen audio track bitrate ceiling.
+  final int preferredAudioBitrate;
 
   const PlayerPreferences({
     this.audioLanguage = 'es-419',
     this.subtitleLanguage = 'es',
     this.autoplayNext = true,
     this.preferredVideoHeight = 0,
+    this.preferredAudioBitrate = 0,
   });
 
   String get media3AudioPreference {
@@ -37,6 +40,7 @@ class PlayerPreferences {
     String? audioLanguage,
     String? subtitleLanguage,
     int? preferredVideoHeight,
+    int? preferredAudioBitrate,
   }) async {
     final current = await load();
     final updated = PlayerPreferences(
@@ -45,6 +49,8 @@ class PlayerPreferences {
       autoplayNext: current.autoplayNext,
       preferredVideoHeight:
           preferredVideoHeight ?? current.preferredVideoHeight,
+      preferredAudioBitrate:
+          preferredAudioBitrate ?? current.preferredAudioBitrate,
     );
     final prefs = await SharedPreferences.getInstance();
     final activeId = prefs.getString(_activeProfileKey);
@@ -67,6 +73,7 @@ class PlayerPreferences {
             'audioLanguage': updated.audioLanguage,
             'subtitleLanguage': updated.subtitleLanguage,
             'preferredVideoHeight': updated.preferredVideoHeight,
+            'preferredAudioBitrate': updated.preferredAudioBitrate,
           },
         };
       }).toList();
@@ -99,6 +106,8 @@ class PlayerPreferences {
           autoplayNext: nested['autoplayNext'] as bool? ?? true,
           preferredVideoHeight:
               (nested['preferredVideoHeight'] as num?)?.toInt() ?? 0,
+          preferredAudioBitrate:
+              (nested['preferredAudioBitrate'] as num?)?.toInt() ?? 0,
         );
       }
     } catch (_) {}

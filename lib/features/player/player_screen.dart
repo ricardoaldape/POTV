@@ -777,19 +777,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           child: ListView(
             shrinkWrap: true,
             children: [
-              const ListTile(title: Text('Audio')),
+              const ListTile(title: Text('Audio e idioma')),
+              ListTile(
+                leading: Icon(playerPreferences.preferredAudioBitrate == 0
+                    ? Icons.check_circle : Icons.circle_outlined),
+                title: const Text('Calidad automática'),
+                onTap: () {
+                  unawaited(native.setAudioQualityAuto());
+                  unawaited(_rememberPreferences(preferredAudioBitrate: 0));
+                  Navigator.of(context).pop();
+                },
+              ),
               for (final track in tracks.where((value) => value.supported))
                 ListTile(
                   leading: Icon(
                     track.selected ? Icons.check_circle : Icons.circle_outlined,
                   ),
-                  title: Text(track.displayName),
+                  title: Text(track.audioDisplayName),
                   onTap: () {
                     unawaited(native.selectAudio(track));
                     final language = _languageForPreference(track.language);
-                    if (language != null) {
-                      unawaited(_rememberPreferences(audioLanguage: language));
-                    }
+                    unawaited(_rememberPreferences(
+                      audioLanguage: language,
+                      preferredAudioBitrate:
+                          track.bitrate > 0 ? track.bitrate : null,
+                    ));
                     Navigator.of(context).pop();
                   },
                 ),
@@ -881,11 +893,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     String? audioLanguage,
     String? subtitleLanguage,
     int? preferredVideoHeight,
+    int? preferredAudioBitrate,
   }) async {
     final updated = await PlayerPreferences.updateCurrent(
       audioLanguage: audioLanguage,
       subtitleLanguage: subtitleLanguage,
       preferredVideoHeight: preferredVideoHeight,
+      preferredAudioBitrate: preferredAudioBitrate,
     );
     if (mounted) setState(() => playerPreferences = updated);
   }
@@ -1242,6 +1256,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             playerPreferences.media3SubtitlePreference,
                         preferredVideoHeight:
                             playerPreferences.preferredVideoHeight,
+                        preferredAudioBitrate:
+                            playerPreferences.preferredAudioBitrate,
                         subtitles: widget.session.subtitles,
                         onController: _attachMedia3Controller,
                       ))

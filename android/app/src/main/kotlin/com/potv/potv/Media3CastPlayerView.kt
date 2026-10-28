@@ -72,6 +72,8 @@ private class Media3CastPlayerView(
     private val autoplay = params["autoplay"] != false
     private val preferredVideoHeight =
         (params["preferredVideoHeight"] as? Number)?.toInt() ?: 0
+    private val preferredAudioBitrate =
+        (params["preferredAudioBitrate"] as? Number)?.toInt() ?: 0
     private var automaticSelectionApplied = false
 
     init {
@@ -268,6 +270,9 @@ private class Media3CastPlayerView(
             }
         }
 
+        if (preferredAudioBitrate > 0) {
+            builder.setMaxAudioBitrate(preferredAudioBitrate)
+        }
         if (preferredVideoHeight > 0) {
             builder.setMaxVideoSize(Int.MAX_VALUE, preferredVideoHeight)
         }
@@ -396,6 +401,7 @@ private class Media3CastPlayerView(
                         "supported" to group.isTrackSupported(trackIndex),
                         "height" to format.height,
                         "bitrate" to format.bitrate,
+                        "channelCount" to format.channelCount,
                     ),
                 )
             }
@@ -534,6 +540,14 @@ private class Media3CastPlayerView(
             }
 
             "getAudioTracks" -> result.success(trackList(C.TRACK_TYPE_AUDIO))
+            "setAudioQualityAuto" -> {
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .setMaxAudioBitrate(Int.MAX_VALUE)
+                        .build()
+                result.success(null)
+            }
             "getVideoTracks" -> result.success(trackList(C.TRACK_TYPE_VIDEO))
             "setVideoQualityAuto" -> {
                 castPlayer.trackSelectionParameters =
@@ -558,6 +572,10 @@ private class Media3CastPlayerView(
             "selectAudioTrack" -> {
                 val groupIndex = call.argument<Number>("groupIndex")?.toInt() ?: -1
                 val trackIndex = call.argument<Number>("trackIndex")?.toInt() ?: -1
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .setMaxAudioBitrate(Int.MAX_VALUE)
+                        .build()
                 selectTrack(groupIndex, trackIndex)
                 logSelectedTracks(castPlayer.currentTracks)
                 result.success(null)

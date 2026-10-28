@@ -35,6 +35,7 @@ class Media3Track {
   final bool supported;
   final int height;
   final int bitrate;
+  final int channelCount;
 
   const Media3Track({
     required this.groupIndex,
@@ -45,6 +46,7 @@ class Media3Track {
     required this.supported,
     this.height = 0,
     this.bitrate = 0,
+    this.channelCount = 0,
   });
 
   factory Media3Track.fromMap(Map<Object?, Object?> raw) => Media3Track(
@@ -56,7 +58,18 @@ class Media3Track {
         supported: raw['supported'] == true,
         height: (raw['height'] as num?)?.toInt() ?? 0,
         bitrate: (raw['bitrate'] as num?)?.toInt() ?? 0,
+        channelCount: (raw['channelCount'] as num?)?.toInt() ?? 0,
       );
+
+  String get audioDisplayName {
+    final details = <String>[
+      if (channelCount >= 6) '5.1'
+      else if (channelCount == 2) 'Estéreo'
+      else if (channelCount > 0) channelCount.toString() + ' canales',
+      if (bitrate > 0) (bitrate ~/ 1000).toString() + ' kbps',
+    ];
+    return details.isEmpty ? displayName : displayName + ' · ' + details.join(' · ');
+  }
 
   String get displayName {
     final values = [
@@ -153,6 +166,9 @@ class Media3PlayerController {
 
   Future<void> setVideoQualityAuto() =>
       _channel.invokeMethod<void>('setVideoQualityAuto');
+
+  Future<void> setAudioQualityAuto() =>
+      _channel.invokeMethod<void>('setAudioQualityAuto');
 }
 
 class Media3PlayerSurface extends StatelessWidget {
@@ -162,6 +178,7 @@ class Media3PlayerSurface extends StatelessWidget {
   final String audioPreference;
   final String subtitlePreference;
   final int preferredVideoHeight;
+  final int preferredAudioBitrate;
   final List<PlaybackSubtitle> subtitles;
   final ValueChanged<Media3PlayerController> onController;
 
@@ -173,6 +190,7 @@ class Media3PlayerSurface extends StatelessWidget {
     required this.audioPreference,
     required this.subtitlePreference,
     required this.preferredVideoHeight,
+    required this.preferredAudioBitrate,
     required this.subtitles,
     required this.onController,
   });
@@ -189,6 +207,7 @@ class Media3PlayerSurface extends StatelessWidget {
         'audioPreference': audioPreference,
         'subtitlePreference': subtitlePreference,
         'preferredVideoHeight': preferredVideoHeight,
+        'preferredAudioBitrate': preferredAudioBitrate,
         'autoplay': true,
         'subtitles': [
           for (final subtitle in subtitles)
