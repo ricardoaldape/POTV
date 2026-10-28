@@ -267,4 +267,5 @@ void main() {
     expect(find.byKey(const ValueKey('live-tv-channel-grid')), findsOneWidget);
     expect(find.text('Canal Cine'), findsOneWidget);
   });
-\n}\n
+
+}
