@@ -38,6 +38,17 @@ jobs:
           test -s /tmp/potv-qa/app-debug.apk
           sha256sum /tmp/potv-qa/app-debug.apk | tee /tmp/potv-qa.sha256
 
+      - name: Allow KVM acceleration in this disposable GitHub runner
+        run: |
+          set -eu
+          if [ ! -e /dev/kvm ]; then
+            echo 'Hosted runner does not expose KVM; fail fast rather than booting for 20 minutes.'
+            exit 1
+          fi
+          # Permission change affects only the short-lived CI VM, not the user's PC.
+          sudo chmod 0666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
       - name: Install and launch POTV QA on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
