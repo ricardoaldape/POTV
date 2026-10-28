@@ -182,6 +182,11 @@ class ContentGateway:
         self._nova_subscriber_revision = None
         self.opener = opener or build_opener(HTTPCookieProcessor(CookieJar()))
         self._lock = threading.RLock()
+        # A cold-start stream URL may have been signed before the API
+        # restarted. Rehydrate public and private targets ONCE rather than
+        # rebuilding both huge catalogs in every concurrent request thread.
+        self._hydrate_lock = threading.Lock()
+        self._last_full_target_hydrate = 0.0
         self._targets = {}
         # HLS segments create ephemeral signed targets. Keep memory bounded
         # without interrupting already-started media transfers.
@@ -1937,18 +1942,35 @@ class ContentGateway:
         handler.wfile.write(raw)
 
     def _hydrate_target(self, target_id):
-        """Restore signed media targets after an API service restart."""
-        if target_id in self._targets:
-            return
-        self.catalog(force=True)
-        # A stream signed in the private subscriber catalog must also be
-        # recoverable after a restart. Caller has already checked its signed
-        # capability and the upstream URL never enters the public catalog.
-        if target_id not in self._targets and self.nova_live_enabled:
+        """Restore signed streams once after restart, not once per caller.
+
+        Live proxies are a ThreadingHTTPServer. Concurrent requests for
+        historical signed URLs previously caused simultaneous expensive
+        rebuilds of both public and subscriber catalogs. Under a 128 MiB
+        systemd memory ceiling that could OOM-kill the entire account API.
+        Serializing and temporarily coalescing misses prevents that storm.
+        """
+        with self._lock:
+            if target_id in self._targets:
+                return
+        with self._hydrate_lock:
             with self._lock:
-                self._nova_subscriber_catalog = None
-                self._nova_subscriber_catalog_at = 0
-            self.catalog_for_subscriber()
+                if target_id in self._targets:
+                    return
+                now = time.monotonic()
+                if now - self._last_full_target_hydrate < 30:
+                    return
+                self._last_full_target_hydrate = now
+            # RLock is not held across the network-dependent catalog build;
+            # other already-registered streams can continue playing.
+            self.catalog(force=True)
+            if self.nova_live_enabled:
+                with self._lock:
+                    if target_id in self._targets:
+                        return
+                    self._nova_subscriber_catalog = None
+                    self._nova_subscriber_catalog_at = 0
+                self.catalog_for_subscriber()
 
     def serve_target(self, handler, target_id, query):
         if not self._validate_signature(target_id, query):
