@@ -213,6 +213,52 @@ class NovaPartner:
                     return [payload]
         return []
 
+    def sports_now_next(self, channel_ids, *, timezone="America/Mexico_City"):
+        """NOVA 1.2.9 POST guide/now-next using only approved channel IDs.
+
+        Return only provider program metadata, not authorization headers or
+        playback URLs. Never attempt alternate endpoints after a denial.
+        """
+        if (not isinstance(channel_ids, (tuple, list)) or
+                not 1 <= len(channel_ids) <= 40 or
+                any(type(value) is not int or value <= 0 for value in channel_ids)):
+            raise ValueError("Invalid guide channel identifiers")
+        if timezone not in ("America/Mexico_City", "UTC"):
+            raise ValueError("Unexpected guide timezone")
+        path = "channels/guide/now-next"
+        target = urljoin(self.base_url, path)
+        parsed = urlsplit(target)
+        if parsed.scheme != "https" or parsed.hostname != self.host:
+            raise NovaPartnerError("unexpected_upstream")
+        payload = json.dumps({
+            "channel_ids": list(dict.fromkeys(channel_ids)),
+            "timezone": timezone,
+        }, separators=(",", ":")).encode("utf-8")
+        request = Request(target, data=payload, method="POST", headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "POTV-Nova-Connector/1.0",
+            **({"Authorization": "Bearer " + self._token}
+               if self._token else {}),
+        })
+        try:
+            with self._opener.open(request, timeout=self.timeout) as response:
+                if getattr(response, "status", 200) != 200:
+                    raise NovaPartnerError("upstream_status")
+                raw = response.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024:
+                raise NovaPartnerError("payload_too_large")
+            rows = self._rows(json.loads(raw))
+            return rows[:40]
+        except NovaPartnerError:
+            raise
+        except HTTPError as exc:
+            if exc.code in (401, 402, 403):
+                raise NovaPartnerError("upstream_denied") from None
+            raise NovaPartnerError("upstream_unavailable") from None
+        except (OSError, ValueError, TypeError):
+            raise NovaPartnerError("upstream_unavailable") from None
+
     def movie_source_items(self, tmdb_id, *, title=None, year=None):
         item_id = str(self._positive_id(tmdb_id))
         query = {"language": "es-MX",

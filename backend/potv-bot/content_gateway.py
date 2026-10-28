@@ -1760,6 +1760,13 @@ class ContentGateway:
             if channel not in raw_sports
         ] + sports
         data["sports_channels"] = sports
+        # NOVA guide is only surfaced from the authenticated catalog. Map its
+        # exact provider channel IDs to POTV EPG IDs during snapshot sync.
+        # Do not advertise unverified sports fixtures as playable events.
+        data["now_next"] = [
+            *(data.get("now_next") or []),
+            *self._guide_payload({"now_next": snapshot.get("now_next") or []}),
+        ]
         for media_kind in ("movies", "series", "anime"):
             media_rows = snapshot.get(media_kind)
             if isinstance(media_rows, list):

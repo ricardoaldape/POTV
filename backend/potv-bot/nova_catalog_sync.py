@@ -378,7 +378,102 @@ def progressive_media(service, method, *, category, previous=None,
     return combined, next_offset, len(rows)
 
 
-def snapshot_revision(channels, movies, series, anime):
+def sports_guide(service, channels, *, max_channels=160):
+    """Bounded provider EPG, linked to the exact published channel's EPG ID.
+
+    No team-match inference, artificial events or upstream media URLs.
+    A missing/malformed program simply does not enter the subscriber guide.
+    """
+    from datetime import timedelta
+
+    eligible = []
+    seen = set()
+    for row in channels:
+        if not isinstance(row, dict) or not row.get("is_sports"):
+            continue
+        raw_id, epg_id = str(row.get("id") or ""), str(row.get("epg_id") or "")
+        if not raw_id.startswith("nova:") or not epg_id or epg_id in seen:
+            continue
+        try:
+            upstream_id = int(raw_id[5:])
+        except ValueError:
+            continue
+        if upstream_id <= 0:
+            continue
+        seen.add(epg_id)
+        eligible.append((row, upstream_id))
+
+    def priority(pair):
+        row = pair[0]
+        name = str(row.get("name") or "").lower()
+        region = row.get("country") or ""
+        tier = 0 if region == "MX" else 1 if region == "LATAM" else 2
+        sports = 0 if any(word in name for word in (
+            "espn", "tudn", "fox sports", "nfl", "nba", "claro sports",
+            "dsports", "dazn",
+        )) else 1
+        return (tier, sports, name)
+
+    eligible.sort(key=priority)
+    eligible = eligible[:max(0, min(max_channels, 200))]
+    result = []
+    now = datetime.now(timezone.utc)
+
+    def safe_program(raw):
+        if not isinstance(raw, dict):
+            return None
+        title = str(raw.get("title") or "").strip()[:160]
+        if not title:
+            return None
+        start = str(raw.get("start_time") or raw.get("starts_at") or "")
+        end = str(raw.get("end_time") or raw.get("ends_at") or "")
+        try:
+            first = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            last = datetime.fromisoformat(end.replace("Z", "+00:00"))
+            if first.tzinfo is None or last.tzinfo is None:
+                return None
+            first, last = first.astimezone(timezone.utc), last.astimezone(timezone.utc)
+            if not (first < last <= first + timedelta(hours=16)):
+                return None
+            if last < now - timedelta(hours=3) or first > now + timedelta(hours=36):
+                return None
+        except (ValueError, TypeError, OverflowError):
+            return None
+        description = str(raw.get("description") or "").strip()[:300]
+        return {
+            "title": title,
+            "starts_at": first.isoformat(),
+            "ends_at": last.isoformat(),
+            **({"description": description} if description else {}),
+        }
+
+    for index in range(0, len(eligible), 40):
+        batch = eligible[index:index + 40]
+        try:
+            responses = service.sports_now_next([up_id for _, up_id in batch])
+        except (NovaPartnerError, ValueError, TypeError):
+            # Guide is supplementary; lack of it must not destroy live TV.
+            continue
+        by_id = {str(upstream_id): row for row, upstream_id in batch}
+        for raw in responses:
+            if not isinstance(raw, dict):
+                continue
+            row = by_id.get(str(raw.get("channel_id") or ""))
+            if row is None:
+                continue
+            current = safe_program(raw.get("now"))
+            next_program = safe_program(raw.get("next"))
+            if not current and not next_program:
+                continue
+            result.append({
+                "channel_id": str(row["epg_id"]),
+                **({"now": current} if current else {}),
+                **({"next": next_program} if next_program else {}),
+            })
+    return result
+
+
+def snapshot_revision(channels, movies, series, anime, guide=()):
     """Change revision when media titles/IDs change, not only TV channels.
 
     Ignore transient sync timestamps so AniList incremental mapping produces
@@ -391,6 +486,7 @@ def snapshot_revision(channels, movies, series, anime):
         "movies": sorted(movies, key=lambda r: r["tmdb_id"]),
         "series": sorted(series, key=lambda r: r["tmdb_id"]),
         "anime": sorted(anime, key=lambda r: r["anilist_id"]),
+        "guide": sorted(guide, key=lambda r: str(r.get("channel_id") or "")),
     }
     return hashlib.sha256(json.dumps(material, sort_keys=True,
         separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()[:20]
@@ -488,6 +584,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         except (NovaPartnerError, OSError, ValueError, TypeError):
             # Keep TV, movies and series synchronized if AniList is down.
             pass
+    guide = sports_guide(service, rows)
     body = {
         "source": "nova",
         "format_probe_version": 2,
@@ -496,9 +593,10 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         "media_scan_offsets": {"movies": movies_offset,
                                "series": series_offset},
         "anime": anime,
+        "now_next": guide,
         "upstream_app_version": version,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "revision": snapshot_revision(rows, movies, series, anime),
+        "revision": snapshot_revision(rows, movies, series, anime, guide),
         "channels": rows,
     }
     destination = Path(destination)
@@ -523,6 +621,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         "movie_page_received": movie_received,
         "series_page_received": series_received,
         "anime_catalog_mapped": len(anime),
+        "sports_guide_channels": len(guide),
         **counts,
         "revision": body["revision"],
     }

@@ -21,6 +21,10 @@ with tempfile.TemporaryDirectory() as tmp:
         json.dump({"revision":"nova-v1","anime":[
             {"anilist_id":195539,"tmdb_id":326788,
              "title":"Cyberpunk: Edgerunners 2","year":"2026"}
+        ],"now_next":[
+            {"channel_id":"nfl","now":{"title":"Football previo",
+             "starts_at":"2026-10-28T04:00:00+00:00",
+             "ends_at":"2026-10-28T05:00:00+00:00"}},
         ],"channels":[
             {"id":"nova:1", "name":"NFL Network", "url":"https://nova.example/nfl.m3u8",
              "group":"Deportes", "epg_id":"nfl", "format":"hls", "backup_urls":[
@@ -45,6 +49,10 @@ with tempfile.TemporaryDirectory() as tmp:
         assert len(sports)==1,sports
         assert private["data"]["anime"][0]["anilist_id"] == 195539
         assert "anime" not in g.catalog()["data"], "NOVA anime must remain subscriber-only"
+        assert private["data"]["now_next"][0]["channel_id"] == "nfl"
+        assert private["data"]["now_next"][0]["current"]["title"] == "Football previo"
+        assert not g.catalog()["data"]["now_next"], "private sports guide leaked publicly"
+        assert private["data"]["sports_events"] == [], "program guide is not a verified event feed"
         assert "NFL Network" in [s["name"] for s in sports]
         assert channels[0]["name"]=="POTV Starter"
         assert all("nova.example" not in json.dumps(r) for r in channels)
