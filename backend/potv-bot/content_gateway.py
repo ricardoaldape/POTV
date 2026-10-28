@@ -834,10 +834,13 @@ class ContentGateway:
         sources.extend(self._nova_candidates(
             "movie", tmdb_id=tmdb_id, title=title, year=year
         ))
-        if not sources:
-            sources.extend(self._lmhd_candidates(
-                "movie", title=title, year=year
-            ))
+        # Keep authorized alternatives even when NOVA only offers a WebView
+        # embed. The Android source picker prefers native MP4/HLS and can
+        # fall back to another licensed provider on a playback error.
+        # Account entitlement is checked at the VOD API route, not here.
+        sources.extend(self._lmhd_candidates(
+            "movie", title=title, year=year
+        ))
         return {"sources": sources}
 
     def resolve_series_episode(
@@ -960,10 +963,12 @@ class ContentGateway:
             "tv", tmdb_id=tmdb_id, title=title, year=year,
             season=season, episode=episode, is_anime=is_anime
         ))
-        if not sources:
-            sources.extend(self._lmhd_candidates(
-                "tv", title=title, year=year, season=season, episode=episode
-            ))
+        # A working provider must not hide alternate authorized sources.
+        # This matters when NOVA serves only embeds while another provider
+        # has a directly playable native episode stream.
+        sources.extend(self._lmhd_candidates(
+            "tv", title=title, year=year, season=season, episode=episode
+        ))
         return {"sources": sources}
 
     def _target_id(self, url, headers):
