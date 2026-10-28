@@ -50,3 +50,12 @@ puede quitar ni modificar estas reglas sin una decisión explícita del propieta
 
 El servidor productivo contiene la configuración y base SQLite privada.
 No incorporar credenciales, recibos, tickets ni bases de clientes al repositorio.
+
+## Cortesías permanentes aprobadas por administración
+
+- Exclusivamente por decisión explícita del propietario, una cuenta existente puede recibir una **cortesía permanente**, sin cargar ni fingir recibos de pago.
+- El servidor guarda la autorización en `app_complimentary_grants` y la representa para clientes Android existentes como una suscripción activa con fecha centinela 9999-12-31. No se generan avisos de renovación ni se requiere actualizar la APK.
+- Solo se autoriza mediante CLI privada del servidor: `python3 grant_permanent.py correo@ejemplo.com --approved-by operador --reason 'cuenta de pruebas autorizada'`.
+- El procedimiento es idempotente y nunca crea nuevas cuentas ni cambia planes de terceros; requiere correo existente y operador explícito.
+- La cuenta podrá seguir requiriendo renovar **su sesión de inicio de sesión** periódicamente; eso no reduce su derecho permanente a la suscripción.
+- La auditoría y la base SQLite se conservan en el VPS, no se suben a GitHub.
