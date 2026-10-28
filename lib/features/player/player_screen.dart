@@ -23,6 +23,7 @@ import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/playback_language_selector.dart';
 import 'media3_player_surface.dart';
+import 'potv_player_loader.dart';
 import 'player_preferences.dart';
 import 'secure_webview_player.dart';
 
@@ -75,6 +76,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   final _languageSelector = const PlaybackLanguageSelector();
   List<StremioSubtitle> _externalSubtitleOptions = const [];
   bool _audioAutoSelected = false;
+  bool _videoAutoSelected = false;
+  bool media3Buffering = false;
+  bool webViewLoading = false;
   bool _subtitleAutoSelected = false;
   bool _subtitleUserSelected = false;
   bool _startupPlaying = false;
@@ -159,6 +163,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     await _tracksSubscription?.cancel();
     _tracksSubscription = null;
     _audioAutoSelected = false;
+    _videoAutoSelected = false;
+    media3Buffering = false;
+    webViewLoading = false;
     _subtitleAutoSelected = false;
     _subtitleUserSelected = false;
     _externalSubtitleOptions = const [];
@@ -200,6 +207,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           if (Platform.isAndroid && !_preferMediaKitNative) {
             media3ResumeAt = effectiveResumeAt;
             media3Ready = true;
+            media3Buffering = true;
             media3BootstrapTimer?.cancel();
             media3BootstrapTimer = Timer(const Duration(seconds: 3), () {
               if (!mounted ||
@@ -229,6 +237,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           _tracksSubscription = nextPlayer.stream.tracks.listen((tracks) {
             if (!mounted || generation != _openGeneration) return;
             unawaited(_selectPreferredAudio(nextPlayer, generation));
+            unawaited(_selectPreferredVideo(nextPlayer, generation));
           });
 
           // Listen before open(): it can report errors on startup.
@@ -291,6 +300,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           }
           if (!mounted || generation != _openGeneration) return;
           unawaited(_selectPreferredAudio(nextPlayer, generation));
+          unawaited(_selectPreferredVideo(nextPlayer, generation));
           unawaited(_loadPreferredSubtitles(nextPlayer, generation));
           if (effectiveResumeAt != null && effectiveResumeAt > Duration.zero) {
             await nextPlayer.seek(effectiveResumeAt);
@@ -362,45 +372,78 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _autoplayNextEpisode() async {
-    if (_advancingEpisode ||
-        !mounted ||
-        !playerPreferences.autoplayNext ||
-        widget.session.autoplayQueue.isEmpty) {
-      return;
-    }
+    if (!playerPreferences.autoplayNext) return;
+    await _goToEpisode(next: true);
+  }
+
+  /// Navigate between episodes without opening another player or provider UI.
+  /// Queue updates preserve a back/forward history across repeated skips.
+  Future<void> _goToEpisode({required bool next}) async {
+    final queue = next
+        ? widget.session.autoplayQueue
+        : widget.session.previousQueue;
+    if (_advancingEpisode || !mounted || queue.isEmpty) return;
     _advancingEpisode = true;
     try {
-      final next = widget.session.autoplayQueue.first;
+      final episode = queue.first;
       final prepared = await ref
           .read(playbackPreparationServiceProvider)
-          .prepare(PlaybackPreparationRequest.fromContext(next));
-      if (!mounted || prepared.candidates.isEmpty) return;
+          .prepare(PlaybackPreparationRequest.fromContext(episode));
+      if (!mounted) return;
+      if (prepared.candidates.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Este episodio no tiene una señal disponible.'),
+        ));
+        return;
+      }
 
-      final title = next.mediaType == 'tv'
-          ? next.title +
-                ' · T' +
-                (next.season ?? 1).toString() +
-                ' E' +
-                (next.episode ?? 1).toString()
-          : next.title + ' · E' + (next.episode ?? 1).toString();
-
+      final title = episode.mediaType == 'tv'
+          ? episode.title + ' · T' + (episode.season ?? 1).toString() +
+              ' E' + (episode.episode ?? 1).toString()
+          : episode.title + ' · E' + (episode.episode ?? 1).toString();
+      final here = widget.session.playbackContext;
       context.pushReplacement(
         '/player',
         extra: PlaybackSession(
           title: title,
           candidates: prepared.candidates,
-          playbackContext: next,
+          playbackContext: episode,
           subtitles: prepared.subtitles,
-          autoplayQueue: widget.session.autoplayQueue
-              .skip(1)
-              .toList(growable: false),
+          previousQueue: next
+              ? [if (here != null) here, ...widget.session.previousQueue]
+              : widget.session.previousQueue.skip(1).toList(),
+          autoplayQueue: next
+              ? widget.session.autoplayQueue.skip(1).toList()
+              : [if (here != null) here, ...widget.session.autoplayQueue],
         ),
       );
     } catch (_) {
-      addDebugLog('Player: no se pudo preparar el siguiente episodio');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No fue posible preparar ese episodio.'),
+        ));
+      }
     } finally {
       _advancingEpisode = false;
     }
+  }
+
+  void _seekRelative(int seconds) {
+    if (widget.session.isLive) return;
+    final position = _currentPosition ?? Duration.zero;
+    var target = position + Duration(seconds: seconds);
+    if (target.isNegative) target = Duration.zero;
+    final limit = player?.state.duration ??
+        (media3State == null
+            ? Duration.zero
+            : Duration(milliseconds: media3State!.durationMs));
+    if (limit > Duration.zero && target > limit) target = limit;
+    if (media3Controller != null) {
+      unawaited(media3Controller!.seekTo(target));
+    } else if (player != null) {
+      unawaited(player!.seek(target));
+    }
+    _showControls();
   }
 
   Duration? get _currentPosition {
@@ -417,6 +460,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     media3Controller?.dispose();
     media3Controller = controller;
     controller.setHandlers(
+      onBuffering: (buffering) {
+        if (mounted && media3Controller == controller &&
+            media3Buffering != buffering) {
+          setState(() => media3Buffering = buffering);
+        }
+      },
       onLog: (message) {
         if (message.isNotEmpty) addDebugLog(message);
       },
@@ -426,6 +475,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       onStarted: (startupMs) {
         if (!mounted) return;
         _startupPlaying = true;
+        media3Buffering = false;
         _playbackStartedAt = DateTime.now();
         startupTimer?.cancel();
         addDebugLog(
@@ -487,6 +537,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     media3Controller = null;
     media3State = null;
     media3Ready = false;
+    media3Buffering = false;
     if (mounted) setState(() {});
     await _openCurrent(resumeAt: resumeAt);
   }
@@ -735,6 +786,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   title: Text(track.displayName),
                   onTap: () {
                     unawaited(native.selectAudio(track));
+                    final language = _languageForPreference(track.language);
+                    if (language != null) {
+                      unawaited(_rememberPreferences(audioLanguage: language));
+                    }
                     Navigator.of(context).pop();
                   },
                 ),
@@ -769,7 +824,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   track.title ?? track.language ?? 'Pista ${track.id}',
                 ),
                 onTap: () {
-                  p.setAudioTrack(track);
+                  _audioAutoSelected = true;
+                  unawaited(p.setAudioTrack(track));
+                  final language = _languageForPreference(track.language);
+                  if (language != null) {
+                    unawaited(_rememberPreferences(audioLanguage: language));
+                  }
                   Navigator.of(context).pop();
                 },
               ),
@@ -796,6 +856,46 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     } catch (_) {
       // Metadata can disappear during stream failover. Retain default audio.
     }
+  }
+
+  Future<void> _selectPreferredVideo(Player target, int generation) async {
+    if (_videoAutoSelected || !mounted || generation != _openGeneration) return;
+    final preferredHeight = playerPreferences.preferredVideoHeight;
+    if (preferredHeight <= 0) return;
+    final available = target.state.tracks.video
+        .where((track) => track.h != null && track.h! > 0)
+        .toList();
+    if (available.isEmpty) return;
+    available.sort((a, b) => a.h!.compareTo(b.h!));
+    final suitable = available.where((track) => track.h! <= preferredHeight);
+    final selected = suitable.isEmpty ? available.first : suitable.last;
+    _videoAutoSelected = true;
+    try {
+      await target.setVideoTrack(selected);
+    } catch (_) {
+      // Adaptation is best-effort when a CDN changes its HLS variants.
+    }
+  }
+
+  Future<void> _rememberPreferences({
+    String? audioLanguage,
+    String? subtitleLanguage,
+    int? preferredVideoHeight,
+  }) async {
+    final updated = await PlayerPreferences.updateCurrent(
+      audioLanguage: audioLanguage,
+      subtitleLanguage: subtitleLanguage,
+      preferredVideoHeight: preferredVideoHeight,
+    );
+    if (mounted) setState(() => playerPreferences = updated);
+  }
+
+  String? _languageForPreference(String? raw) {
+    if (raw == null) return null;
+    final language = raw.toLowerCase();
+    if (language.startsWith('es') || language == 'spa') return 'es-419';
+    if (language.startsWith('en') || language == 'eng') return 'en';
+    return null; // Do not overwrite the profile with an unknown language.
   }
 
   Future<void> _loadPreferredSubtitles(Player target, int generation) async {
@@ -877,6 +977,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 title: const Text('Desactivados'),
                 onTap: () {
                   unawaited(native.disableSubtitles());
+                  unawaited(_rememberPreferences(subtitleLanguage: 'off'));
                   Navigator.of(context).pop();
                 },
               ),
@@ -890,6 +991,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   title: Text(track.displayName),
                   onTap: () {
                     unawaited(native.selectSubtitle(track));
+                    unawaited(_rememberPreferences(subtitleLanguage: 'es'));
                     Navigator.of(context).pop();
                   },
                 ),
@@ -927,7 +1029,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
                 onTap: () {
                   _subtitleUserSelected = true;
-                  p.setSubtitleTrack(track);
+                  unawaited(p.setSubtitleTrack(track));
+                  unawaited(_rememberPreferences(
+                    subtitleLanguage: track.id == 'no' ? 'off' : 'es',
+                  ));
                   Navigator.of(context).pop();
                 },
               ),
@@ -941,6 +1046,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
                 onTap: () {
                   _subtitleUserSelected = true;
+                  unawaited(_rememberPreferences(subtitleLanguage: 'es'));
                   p.setSubtitleTrack(
                     SubtitleTrack.uri(
                       subtitle.url.toString(),
@@ -958,11 +1064,54 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _showVideoTracks() async {
+    final native = media3Controller;
+    if (native != null) {
+      final tracks = await native.videoTracks();
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: const Color(0xFF0D1418),
+        builder: (context) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(title: Text('Calidad de video')),
+              ListTile(
+                leading: Icon(playerPreferences.preferredVideoHeight == 0
+                    ? Icons.check_circle : Icons.circle_outlined),
+                title: const Text('Automática (recomendada)'),
+                onTap: () {
+                  unawaited(native.setVideoQualityAuto());
+                  unawaited(_rememberPreferences(preferredVideoHeight: 0));
+                  Navigator.of(context).pop();
+                },
+              ),
+              for (final track in tracks.where((value) => value.supported))
+                ListTile(
+                  leading: Icon(track.selected
+                      ? Icons.check_circle : Icons.circle_outlined),
+                  title: Text(track.height > 0
+                      ? track.height.toString() + 'p'
+                      : track.displayName),
+                  onTap: () {
+                    unawaited(native.selectVideo(track));
+                    if (track.height > 0) {
+                      unawaited(_rememberPreferences(
+                          preferredVideoHeight: track.height));
+                    }
+                    Navigator.of(context).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
     final p = player;
     if (p == null) return;
     final tracks = p.state.tracks.video;
     final selected = p.state.track.video;
-
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF0D1418),
@@ -970,20 +1119,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         child: ListView(
           shrinkWrap: true,
           children: [
-            const ListTile(title: Text('Calidad')),
+            const ListTile(title: Text('Calidad de video')),
+            ListTile(
+              leading: Icon(playerPreferences.preferredVideoHeight == 0
+                  ? Icons.check_circle : Icons.circle_outlined),
+              title: const Text('Automática (recomendada)'),
+              onTap: () {
+                _videoAutoSelected = true;
+                unawaited(p.setVideoTrack(VideoTrack.auto()));
+                unawaited(_rememberPreferences(preferredVideoHeight: 0));
+                Navigator.of(context).pop();
+              },
+            ),
             for (final track in tracks)
               ListTile(
-                leading: Icon(
-                  track.id == selected.id
-                      ? Icons.check_circle
-                      : Icons.circle_outlined,
-                ),
-                title: Text(
-                  track.title ??
-                      (track.h == null ? 'Pista ${track.id}' : '${track.h}p'),
-                ),
+                leading: Icon(track.id == selected.id
+                    ? Icons.check_circle : Icons.circle_outlined),
+                title: Text(track.title ??
+                    (track.h == null ? 'Pista ' + track.id : track.h.toString() + 'p')),
                 onTap: () {
-                  p.setVideoTrack(track);
+                  _videoAutoSelected = true;
+                  unawaited(p.setVideoTrack(track));
+                  if (track.h != null && track.h! > 0) {
+                    unawaited(_rememberPreferences(
+                        preferredVideoHeight: track.h!));
+                  }
                   Navigator.of(context).pop();
                 },
               ),
@@ -1070,7 +1230,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         PlaybackBackend.native =>
           Platform.isAndroid && !_preferMediaKitNative
               ? (!preferencesLoaded || !media3Ready
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const Center(child: PotvPlayerLoader())
                     : Media3PlayerSurface(
                         key: ValueKey('media3-' + currentStream.id),
                         stream: currentStream,
@@ -1080,11 +1240,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             playerPreferences.media3AudioPreference,
                         subtitlePreference:
                             playerPreferences.media3SubtitlePreference,
+                        preferredVideoHeight:
+                            playerPreferences.preferredVideoHeight,
                         subtitles: widget.session.subtitles,
                         onController: _attachMedia3Controller,
                       ))
               : (videoController == null
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const Center(child: PotvPlayerLoader())
                     : Video(
                         controller: videoController!,
                         controls: NoVideoControls,
@@ -1093,6 +1255,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         PlaybackBackend.webView => SecureWebViewPlayer(
           key: ValueKey(currentStream.id),
           stream: currentStream,
+          onLoadingChanged: (loading) {
+            if (mounted && webViewLoading != loading) {
+              setState(() => webViewLoading = loading);
+            }
+          },
+          onMainFrameError: (reason) {
+            if (mounted) unawaited(_recoverFromPlayerError(reason));
+          },
         ),
         PlaybackBackend.external => _ExternalPlaybackView(
           stream: currentStream,
@@ -1116,6 +1286,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             fit: StackFit.expand,
             children: [
               content,
+              if (playbackError == null && (media3Buffering ||
+                  (media3Ready && !_startupPlaying) || webViewLoading))
+                const IgnorePointer(
+                  child: Center(child: PotvPlayerLoader()),
+                ),
+              if (playbackError == null && player != null)
+                StreamBuilder<bool>(
+                  stream: player!.stream.buffering,
+                  initialData: player!.state.buffering,
+                  builder: (context, snapshot) => snapshot.data == true
+                      ? const IgnorePointer(
+                          child: Center(child: PotvPlayerLoader()))
+                      : const SizedBox.shrink(),
+                ),
               IgnorePointer(
                 ignoring: !controlsVisible,
                 child: AnimatedOpacity(
@@ -1134,7 +1318,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     onSubtitles: (p == null && media3Controller == null)
                         ? null
                         : _showSubtitleTracks,
-                    onQuality: p == null ? null : _showVideoTracks,
+                    onQuality: p == null && media3Controller == null ? null : _showVideoTracks,
                     onMedia3PlayPause: media3Controller == null
                         ? null
                         : () => unawaited(media3Controller!.playPause()),
@@ -1146,6 +1330,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         ? null
                         : () => unawaited(media3Controller!.toggleCast()),
                     onServers: _showServers,
+                    onPrevious: widget.session.previousQueue.isEmpty
+                        ? null
+                        : () => unawaited(_goToEpisode(next: false)),
+                    onNext: widget.session.autoplayQueue.isEmpty
+                        ? null
+                        : () => unawaited(_goToEpisode(next: true)),
+                    onRewind: widget.session.isLive ||
+                            (p == null && media3Controller == null)
+                        ? null
+                        : () => _seekRelative(-10),
+                    onForward: widget.session.isLive ||
+                            (p == null && media3Controller == null)
+                        ? null
+                        : () => _seekRelative(10),
                   ),
                 ),
               ),
@@ -1281,6 +1479,10 @@ class _PlayerOverlay extends StatelessWidget {
   final ValueChanged<Duration>? onMedia3Seek;
   final VoidCallback? onCast;
   final VoidCallback onServers;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+  final VoidCallback? onRewind;
+  final VoidCallback? onForward;
 
   const _PlayerOverlay({
     required this.title,
@@ -1296,6 +1498,10 @@ class _PlayerOverlay extends StatelessWidget {
     required this.onMedia3Seek,
     required this.onCast,
     required this.onServers,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onRewind,
+    required this.onForward,
   });
 
   @override
@@ -1336,30 +1542,61 @@ class _PlayerOverlay extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            if (player != null)
-              StreamBuilder<bool>(
-                stream: player!.stream.playing,
-                initialData: player!.state.playing,
-                builder: (context, snapshot) => IconButton.filled(
-                  iconSize: 42,
-                  onPressed: player!.playOrPause,
-                  icon: Icon(
-                    snapshot.data == true
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (onPrevious != null)
+                  IconButton(
+                    tooltip: 'Capítulo anterior',
+                    iconSize: 32,
+                    onPressed: onPrevious,
+                    icon: const Icon(Icons.skip_previous_rounded),
                   ),
-                ),
-              )
-            else if (media3State != null && onMedia3PlayPause != null)
-              IconButton.filled(
-                iconSize: 42,
-                onPressed: onMedia3PlayPause,
-                icon: Icon(
-                  media3State!.isPlaying
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                ),
-              ),
+                if (onRewind != null)
+                  IconButton(
+                    tooltip: 'Retroceder 10 segundos',
+                    iconSize: 28,
+                    onPressed: onRewind,
+                    icon: const Icon(Icons.replay_10_rounded),
+                  ),
+                if (player != null)
+                  StreamBuilder<bool>(
+                    stream: player!.stream.playing,
+                    initialData: player!.state.playing,
+                    builder: (context, snapshot) => IconButton.filled(
+                      tooltip: 'Reproducir o pausar',
+                      iconSize: 42,
+                      onPressed: player!.playOrPause,
+                      icon: Icon(snapshot.data == true
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded),
+                    ),
+                  )
+                else if (media3State != null && onMedia3PlayPause != null)
+                  IconButton.filled(
+                    tooltip: 'Reproducir o pausar',
+                    iconSize: 42,
+                    onPressed: onMedia3PlayPause,
+                    icon: Icon(media3State!.isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded),
+                  ),
+                if (onForward != null)
+                  IconButton(
+                    tooltip: 'Adelantar 10 segundos',
+                    iconSize: 28,
+                    onPressed: onForward,
+                    icon: const Icon(Icons.forward_10_rounded),
+                  ),
+                if (onNext != null)
+                  IconButton(
+                    tooltip: 'Siguiente capítulo',
+                    iconSize: 32,
+                    onPressed: onNext,
+                    icon: const Icon(Icons.skip_next_rounded),
+                  ),
+              ],
+            ),
             const Spacer(),
             if (player != null)
               Padding(

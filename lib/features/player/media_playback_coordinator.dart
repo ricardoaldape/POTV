@@ -6,6 +6,7 @@ import '../../data/catalog/series_episode_repository.dart';
 import '../../data/sources/playback_preparation_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playback_session.dart';
+import 'potv_player_loader.dart';
 
 class MediaPlaybackCoordinator {
   const MediaPlaybackCoordinator._();
@@ -89,7 +90,7 @@ class MediaPlaybackCoordinator {
         return;
       }
 
-      final autoplayQueue = await _autoplayQueue(
+      final queues = await _episodeQueues(
         ref,
         item,
         season: season,
@@ -110,7 +111,8 @@ class MediaPlaybackCoordinator {
           candidates: playable,
           playbackContext: playbackContext,
           subtitles: prepared.subtitles,
-          autoplayQueue: autoplayQueue,
+          autoplayQueue: queues.next,
+          previousQueue: queues.previous,
         ),
       );
     } catch (error) {
@@ -129,52 +131,62 @@ class MediaPlaybackCoordinator {
     }
   }
 
-  static Future<List<PlaybackContext>> _autoplayQueue(
+  static Future<({List<PlaybackContext> previous, List<PlaybackContext> next})>
+      _episodeQueues(
     WidgetRef ref,
     MediaItem item, {
     int? season,
     int? episode,
   }) async {
-    if (episode == null || item.type == MediaType.movie) return const [];
+    if (episode == null || item.type == MediaType.movie) {
+      return (previous: const [], next: const []);
+    }
+
+    PlaybackContext contextFor(int? seasonValue, int episodeValue) =>
+        PlaybackContext(
+          mediaId: item.id,
+          mediaType: item.mediaTypeName,
+          title: item.title,
+          externalId: item.externalId,
+          season: seasonValue,
+          episode: episodeValue,
+          poster: item.poster?.toString(),
+        );
 
     if (item.type == MediaType.anime) {
       final count = item.episodeCount;
-      if (count == null || episode >= count) return const [];
-      final end = (episode + 20).clamp(episode + 1, count);
-      return [
-        for (var next = episode + 1; next <= end; next++)
-          PlaybackContext(
-            mediaId: item.id,
-            mediaType: item.mediaTypeName,
-            title: item.title,
-            externalId: item.externalId,
-            episode: next,
-            poster: item.poster?.toString(),
-          ),
-      ];
+      final end = count == null ? episode : (episode + 20).clamp(episode, count);
+      return (
+        previous: [
+          for (var e = episode - 1; e >= 1 && e >= episode - 20; e--)
+            contextFor(null, e),
+        ],
+        next: [
+          for (var e = episode + 1; e <= end; e++) contextFor(null, e),
+        ],
+      );
     }
 
     try {
-      final episodes =
-          await ref.read(seriesEpisodeRepositoryProvider).load(item);
+      // Reuse the detail screen's in-flight/cacheable episode metadata.
+      // Do not issue a second network request just to build skip buttons.
+      final episodes = await ref.read(seriesEpisodesProvider(item).future);
       final index = episodes.indexWhere(
         (value) => value.season == season && value.episode == episode,
       );
-      if (index < 0 || index + 1 >= episodes.length) return const [];
-      return [
-        for (final next in episodes.skip(index + 1).take(20))
-          PlaybackContext(
-            mediaId: item.id,
-            mediaType: item.mediaTypeName,
-            title: item.title,
-            externalId: item.externalId,
-            season: next.season,
-            episode: next.episode,
-            poster: item.poster?.toString(),
-          ),
-      ];
+      if (index < 0) return (previous: const [], next: const []);
+      return (
+        previous: [
+          for (final e in episodes.take(index).toList().reversed.take(20))
+            contextFor(e.season, e.episode),
+        ],
+        next: [
+          for (final e in episodes.skip(index + 1).take(20))
+            contextFor(e.season, e.episode),
+        ],
+      );
     } catch (_) {
-      return const [];
+      return (previous: const [], next: const []);
     }
   }
 
@@ -286,10 +298,7 @@ class _ResolvingDialog extends StatelessWidget {
       child: AlertDialog(
         content: Row(
           children: [
-            SizedBox.square(
-              dimension: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
-            ),
+            PotvPlayerLoader(size: 46),
             SizedBox(width: 16),
             Expanded(
               child: Text('Preparando reproducción…'),

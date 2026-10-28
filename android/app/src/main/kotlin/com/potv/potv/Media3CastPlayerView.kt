@@ -70,6 +70,8 @@ private class Media3CastPlayerView(
     private val subtitlePreference =
         params["subtitlePreference"]?.toString() ?: "whenNoSpanishAudio"
     private val autoplay = params["autoplay"] != false
+    private val preferredVideoHeight =
+        (params["preferredVideoHeight"] as? Number)?.toInt() ?: 0
     private var automaticSelectionApplied = false
 
     init {
@@ -147,6 +149,10 @@ private class Media3CastPlayerView(
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    channel.invokeMethod(
+                        "bufferingChanged",
+                        playbackState == Player.STATE_BUFFERING,
+                    )
                     // Following the first real video frame, a live CDN can
                     // enter BUFFERING forever without reporting an error.
                     // Wait 18 seconds of *continuous* buffering, then let the
@@ -193,7 +199,8 @@ private class Media3CastPlayerView(
 
         playerView.player = castPlayer
         playerView.useController = false
-        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+        // POTV's Flutter overlay owns all loading/transport controls.
+        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
 
         root.addView(
             playerView,
@@ -261,6 +268,9 @@ private class Media3CastPlayerView(
             }
         }
 
+        if (preferredVideoHeight > 0) {
+            builder.setMaxVideoSize(Int.MAX_VALUE, preferredVideoHeight)
+        }
         player.trackSelectionParameters = builder.build()
     }
 
@@ -384,6 +394,8 @@ private class Media3CastPlayerView(
                         "sampleMimeType" to format.sampleMimeType,
                         "selected" to group.isTrackSelected(trackIndex),
                         "supported" to group.isTrackSupported(trackIndex),
+                        "height" to format.height,
+                        "bitrate" to format.bitrate,
                     ),
                 )
             }
@@ -522,6 +534,25 @@ private class Media3CastPlayerView(
             }
 
             "getAudioTracks" -> result.success(trackList(C.TRACK_TYPE_AUDIO))
+            "getVideoTracks" -> result.success(trackList(C.TRACK_TYPE_VIDEO))
+            "setVideoQualityAuto" -> {
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                        .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                        .build()
+                result.success(null)
+            }
+            "selectVideoTrack" -> {
+                val groupIndex = call.argument<Number>("groupIndex")?.toInt() ?: -1
+                val trackIndex = call.argument<Number>("trackIndex")?.toInt() ?: -1
+                castPlayer.trackSelectionParameters =
+                    castPlayer.trackSelectionParameters.buildUpon()
+                        .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                        .build()
+                selectTrack(groupIndex, trackIndex)
+                result.success(null)
+            }
             "getSubtitleTracks" -> result.success(trackList(C.TRACK_TYPE_TEXT))
 
             "selectAudioTrack" -> {

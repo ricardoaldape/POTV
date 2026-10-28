@@ -37,28 +37,30 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
       mediaType: widget.item.mediaTypeName,
     );
 
-    unawaited(_warmInitialResolution());
-    unawaited(
-      historyFuture.then((history) async {
-        final episode = history?.episode;
-        if (episode == null) return;
-        await _warmResolution(
-          season: history?.season,
-          episode: episode,
-        );
-      }),
-    );
+    // Warm only the episode the viewer is most likely to play. Resolving
+    // E1 and the resume episode concurrently wastes network and CDN buffers.
+    unawaited(_warmResumeOrFirst());
   }
 
-  Future<void> _warmInitialResolution() {
-    final item = widget.item;
-    if (item.type == MediaType.movie) {
-      return _warmResolution();
+  Future<void> _warmResumeOrFirst() async {
+    try {
+      final history = await historyFuture;
+      if (!mounted) return;
+      if (widget.item.type == MediaType.movie) {
+        await _warmResolution();
+      } else if (history?.episode != null) {
+        await _warmResolution(
+          season: history!.season,
+          episode: history.episode,
+        );
+      } else if (widget.item.type == MediaType.tv) {
+        await _warmResolution(season: 1, episode: 1);
+      } else {
+        await _warmResolution(episode: 1);
+      }
+    } catch (_) {
+      // History must never block opening details or playing a new title.
     }
-    if (item.type == MediaType.tv) {
-      return _warmResolution(season: 1, episode: 1);
-    }
-    return _warmResolution(episode: 1);
   }
 
   Future<void> _warmResolution({
@@ -326,6 +328,19 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                     selectedSeason: selectedSeason,
                     onSeasonChanged: (value) {
                       setState(() => selectedSeason = value);
+                      final episodes =
+                          ref.read(seriesEpisodesProvider(item)).asData?.value;
+                      if (episodes == null) return;
+                      final matching = episodes.where(
+                        (episode) => episode.season == value,
+                      );
+                      if (matching.isNotEmpty) {
+                        final first = matching.first;
+                        unawaited(_warmResolution(
+                          season: first.season,
+                          episode: first.episode,
+                        ));
+                      }
                     },
                     onPlay: _playEpisode,
                   ),
