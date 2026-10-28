@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh licensed LMHD TV, events and EPG for POTV
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=potv-lmhd-sync.service
+
+[Install]
+WantedBy=timers.target
