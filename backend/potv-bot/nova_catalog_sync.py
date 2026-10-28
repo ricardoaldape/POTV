@@ -506,14 +506,9 @@ def retain_recent_guide(fresh, previous, channels, *, now=None):
     now = now or datetime.now(timezone.utc)
     allowed = {str(row.get("epg_id") or "") for row in channels
                if isinstance(row, dict) and row.get("epg_id")}
-    result = [row for row in fresh if isinstance(row, dict)
-              and str(row.get("channel_id") or "") in allowed]
-    seen = {str(row["channel_id"]) for row in result}
-    if not isinstance(previous, dict):
-        return result
-    previous_seen_at = previous.get("guide_seen_at")
-    if not isinstance(previous_seen_at, dict):
-        previous_seen_at = {}
+    # Validate fresh provider metadata as rigorously as cached EPG. A stale
+    # "now" from an upstream outage must not hide a still-valid cached entry,
+    # and a fresh response must never carry a playback URL into the guide.
 
     def recent(channel_id):
         # A snapshot can be rewritten every 30 minutes with cached entries.
@@ -552,6 +547,28 @@ def retain_recent_guide(fresh, previous, channels, *, now=None):
         return {"title": title, "starts_at": start.isoformat(),
                 "ends_at": end.isoformat(),
                 **({"description": description} if description else {})}
+
+    result = []
+    seen = set()
+    for row in fresh:
+        if not isinstance(row, dict):
+            continue
+        channel_id = str(row.get("channel_id") or "")
+        if channel_id not in allowed or channel_id in seen:
+            continue
+        current = valid_program(row.get("now"))
+        next_program = valid_program(row.get("next"))
+        if not current and not next_program:
+            continue
+        result.append({"channel_id": channel_id,
+                       **({"now": current} if current else {}),
+                       **({"next": next_program} if next_program else {})})
+        seen.add(channel_id)
+    if not isinstance(previous, dict):
+        return result
+    previous_seen_at = previous.get("guide_seen_at")
+    if not isinstance(previous_seen_at, dict):
+        previous_seen_at = {}
 
     old_guide = previous.get("now_next")
     if not isinstance(old_guide, list):
