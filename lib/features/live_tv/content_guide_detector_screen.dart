@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -276,7 +277,7 @@ class _ContentGuideDetectorScreenState
               ],
             ),
           ),
-          if (loading) const LinearProgressIndicator(minHeight: 2),
+          if (loading) const PotvLoadingFlag(width: 72),
           if (epgState.hasError)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -346,7 +347,7 @@ class _ContentGuideDetectorScreenState
                                     if (_opening == item.id)
                                       const SizedBox(
                                         width: 20, height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: PotvLoadingFlag(width: 28),
                                       )
                                     else
                                       const Icon(Icons.play_circle_rounded),
