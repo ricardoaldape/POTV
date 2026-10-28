@@ -48,7 +48,9 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           script: |
-            set -euo pipefail
+            # android-emulator-runner invokes this block with /usr/bin/sh, not bash.
+            # dash rejects `set -o pipefail`; keep strict POSIX error checking.
+            set -eu
             adb wait-for-device
             adb install -r /tmp/potv-qa/app-debug.apk
             adb shell am start -W -n com.potv.potv.qa/com.potv.potv.MainActivity
