@@ -22,6 +22,7 @@ import '../../domain/models/playback_history_entry.dart';
 import '../../domain/models/playback_session.dart';
 import '../../domain/models/stream_candidate.dart';
 import '../../domain/services/playback_language_selector.dart';
+import '../../domain/services/playback_source_selector.dart';
 import 'media3_player_surface.dart';
 import 'potv_player_loader.dart';
 import 'player_preferences.dart';
@@ -91,6 +92,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool failoverInProgress = false;
   String? playbackError;
   late int currentIndex;
+  final Set<int> _triedServerIndices = <int>{};
   final historyRepository = const PlaybackHistoryRepository();
   final metricsRepository = const PlaybackMetricsRepository();
   final serverHealthRepository = const StreamServerHealthRepository();
@@ -105,9 +107,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    currentIndex = widget.session.initialIndex
-        .clamp(0, widget.session.candidates.length - 1)
-        .toInt();
+    currentIndex = PlaybackSourceSelector.initialIndex(
+      widget.session.candidates,
+      requested: widget.session.initialIndex,
+    );
+    _triedServerIndices.add(currentIndex);
     unawaited(_initializePlayback());
     _armAutoHide();
   }
@@ -194,6 +198,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
 
     while (true) {
+      _triedServerIndices.add(currentIndex);
       try {
         final inputUrl = currentStream.uri.toString();
         final inputLog =
@@ -334,8 +339,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         player = null;
         videoController = null;
 
-        if (currentIndex + 1 < widget.session.candidates.length) {
-          currentIndex += 1;
+        final alternative = PlaybackSourceSelector.nextIndex(
+          widget.session.candidates,
+          alreadyTried: _triedServerIndices,
+        );
+        if (alternative != null) {
+          currentIndex = alternative;
           continue;
         }
 
@@ -605,7 +614,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
     }
     unawaited(metricsRepository.recordFailure(_serverMediaKey));
-    if (currentIndex + 1 >= widget.session.candidates.length) {
+    final alternative = PlaybackSourceSelector.nextIndex(
+      widget.session.candidates,
+      alreadyTried: _triedServerIndices,
+    );
+    if (alternative == null) {
       setState(() => playbackError = safePlaybackErrorForLog(message));
       return;
     }
@@ -614,7 +627,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _consecutiveInterruptions = 0;
     final resumeAt = _currentPosition;
     final failed = currentStream.label;
-    currentIndex += 1;
+    currentIndex = alternative;
+    _triedServerIndices.add(currentIndex);
     addDebugLog(
       'Player: ${safePlaybackErrorForLog(failed)} falló; probando ${safePlaybackErrorForLog(currentStream.label)}',
     );
@@ -713,6 +727,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Future<void> _switchServer(int index) async {
     if (index == currentIndex) {
       if (mounted) Navigator.of(context).pop();
+      _triedServerIndices
+        ..clear()
+        ..add(index);
       await _openCurrent();
       _showControls();
       return;
@@ -721,6 +738,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final resumeAt = _currentPosition;
     if (mounted) Navigator.of(context).pop();
     currentIndex = index;
+    _triedServerIndices
+      ..clear()
+      ..add(index);
     _consecutiveInterruptions = 0;
     await _openCurrent(resumeAt: resumeAt);
     _showControls();
@@ -742,7 +762,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
-            for (var i = 0; i < widget.session.candidates.length; i++)
+            for (final i in PlaybackSourceSelector.prioritizedIndices(
+                widget.session.candidates))
               ListTile(
                 leading: Icon(
                   i == currentIndex
@@ -752,6 +773,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 title: Text('Opción ${i + 1}'),
                 subtitle: Text(
                   [
+                    switch (widget.session.candidates[i].backend) {
+                      PlaybackBackend.native => 'Reproductor POTV',
+                      PlaybackBackend.webView =>
+                        'Compatibilidad · controles limitados',
+                      PlaybackBackend.external => 'Reproducción externa',
+                    },
                     widget.session.candidates[i].language,
                     widget.session.candidates[i].quality,
                   ].whereType<String>().join(' · '),
@@ -1175,6 +1202,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _exitPlayer();
       return KeyEventResult.handled;
     }
+    // Let embedded web players handle their own remote input. Consuming
+    // Play/Select/arrow keys here without a native engine did nothing.
+    if (currentStream.backend != PlaybackBackend.native) {
+      return KeyEventResult.ignored;
+    }
     if (key == LogicalKeyboardKey.mediaPlayPause ||
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.select ||
@@ -1233,7 +1265,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             'Esta señal no respondió. Puedes reintentar o probar otra opción.',
         hasAlternatives: widget.session.candidates.isNotEmpty,
         onRetry: () {
-          currentIndex = 0;
+          currentIndex = PlaybackSourceSelector.initialIndex(
+            widget.session.candidates,
+          );
+          _triedServerIndices
+            ..clear()
+            ..add(currentIndex);
           unawaited(_openCurrent());
         },
         onServers: _showServers,
@@ -1333,7 +1370,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     onSubtitles: (p == null && media3Controller == null)
                         ? null
                         : _showSubtitleTracks,
-                    onQuality: p == null && media3Controller == null ? null : _showVideoTracks,
+                    onQuality: currentStream.backend != PlaybackBackend.native ||
+                            (p == null && media3Controller == null)
+                        ? null
+                        : _showVideoTracks,
                     onMedia3PlayPause: media3Controller == null
                         ? null
                         : () => unawaited(media3Controller!.playPause()),
@@ -1643,6 +1683,15 @@ class _PlayerOverlay extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                   ],
+                  if (stream.backend == PlaybackBackend.webView) ...[
+                    const Text(
+                      'Modo compatibilidad: los controles de audio, '
+                      'subtítulos y calidad dependen de esta señal.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
@@ -1660,11 +1709,12 @@ class _PlayerOverlay extends StatelessWidget {
                           onPressed: onSubtitles,
                         ),
                       ],
-                      _ActionButton(
-                        icon: Icons.high_quality,
-                        label: 'Calidad',
-                        onPressed: onQuality,
-                      ),
+                      if (stream.backend == PlaybackBackend.native)
+                        _ActionButton(
+                          icon: Icons.high_quality,
+                          label: 'Calidad',
+                          onPressed: onQuality,
+                        ),
                       if (onCast != null)
                         _ActionButton(
                           icon: Icons.cast_rounded,
