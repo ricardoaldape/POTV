@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -62,6 +63,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   PlayerPreferences playerPreferences = const PlayerPreferences();
   bool preferencesLoaded = false;
   bool media3Ready = false;
+  bool _media3Buffering = true;
   bool _preferMediaKitNative = false;
   Timer? media3StateTimer;
   Timer? media3BootstrapTimer;
@@ -177,6 +179,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     media3State = null;
     media3ResumeAt = null;
     media3Ready = false;
+    _media3Buffering = true;
     playbackError = null;
 
     var effectiveResumeAt = resumeAt;
@@ -238,6 +241,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             if (!mounted || generation != _openGeneration) return;
             if (isPlaying && !_startupPlaying) {
               _startupPlaying = true;
+              setState(() {});
               _playbackStartedAt = DateTime.now();
               final seconds = DateTime.now().difference(openedAt).inSeconds;
               addDebugLog(
@@ -426,6 +430,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       onStarted: (startupMs) {
         if (!mounted) return;
         _startupPlaying = true;
+        if (_media3Buffering) setState(() => _media3Buffering = false);
         _playbackStartedAt = DateTime.now();
         startupTimer?.cancel();
         addDebugLog(
@@ -438,6 +443,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           serverHealthRepository.reportPlaying(_serverMediaKey, currentStream),
         );
         _scheduleNextPreload();
+      },
+      onBuffering: (isBuffering) {
+        if (mounted && _media3Buffering != isBuffering) {
+          setState(() => _media3Buffering = isBuffering);
+        }
       },
       onEnded: () {
         addDebugLog('Player: contenido finalizado');
@@ -1070,25 +1080,56 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         PlaybackBackend.native =>
           Platform.isAndroid && !_preferMediaKitNative
               ? (!preferencesLoaded || !media3Ready
-                    ? const Center(child: CircularProgressIndicator())
-                    : Media3PlayerSurface(
-                        key: ValueKey('media3-' + currentStream.id),
-                        stream: currentStream,
-                        title: widget.session.title,
-                        resumeAt: media3ResumeAt,
-                        audioPreference:
-                            playerPreferences.media3AudioPreference,
-                        subtitlePreference:
-                            playerPreferences.media3SubtitlePreference,
-                        subtitles: widget.session.subtitles,
-                        onController: _attachMedia3Controller,
+                    ? const PotvLoadingFlag(width: 180)
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Media3PlayerSurface(
+                            key: ValueKey('media3-' + currentStream.id),
+                            stream: currentStream,
+                            title: widget.session.title,
+                            resumeAt: media3ResumeAt,
+                            audioPreference:
+                                playerPreferences.media3AudioPreference,
+                            subtitlePreference:
+                                playerPreferences.media3SubtitlePreference,
+                            subtitles: widget.session.subtitles,
+                            onController: _attachMedia3Controller,
+                          ),
+                          if (_media3Buffering)
+                            const IgnorePointer(
+                              child: ColoredBox(
+                                color: Color(0xB8000000),
+                                child: PotvLoadingFlag(width: 180),
+                              ),
+                            ),
+                        ],
                       ))
               : (videoController == null
-                    ? const Center(child: CircularProgressIndicator())
-                    : Video(
-                        controller: videoController!,
-                        controls: NoVideoControls,
-                        fit: BoxFit.contain,
+                    ? const PotvLoadingFlag(width: 180)
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Video(
+                            controller: videoController!,
+                            controls: NoVideoControls,
+                            fit: BoxFit.contain,
+                          ),
+                          if (p != null)
+                            StreamBuilder<bool>(
+                              stream: p.stream.buffering,
+                              initialData: p.state.buffering,
+                              builder: (context, snapshot) =>
+                                  snapshot.data == true || !_startupPlaying
+                                      ? const IgnorePointer(
+                                          child: ColoredBox(
+                                            color: Color(0xB8000000),
+                                            child: PotvLoadingFlag(width: 180),
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(),
+                            ),
+                        ],
                       )),
         PlaybackBackend.webView => SecureWebViewPlayer(
           key: ValueKey(currentStream.id),

@@ -72,6 +72,7 @@ class Media3PlayerController {
     required ValueChanged<String> onError,
     required ValueChanged<int> onStarted,
     required VoidCallback onEnded,
+    required ValueChanged<bool> onBuffering,
   }) {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -83,6 +84,9 @@ class Media3PlayerController {
           break;
         case 'playbackStarted':
           onStarted((call.arguments as num?)?.toInt() ?? 0);
+          break;
+        case 'bufferingChanged':
+          onBuffering(call.arguments == true);
           break;
         case 'playbackEnded':
           onEnded();

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/accounts/account_auth_service.dart';
@@ -288,9 +289,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                             child: _loading
                                 ? const SizedBox.square(
                                     dimension: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
+                                    child: PotvLoadingFlag(width: 44),
                                   )
                                 : Text(_register ? 'Crear cuenta' : 'Entrar'),
                           ),

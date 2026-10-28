@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -87,7 +88,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('ADN 40'), findsOneWidget);
     expect(find.textContaining('1 canal'), findsOneWidget);
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.byType(PotvLoadingFlag), findsAtLeastNWidgets(1));
   });
 
   testWidgets('TV grid keeps local M3U sports and excludes sports-only feed', (

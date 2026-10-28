@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -111,9 +112,7 @@ class _SubscriptionLockedScreenState
                         icon: _checking
                             ? const SizedBox.square(
                                 dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
+                                child: PotvLoadingFlag(width: 44),
                               )
                             : const Icon(Icons.refresh_rounded),
                         label: const Text('Ya pagué: comprobar activación'),

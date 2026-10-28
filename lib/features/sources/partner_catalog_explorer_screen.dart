@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/addons/partner_catalog_client.dart';
@@ -77,7 +78,7 @@ class _PartnerCatalogExplorerScreenState
         future: catalogs,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: PotvLoadingFlag(width: 44));
           }
           if (snapshot.hasError) {
             return const Center(
@@ -145,7 +146,7 @@ class _PartnerCatalogExplorerScreenState
                   future: loading,
                   builder: (context, mediaSnapshot) {
                     if (mediaSnapshot.connectionState != ConnectionState.done) {
-                      return const Center(child: CircularProgressIndicator());
+                      return const Center(child: PotvLoadingFlag(width: 44));
                     }
                     if (mediaSnapshot.hasError) {
                       return const Center(

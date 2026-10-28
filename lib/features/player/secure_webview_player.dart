@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -21,6 +22,7 @@ class SecureWebViewPlayer extends StatefulWidget {
 class _SecureWebViewPlayerState extends State<SecureWebViewPlayer> {
   late final WebViewController controller;
   late final Set<String> allowedHosts;
+  bool _loading = true;
 
   @override
   void initState() {
@@ -56,7 +58,13 @@ class _SecureWebViewPlayerState extends State<SecureWebViewPlayer> {
 
             return NavigationDecision.navigate;
           },
-          onPageFinished: (_) => _hardenPage(),
+          onPageStarted: (_) {
+            if (mounted && !_loading) setState(() => _loading = true);
+          },
+          onPageFinished: (_) {
+            _hardenPage();
+            if (mounted) setState(() => _loading = false);
+          },
         ),
       );
 
@@ -133,7 +141,19 @@ html,body,iframe{margin:0;padding:0;width:100%;height:100%;background:#000;borde
   Widget build(BuildContext context) {
     return ColoredBox(
       color: Colors.black,
-      child: WebViewWidget(controller: controller),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          WebViewWidget(controller: controller),
+          if (_loading)
+            const IgnorePointer(
+              child: ColoredBox(
+                color: Colors.black,
+                child: PotvLoadingFlag(width: 180),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

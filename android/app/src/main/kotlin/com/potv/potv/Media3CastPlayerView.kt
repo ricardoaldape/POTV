@@ -118,6 +118,7 @@ private class Media3CastPlayerView(
             if (startupReported) return
             startupReported = true
             val startupMs = android.os.SystemClock.elapsedRealtime() - openedAt
+            channel.invokeMethod("bufferingChanged", false)
             channel.invokeMethod("playbackStarted", startupMs)
         }
 
@@ -147,6 +148,11 @@ private class Media3CastPlayerView(
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    channel.invokeMethod(
+                        "bufferingChanged",
+                        playbackState == Player.STATE_BUFFERING ||
+                            (!startupReported && playbackState != Player.STATE_ENDED),
+                    )
                     // Following the first real video frame, a live CDN can
                     // enter BUFFERING forever without reporting an error.
                     // Wait 18 seconds of *continuous* buffering, then let the
@@ -193,7 +199,7 @@ private class Media3CastPlayerView(
 
         playerView.player = castPlayer
         playerView.useController = false
-        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
 
         root.addView(
             playerView,
