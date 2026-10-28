@@ -7,6 +7,14 @@ class XmlTvParser {
   static List<EpgProgram> parse(String raw) {
     final document = XmlDocument.parse(raw);
     final programs = <EpgProgram>[];
+    final channelNames = <String, List<String>>{};
+    for (final node in document.findAllElements('channel')) {
+      final id = node.getAttribute('id')?.trim();
+      if (id == null || id.isEmpty) continue;
+      channelNames[id] = List.unmodifiable(node.findElements('display-name')
+          .map((name) => name.innerText.trim())
+          .where((name) => name.isNotEmpty));
+    }
 
     for (final node in document.findAllElements('programme')) {
       final channel = node.getAttribute('channel');
@@ -25,6 +33,7 @@ class XmlTvParser {
       programs.add(
         EpgProgram(
           channelId: channel,
+          channelNames: channelNames[channel] ?? const [],
           title: title,
           description: node.findElements('desc').firstOrNull?.innerText.trim(),
           startsAt: start,

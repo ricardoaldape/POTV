@@ -1,5 +1,7 @@
 class EpgProgram {
   final String channelId;
+  /// XMLTV channel display names used for exact, unambiguous guide matching.
+  final List<String> channelNames;
   final String title;
   final String? description;
   final DateTime startsAt;
@@ -7,6 +9,7 @@ class EpgProgram {
 
   const EpgProgram({
     required this.channelId,
+    this.channelNames = const [],
     required this.title,
     this.description,
     required this.startsAt,

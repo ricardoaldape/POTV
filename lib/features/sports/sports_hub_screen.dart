@@ -23,6 +23,7 @@ import '../../domain/services/sports_channel_language.dart';
 import '../../domain/services/sports_hub_organizer.dart';
 import 'addon_sports_rail.dart';
 import 'sports_channel_rail.dart';
+import '../live_tv/content_guide_detector_screen.dart';
 
 String _subtitle(String competition, DateTime startsAt) =>
     '$competition · ${DateFormat.Hm().format(startsAt)}';
@@ -367,6 +368,16 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
         title: const Text('Sports Hub'),
         actions: [
           IconButton(
+            key: const ValueKey('open-content-guide-detector-sports'),
+            tooltip: 'Detector de contenido para parrilla',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ContentGuideDetectorScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.view_list_rounded),
+          ),
+          IconButton(
             tooltip: 'Actualizar deportes y canales',
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
@@ -388,6 +399,19 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
           const Text(
             'Eventos, competiciones y canales organizados por deporte.',
             style: TextStyle(color: Colors.white60),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const ValueKey('sports-open-parrilla'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ContentGuideDetectorScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.calendar_view_week_rounded),
+              label: const Text('Ver parrilla en vivo'),
+            ),
           ),
           const SizedBox(height: 16),
           Row(

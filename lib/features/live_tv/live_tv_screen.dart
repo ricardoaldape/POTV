@@ -14,6 +14,7 @@ import '../../domain/models/epg_program.dart';
 import '../../domain/models/live_channel.dart';
 import '../../domain/models/playback_session.dart';
 import 'live_tv_program_guide.dart';
+import 'content_guide_detector_screen.dart';
 
 enum _TvDisplayMode { cards, guide }
 
@@ -206,6 +207,16 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
       appBar: AppBar(
         title: const Text('TV en vivo'),
         actions: [
+          IconButton(
+            key: const ValueKey('open-content-guide-detector-tv'),
+            tooltip: 'Detector de contenido para parrilla',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ContentGuideDetectorScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.view_list_rounded),
+          ),
           IconButton(
             tooltip: 'Actualizar canales y programación',
             onPressed: _refreshAll,
