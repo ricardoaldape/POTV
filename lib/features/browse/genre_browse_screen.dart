@@ -6,6 +6,7 @@ import '../../data/catalog/anilist_repository.dart';
 import '../../data/catalog/tmdb_repository.dart';
 import '../../domain/models/media_item.dart';
 import '../player/media_playback_coordinator.dart';
+import 'partner_media_browse_screen.dart';
 
 class GenreBrowseRequest {
   final MediaType type;
@@ -31,6 +32,10 @@ class GenreBrowseScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (request.tmdbGenreId == null && request.anilistGenre == null) {
+      return PartnerMediaBrowseScreen(type: request.type, title: request.title);
+    }
+
     final AsyncValue<List<MediaItem>> state;
 
     if (request.type == MediaType.anime) {

@@ -352,6 +352,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   title: 'Novedades del catálogo',
                   items: partnerItems,
                   onPlay: _openItem,
+                  onViewMore: () => context.push(
+                    '/browse',
+                    extra: GenreBrowseRequest(
+                      type: selectedType,
+                      title: 'Catálogo completo',
+                    ),
+                  ),
                 ),
               ),
             ),

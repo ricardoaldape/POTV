@@ -5,6 +5,7 @@ import '../../core/config/app_config.dart';
 import '../accounts/potv_content_auth_headers.dart';
 import '../../providers/user_providers.dart';
 import '../../domain/models/partner_content_snapshot.dart';
+import '../../domain/models/media_item.dart';
 
 final partnerContentRepositoryProvider = Provider<PartnerContentRepository>((
   ref,
@@ -28,6 +29,27 @@ final partnerContentProvider = FutureProvider<PartnerContentSnapshot>((
   return ref.watch(partnerContentRepositoryProvider).load();
 });
 
+/// A bounded metadata page; never contains upstream stream URLs or credentials.
+class PartnerMediaPage {
+  final MediaType type;
+  final String revision;
+  final int total;
+  final int offset;
+  final int limit;
+  final bool hasMore;
+  final List<MediaItem> items;
+
+  const PartnerMediaPage({
+    required this.type,
+    required this.revision,
+    required this.total,
+    required this.offset,
+    required this.limit,
+    required this.hasMore,
+    required this.items,
+  });
+}
+
 /// Dynamic HTTPS content snapshot, refreshed without installing a new APK.
 /// Entitlements and any confidential partner access tokens belong in a secure
 /// POTV gateway, never in a Dart define or within the app binary.
@@ -50,6 +72,73 @@ class PartnerContentRepository {
       endpoint!.scheme == 'https' &&
       endpoint!.host.isNotEmpty &&
       endpoint!.userInfo.isEmpty;
+
+  /// Fetch VOD pages beyond the small initial catalog, only through POTV's
+  /// authenticated first-party gateway. The account token is never forwarded
+  /// to a partner host and authorization failures are not silently cached.
+  Future<PartnerMediaPage> loadMediaPage(
+    MediaType type, {
+    int offset = 0,
+    int limit = 200,
+  }) async {
+    if (!PotvContentAuthHeaders.isFirstPartyGateway(endpoint)) {
+      throw StateError('Private media API unavailable');
+    }
+    if (offset < 0 || offset > 100000 || limit < 1 || limit > 500) {
+      throw RangeError('Invalid media page');
+    }
+    final kind = switch (type) {
+      MediaType.movie => 'movies',
+      MediaType.tv => 'series',
+      MediaType.anime => 'anime',
+    };
+    final uri = endpoint!.replace(
+      path: '/api/v1/content/media',
+      queryParameters: {
+        'kind': kind,
+        'offset': '$offset',
+        'limit': '$limit',
+      },
+      fragment: '',
+    );
+    final response = await dio.getUri<Object?>(
+      uri,
+      options: Options(
+        responseType: ResponseType.json,
+        validateStatus: (status) => status == 200,
+        headers: {
+          'Accept': 'application/json',
+          ...await PotvContentAuthHeaders.forEndpoint(uri),
+        },
+      ),
+    );
+    if (response.data is! Map) {
+      throw const FormatException('Invalid media page response');
+    }
+    final document = Map<String, dynamic>.from(response.data as Map);
+    if (document['ok'] != true || document['data'] is! Map) {
+      throw const FormatException('Invalid media page envelope');
+    }
+    final data = Map<String, dynamic>.from(document['data'] as Map);
+    if (data['kind'] != kind || data['items'] is! List ||
+        data['total'] is! int || data['total'] < 0 ||
+        data['offset'] != offset || data['limit'] != limit ||
+        data['has_more'] is! bool) {
+      throw const FormatException('Invalid media page metadata');
+    }
+    final parsed = PartnerContentSnapshot.parse({
+      'data': {kind: data['items']},
+    }).forType(type);
+    return PartnerMediaPage(
+      type: type,
+      revision: data['revision']?.toString() ?? '',
+      total: data['total'] as int,
+      offset: offset,
+      limit: limit,
+      hasMore: data['has_more'] as bool,
+      items: parsed,
+    );
+  }
 
   Future<PartnerContentSnapshot> load({bool forceRefresh = false}) async {
     if (!configured) return _snapshot ?? PartnerContentSnapshot.empty();
