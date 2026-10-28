@@ -14,6 +14,8 @@ import json
 import os
 import re
 import secrets
+import sqlite3
+from contextlib import closing
 import threading
 import time
 import unicodedata
@@ -1610,22 +1612,32 @@ class ContentGateway:
             raise ContentGatewayError(400, "invalid_media_page")
         if not self.nova_live_enabled:
             raise ContentGatewayError(503, "nova_catalog_unavailable")
+        # Read a tiny page from the private SQLite sidecar written atomically
+        # by nova_catalog_sync. Parsing the entire multi-megabyte snapshot on
+        # every page request can exceed the API service's 128 MiB cgroup.
+        index_path = self.nova_sync_file + ".media.sqlite3"
         try:
-            if os.path.getsize(self.nova_sync_file) > 12 * 1024 * 1024:
-                raise ContentGatewayError(503, "nova_catalog_too_large")
-            with open(self.nova_sync_file, "r", encoding="utf-8") as fh:
-                snapshot = json.load(fh)
-            rows = snapshot.get(kind)
-            if not isinstance(rows, list):
-                raise ContentGatewayError(503, "nova_media_unavailable")
-        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            uri = "file:" + quote(index_path) + "?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, timeout=3)) as db:
+                meta = db.execute(
+                    "SELECT revision, total FROM meta WHERE kind=?", (kind,)
+                ).fetchone()
+                if meta is None:
+                    raise ContentGatewayError(503, "nova_media_unavailable")
+                revision, total = meta
+                page_rows = db.execute(
+                    "SELECT payload FROM media WHERE kind=? AND position>=? "
+                    "ORDER BY position LIMIT ?", (kind, offset, limit)
+                ).fetchall()
+            rows = [json.loads(row[0]) for row in page_rows]
+        except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
             raise ContentGatewayError(503, "nova_media_unavailable") from exc
         # Explicit allowlist: future provider fields such as direct links,
         # tokens, cookies or internal IDs must never reach an Android client.
         fields = ("tmdb_id", "anilist_id", "title", "year", "overview")
         allowed_image_hosts = {"image.tmdb.org", "s4.anilist.co", "tioanime.com"}
         items = []
-        for row in rows[offset:offset + limit]:
+        for row in rows:
             if not isinstance(row, dict):
                 continue
             item = {key: row[key] for key in fields if key in row}
@@ -1644,11 +1656,11 @@ class ContentGateway:
             "ok": True,
             "data": {
                 "kind": kind,
-                "revision": str(snapshot.get("revision") or ""),
-                "total": len(rows),
+                "revision": revision,
+                "total": total,
                 "offset": offset,
                 "limit": limit,
-                "has_more": offset + limit < len(rows),
+                "has_more": offset + limit < total,
                 "items": items,
             },
         }

@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 from content_gateway import ContentGateway, ContentGatewayError
+from nova_catalog_sync import write_media_index
 
 with tempfile.TemporaryDirectory() as folder:
     path = os.path.join(folder, "nova.json")
@@ -18,6 +19,8 @@ with tempfile.TemporaryDirectory() as folder:
                 "movies": movies, "series": [], "anime": []}
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(snapshot, fh)
+    write_media_index(path, snapshot)
+    assert os.stat(path + ".media.sqlite3").st_mode & 0o777 == 0o600
     gateway = ContentGateway(sources=[], public_base="https://potv.example",
                              signing_secret=b"test-secret")
     gateway.nova_live_enabled = True

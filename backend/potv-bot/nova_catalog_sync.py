@@ -6,6 +6,8 @@ account; never places upstream stream URLs into a public endpoint.
 import hashlib
 import json
 import os
+import sqlite3
+from contextlib import closing
 import ipaddress
 import socket
 import time
@@ -394,6 +396,39 @@ def snapshot_revision(channels, movies, series, anime):
         separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()[:20]
 
 
+def write_media_index(destination, snapshot):
+    """Atomically publish a compact, private VOD page index for the API.
+
+    Avoid loading the full ~10 MB NOVA JSON on each Android page request;
+    the POTV API process has a strict 128 MiB memory limit.
+    """
+    target = Path(str(destination) + ".media.sqlite3")
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".nova-media-", dir=target.parent)
+    os.close(descriptor)
+    try:
+        os.chmod(temporary, 0o600)
+        with closing(sqlite3.connect(temporary)) as db:
+            db.execute("CREATE TABLE media (kind TEXT NOT NULL, position INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (kind, position))")
+            db.execute("CREATE TABLE meta (kind TEXT PRIMARY KEY, revision TEXT NOT NULL, total INTEGER NOT NULL)")
+            for kind in ("movies", "series", "anime"):
+                rows = snapshot.get(kind) or []
+                rows = ([row for row in rows if isinstance(row, dict)]
+                        if isinstance(rows, list) else [])
+                db.executemany(
+                    "INSERT INTO media(kind, position, payload) VALUES(?,?,?)",
+                    ((kind, i, json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+                     for i, row in enumerate(rows)),
+                )
+                db.execute("INSERT INTO meta(kind, revision, total) VALUES(?,?,?)",
+                           (kind, str(snapshot.get("revision") or ""), len(rows)))
+            db.commit()
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+
+
 def synchronize(*, service, destination, limit=4500, anime_map_file=None):
     channels = service.channels()
     rows, counts = normalize_channels(channels, limit=limit)
@@ -476,6 +511,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(temp_path, destination)
+        write_media_index(destination, body)
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
