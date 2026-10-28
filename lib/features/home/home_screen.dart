@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -554,7 +555,7 @@ class _GenreSection extends ConsumerWidget {
     if (state.isLoading && items.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(horizontal: 24, vertical: 22),
-        child: LinearProgressIndicator(minHeight: 2),
+        child: PotvLoadingFlag(width: 72),
       );
     }
 
@@ -630,7 +631,7 @@ class _HeroFallback extends StatelessWidget {
               ),
               if (loading) ...[
                 const SizedBox(height: 18),
-                const SizedBox(width: 240, child: LinearProgressIndicator()),
+                const SizedBox(width: 240, child: PotvLoadingFlag(width: 72)),
               ],
             ],
           ),

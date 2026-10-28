@@ -42,5 +42,7 @@ for path,needles in required.items():
     content=(root/path).read_text()
     for needle in needles:require(needle in content,path+" missing "+needle)
 for file in (root/"lib").rglob("*.dart"):
-    require(not re.search(r"\bCircularProgressIndicator\s*\(",file.read_text()),str(file)+" reintroduced circular loader")
+    source=file.read_text()
+    require(not re.search(r"\bCircularProgressIndicator\s*\(",source),str(file)+" reintroduced circular loader")
+    require(not re.search(r"\bLinearProgressIndicator\(\s*(?:minHeight:\s*[\d.]+\s*,?\s*)?\)",source),str(file)+" reintroduced an unbranded indeterminate loader")
 print("POTV permanent animated branding OK")

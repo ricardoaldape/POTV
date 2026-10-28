@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -476,7 +477,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               description: 'Cargando redes deportivas…',
             ),
             const SizedBox(height: 9),
-            const LinearProgressIndicator(minHeight: 2),
+            const PotvLoadingFlag(width: 72),
             const SizedBox(height: 22),
           ],
           if (!isTv && allChannels.isNotEmpty) ...[
@@ -500,7 +501,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               description: 'Cargando señales deportivas…',
             ),
             const SizedBox(height: 9),
-            const LinearProgressIndicator(minHeight: 2),
+            const PotvLoadingFlag(width: 72),
             const SizedBox(height: 22),
           ],
           if (isTv) ...[
@@ -510,7 +511,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
                   '${languageService.preferredChannels(allChannels, preferredLanguage).length} canales según tu idioma preferido.',
             ),
             if (builtInState.isLoading && allChannels.isEmpty)
-              const LinearProgressIndicator(minHeight: 2),
+              const PotvLoadingFlag(width: 72),
             if (allChannels.isEmpty && !builtInState.isLoading)
               const _EmptySection(
                 'No encontramos señales deportivas disponibles en este momento.',
@@ -618,7 +619,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               const SizedBox(height: 22),
             ],
             if (scheduleState.isLoading)
-              const LinearProgressIndicator(minHeight: 2),
+              const PotvLoadingFlag(width: 72),
             if (scheduleEvents.isNotEmpty) ...[
               _SectionHeading(
                 label: 'AGENDA',
@@ -635,7 +636,7 @@ class _SportsHubScreenState extends ConsumerState<SportsHubScreen>
               const SizedBox(height: 20),
             ],
             if (addonState.isLoading)
-              const LinearProgressIndicator(minHeight: 2),
+              const PotvLoadingFlag(width: 72),
             if (otherAddonItems.isNotEmpty) ...[
               _SectionHeading(
                 label: 'MÁS EVENTOS',

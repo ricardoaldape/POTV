@@ -280,7 +280,7 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
               ],
             ),
           ),
-          if (loading) const LinearProgressIndicator(minHeight: 2),
+          if (loading) const PotvLoadingFlag(width: 72),
           if (channels.isNotEmpty && channelsState.hasError)
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 6, 20, 2),
@@ -434,7 +434,7 @@ class _LiveChannelCard extends StatelessWidget {
               ),
               const Spacer(),
               if (opening)
-                const LinearProgressIndicator(minHeight: 3)
+                const PotvLoadingFlag(width: 72)
               else if (current != null) ...[
                 Text(
                   'AHORA · ${current!.title}',

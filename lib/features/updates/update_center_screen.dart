@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:potv/ui/branding/potv_animated_assets.dart';
 import 'package:intl/intl.dart';
 
 import '../../data/updates/potv_update_catalog.dart';
@@ -333,7 +334,7 @@ class _UpdateCenterScreenState extends State<UpdateCenterScreen> {
           ),
           if (_checking) ...[
             const SizedBox(height: 14),
-            const LinearProgressIndicator(),
+            const PotvLoadingFlag(width: 72),
           ],
           if (_message != null) ...[
             const SizedBox(height: 15),
