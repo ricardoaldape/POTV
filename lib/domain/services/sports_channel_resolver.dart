@@ -34,8 +34,8 @@ class SportsChannelResolver {
     // TheSportsDB supplies a fixture, not a watch URL. A channel is linked
     // only when its EPG explicitly mentions BOTH opponents in the right
     // broadcast window; shared sport/league labels are not enough.
-    final homeTokens = _tokens(event.home);
-    final awayTokens = _tokens(event.away);
+    final homeTokens = _orderedTokens(event.home);
+    final awayTokens = _orderedTokens(event.away);
     if (homeTokens.isEmpty || awayTokens.isEmpty) return const [];
 
     // Index EPG once to avoid scanning every programme for every channel.
@@ -63,17 +63,18 @@ class SportsChannelResolver {
         )) {
           continue;
         }
+        // An EPG replay/highlights entry is not proof of a live fixture,
+        // even when its teams and start time match the schedule.
+        if (_isReplayTitle(program.title)) continue;
         final summary = '${program.title} ${program.description ?? ''}';
-        // Both opponents must appear in the same EPG field; combining
-        // unrelated title and description can invent a fixture.
-        final title = program.title;
-        final description = program.description ?? '';
-        final inTitle =
-            _containsTeam(title, homeTokens) &&
-            _containsTeam(title, awayTokens);
-        final inDescription =
-            _containsTeam(description, homeTokens) &&
-            _containsTeam(description, awayTokens);
+        // Require two distinct, non-overlapping team mentions in one EPG
+        // field. "New York City" alone must not also count as "York City".
+        final inTitle = _mentionsBothTeams(
+          program.title, homeTokens, awayTokens,
+        );
+        final inDescription = _mentionsBothTeams(
+          program.description ?? '', homeTokens, awayTokens,
+        );
         if (!inTitle && !inDescription) continue;
 
         final score = _scoreText(summary, eventTokens);
@@ -98,13 +99,25 @@ class SportsChannelResolver {
     return matches;
   }
 
-  bool _containsTeam(String source, Set<String> tokens) {
-    // Require the team's tokens in order and adjacent. Looking for a set of
-    // words across the whole title incorrectly combines "Real" from Real
-    // Sociedad with "Madrid" from Atletico Madrid.
+  bool _mentionsBothTeams(
+    String source,
+    List<String> home,
+    List<String> away,
+  ) {
     final words = _orderedTokens(source);
-    final team = tokens.toList(growable: false);
-    if (team.length > words.length) return false;
+    final homeStarts = _teamStarts(words, home);
+    final awayStarts = _teamStarts(words, away);
+    for (final h in homeStarts) {
+      for (final a in awayStarts) {
+        if (h + home.length <= a || a + away.length <= h) return true;
+      }
+    }
+    return false;
+  }
+
+  List<int> _teamStarts(List<String> words, List<String> team) {
+    if (team.isEmpty || team.length > words.length) return const [];
+    final starts = <int>[];
     for (var i = 0; i <= words.length - team.length; i++) {
       var same = true;
       for (var j = 0; j < team.length; j++) {
@@ -113,9 +126,16 @@ class SportsChannelResolver {
           break;
         }
       }
-      if (same) return true;
+      if (same) starts.add(i);
     }
-    return false;
+    return starts;
+  }
+
+  bool _isReplayTitle(String title) {
+    final normalized = _normalize(title);
+    return RegExp(
+      r'\b(replay|repeticion|retransmision|resumen|highlights|recap|diferido)\b',
+    ).hasMatch(normalized);
   }
 
   int _scoreText(String text, Set<String> tokens) {
