@@ -21,7 +21,9 @@ LiveChannel channel(String id, String name, {String? epgId, String? group}) =>
     );
 
 void main() {
-  final now = DateTime(2026, 10, 27, 20, 30);
+  // XMLTV timestamps without an offset are parsed as UTC. Use the same
+  // absolute instant on Windows (America/Mexico_City) and Linux (UTC).
+  final now = DateTime.utc(2026, 10, 27, 20, 30);
 
   test('XMLTV display name resolves exact channel and exposes now/next', () {
     const xml = '''
