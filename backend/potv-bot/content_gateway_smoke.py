@@ -159,6 +159,12 @@ def run():
         "https://partner.example/get.php?"
         "username=private-user&password=private-password&type=m3u_plus"
     )
+    # Use relative, timezone-aware programme times: the catalog correctly
+    # expires stale EPG slots, so fixed dates would eventually break CI.
+    fixture_now = datetime.now(timezone.utc)
+    def fixture_time(minutes):
+        return (fixture_now + timedelta(minutes=minutes)).isoformat()
+
     with tempfile.TemporaryDirectory() as directory:
         metadata_path = os.path.join(directory, "metadata.json")
         with open(metadata_path, "w", encoding="utf-8") as fh:
@@ -169,13 +175,13 @@ def run():
                             "channel_id": "espn.mx",
                             "current": {
                                 "title": "Partido en vivo",
-                                "starts_at": "2026-10-12T22:00:00-06:00",
-                                "ends_at": "2026-10-12T23:00:00-06:00",
+                                "starts_at": fixture_time(-15),
+                                "ends_at": fixture_time(45),
                             },
                             "next": {
                                 "title": "SportsCenter",
-                                "starts_at": "2026-10-12T23:00:00-06:00",
-                                "ends_at": "2026-10-13T00:00:00-06:00",
+                                "starts_at": fixture_time(45),
+                                "ends_at": fixture_time(105),
                             },
                         }
                     ],
@@ -186,7 +192,7 @@ def run():
                             "competition": "Liga MX",
                             "home": "Local",
                             "away": "Visita",
-                            "starts_at": "2026-10-12T22:00:00-06:00",
+                            "starts_at": fixture_time(-15),
                             "is_live": True,
                             "stream_url": "http://events.partner.example/live.m3u8?key=private",
                         },
@@ -196,7 +202,7 @@ def run():
                             "competition": "Liga MX",
                             "home": "Sin",
                             "away": "Señal",
-                            "starts_at": "2026-10-12T23:00:00-06:00",
+                            "starts_at": fixture_time(45),
                         },
                     ],
                 },
