@@ -48,6 +48,47 @@ assert len(episodes) == 1
 assert "nova.example" not in str(episodes)
 assert g._nova_candidates("movie", tmdb_id="not-an-id") == []
 
+# Both licensed connectors may have sources for the SAME title.
+# NOVA may supply only an embed, while LMHD offers native MP4/HLS.
+class OtherPartner:
+    def movie_sources(self, *, title, year):
+        assert (title, year) == ("Mi película", "2026")
+        return [{"url": "https://partner.example/movie/101.mp4",
+                 "format": "mp4", "language": "es-MX"}]
+
+    def episode_sources(self, *, title, season, episode, year):
+        assert (title, season, episode) == ("Mi serie", 1, 3)
+        return [{"url": "https://partner.example/tv/202-1-3.m3u8",
+                 "format": "hls", "language": "es-MX"}]
+
+
+g.lmhd = OtherPartner()
+g.lmhd_vod_enabled = True
+movie_sources = g.resolve_movie(
+    tmdb_id="101", title="Mi película", year="2026")["sources"]
+assert len(movie_sources) == 3, movie_sources
+assert all("partner.example" not in str(x) for x in movie_sources)
+assert any(x.get("real_url", "").startswith("https://potv.example/")
+           for x in movie_sources)
+tv_sources = g.resolve_series_episode(
+    tmdb_id="202", title="Mi serie", season=1, episode=3)["sources"]
+assert len(tv_sources) == 2, tv_sources
+assert any("format=hls" in x.get("real_url", "") for x in tv_sources)
+
+# A denied partner cannot erase the sources from an independent provider.
+from lmhd_partner import PartnerApiError
+class DeniedPartner:
+    def movie_sources(self, **kwargs):
+        raise PartnerApiError("partner_session_denied")
+    def episode_sources(self, **kwargs):
+        raise PartnerApiError("partner_session_denied")
+
+g.lmhd = DeniedPartner()
+assert len(g.resolve_movie(tmdb_id="101", title="Mi película")["sources"]) == 2
+assert len(g.resolve_series_episode(
+    tmdb_id="202", title="Mi serie", season=1, episode=3)["sources"]) == 1
+
+g.lmhd_vod_enabled = False
 g.nova_vod_enabled = False
 assert g.resolve_movie(tmdb_id="101") == {"sources": []}
 print("PASS: NOVA opt-in VOD and episodes signed through POTV proxy; subscriptions enforced")
