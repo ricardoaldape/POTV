@@ -1643,28 +1643,6 @@ class ContentGateway:
             if parsed and self.live_source_mode == "failover":
                 break
 
-        lmhd_events = []
-        if self.lmhd is not None and self.lmhd_live_catalog_enabled:
-            # Opt-in only: do not publish licensed TV to a public catalog
-            # before the POTV subscription/entitlement gateway is in place.
-            try:
-                for row in self.lmhd.tv_channels()[:600]:
-                    name = str(row.get("name") or "").strip()
-                    group = str(row.get("group") or "").strip()
-                    if not name or self._is_adult_entry(name, group):
-                        continue
-                    try:
-                        channel = self._channel_payload(row)
-                    except ContentGatewayError:
-                        continue
-                    key = (name.lower(), str(row.get("epg_id") or "").lower())
-                    if key not in seen:
-                        seen.add(key)
-                        all_channels.append(channel)
-                lmhd_events = self.lmhd.sports_events()
-            except (PartnerApiError, OSError, ValueError, TypeError):
-                lmhd_events = []
-
         raw_sports = [
             channel
             for channel in all_channels
@@ -1686,10 +1664,6 @@ class ContentGateway:
             *xtream_guide,
         ]
         events = self._events_payload(metadata, sports_channels=sports)
-        if lmhd_events:
-            events.extend(self._events_payload({
-                "sports_events": lmhd_events
-            }, sports_channels=sports))
         revision_material = "|".join(sorted(channel["id"] for channel in all_channels))
         revision_material += f"|{len(guide)}|{len(events)}"
         revision = hashlib.sha256(revision_material.encode("utf-8")).hexdigest()[:20]
@@ -1778,6 +1752,73 @@ class ContentGateway:
             },
         }
 
+    def _merge_lmhd_entitled(self, payload):
+        """Add approved LMHD channels ONLY after POTV account entitlement.
+
+        The public M3U catalog and anonymous paths must never invoke the
+        partner or expose the streams. This bridge is entirely inactive
+        unless a separate service-issued partner account is configured.
+        """
+        if self.lmhd is None or not self.lmhd_live_catalog_enabled:
+            return payload
+        data = payload.get("data") or {}
+        channels = data.get("channels") or []
+        seen = {
+            (str(row.get("name") or "").strip().casefold(),
+             str(row.get("epg_id") or "").strip().casefold())
+            for row in channels if isinstance(row, dict)
+        }
+        appended = []
+        partner_events = []
+        try:
+            partner_rows = self.lmhd.tv_channels()
+            if not isinstance(partner_rows, list):
+                partner_rows = []
+            for row in partner_rows[:600]:
+                if not isinstance(row, dict):
+                    continue
+                name = str(row.get("name") or "").strip()
+                group = str(row.get("group") or "").strip()
+                if not name or self._is_adult_entry(name, group):
+                    continue
+                key = (name.casefold(),
+                       str(row.get("epg_id") or "").strip().casefold())
+                if key in seen:
+                    continue
+                try:
+                    channel = self._channel_payload(row)
+                except ContentGatewayError:
+                    continue
+                seen.add(key)
+                appended.append(channel)
+            partner_events = self.lmhd.sports_events()
+        except (PartnerApiError, OSError, ValueError, TypeError):
+            # Never serve guessed partner URLs after a session denial.
+            partner_events = []
+            appended = []
+        if not appended and not partner_events:
+            return payload
+        data["channels"] = list(channels) + appended
+        sports = self._merge_sports_variants([
+            row for row in data["channels"]
+            if _SPORTS.search(
+                str(row.get("name") or "") + " " +
+                str(row.get("group") or ""))
+        ])
+        data["sports_channels"] = sports
+        if partner_events:
+            data.setdefault("sports_events", []).extend(
+                self._events_payload(
+                    {"sports_events": partner_events},
+                    sports_channels=sports))
+        revision_piece = "|".join(
+            sorted(str(row.get("id") or "") for row in appended))
+        revision_piece += "|events=" + str(len(data.get("sports_events") or []))
+        data["revision"] = hashlib.sha256((
+            str(data.get("revision") or "") + "|LMHD|" + revision_piece
+        ).encode("utf-8")).hexdigest()[:20]
+        return payload
+
     def catalog_for_subscriber(self):
         """A POTV-authenticated subscriber's TV catalog with authorized NOVA.
 
@@ -1785,7 +1826,9 @@ class ContentGateway:
         Never expose this snapshot from the public content/catalog route.
         """
         public = self.catalog()
-        if not self.nova_live_enabled:
+        if not self.nova_live_enabled and not (
+            self.lmhd is not None and self.lmhd_live_catalog_enabled
+        ):
             return public
         now = time.monotonic()
         with self._lock:
@@ -1794,6 +1837,12 @@ class ContentGateway:
                 and now - self._nova_subscriber_catalog_at < self.refresh_seconds
             ):
                 return self._resign_cached_catalog(self._nova_subscriber_catalog)
+        if not self.nova_live_enabled:
+            result = self._merge_lmhd_entitled(copy.deepcopy(public))
+            with self._lock:
+                self._nova_subscriber_catalog = result
+                self._nova_subscriber_catalog_at = now
+            return result
         try:
             if os.path.getsize(self.nova_sync_file) > MAX_NOVA_SNAPSHOT_BYTES:
                 raise ValueError("nova_snapshot_too_large")
@@ -1807,7 +1856,7 @@ class ContentGateway:
             with self._lock:
                 if self._nova_subscriber_catalog is not None:
                     return self._resign_cached_catalog(self._nova_subscriber_catalog)
-            return public
+            return self._merge_lmhd_entitled(copy.deepcopy(public))
 
         payload = copy.deepcopy(public)
         data = payload["data"]
@@ -1891,6 +1940,7 @@ class ContentGateway:
             str(data.get("revision") or "") +
             str(snapshot.get("revision") or "") + str(appended)
         ).encode("utf-8")).hexdigest()[:20]
+        payload = self._merge_lmhd_entitled(payload)
         with self._lock:
             self._nova_subscriber_catalog = payload
             self._nova_subscriber_catalog_at = now
