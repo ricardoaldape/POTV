@@ -142,17 +142,24 @@ jobs:
             echo "Configure POTV_RELEASE_CERT_SHA256 using the certificate from the existing installed release";
             exit 1;
           }
-          actual="$("$APKSIGNER" verify --print-certs "dist/POTV-$POTV_TAG.apk" |
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 |
-            tr '[:upper:]' '[:lower:]')"
+          # Android build-tools may print "Signer #1" or "V2 Signer".
+          # Parse verified fingerprint, not a version-specific label.
+          cert_output="$("$APKSIGNER" verify --verbose --print-certs "dist/POTV-$POTV_TAG.apk")"
+          actual="$(printf '%s\n' "$cert_output" |
+            sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*([0-9A-Fa-f]{64}).*$/\1/p' |
+            tail -n 1 | tr '[:upper:]' '[:lower:]')"
           expected="$(printf '%s' "$POTV_RELEASE_CERT_SHA256" |
             tr -d ':' | tr '[:upper:]' '[:lower:]')"
           test "${#expected}" -eq 64 && test "$actual" = "$expected" || {
             echo "Signing certificate does not match the pinned production key; refusing OTA release";
             exit 1;
           }
-          "$AAPT" dump badging "dist/POTV-$POTV_TAG.apk" | head -1 |
-            grep -E "name='com\.potv\.potv'"
+          # Capture native output first to avoid pipefail after head.
+          badging="$("$AAPT" dump badging "dist/POTV-$POTV_TAG.apk")"
+          package="$(printf '%s\n' "$badging" | sed -n '1p')"
+          if [[ "$package" != *"name='com.potv.potv'"* ]]; then
+            echo "Unexpected Android package name"; exit 1
+          fi
           test "$(grep -c 'POTV-Version-Code:' ota-release-notes.md)" -eq 1
 
       - name: Publish immutable POTV GitHub Release
