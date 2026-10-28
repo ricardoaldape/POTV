@@ -135,7 +135,18 @@ class _PartnerMediaBrowseScreenState
           else if (_items.isEmpty && _error != null)
             Expanded(
               child: Center(
-                child: Text(_error!, textAlign: TextAlign.center),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _loadNext,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
               ),
             )
           else if (_items.isEmpty && !_hasMore)
