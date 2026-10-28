@@ -33,6 +33,11 @@ assert "DO-NOT-LEAK" not in json.dumps(kept)
 assert "stream_url" not in json.dumps(kept)
 assert retain_recent_guide([], {**old,
     "updated_at":(now-timedelta(minutes=46)).isoformat()}, channels, now=now)==[]
+# Rewriting the snapshot must NOT refresh cached EPG indefinitely.
+assert retain_recent_guide([], {**old,
+    "updated_at":now.isoformat(),
+    "guide_seen_at":{"epg:1":(now-timedelta(minutes=46)).isoformat()}},
+    channels, now=now)==[]
 fresh = [{"channel_id":"epg:1", "now":program("Actual",
     now-timedelta(minutes=1),now+timedelta(minutes=59))}]
 assert retain_recent_guide(fresh,old,channels,now=now)==fresh
@@ -64,5 +69,6 @@ with tempfile.TemporaryDirectory() as tmp:
     saved = json.loads(dest.read_text(encoding="utf-8"))
     assert saved["anime"]==[{"anilist_id":1234,"title":"Mapped anime"}], saved["anime"]
     assert len(saved["now_next"])==1, saved["now_next"]
+    assert saved["guide_seen_at"]["epg:1"]==old["updated_at"]
     assert summary["anime_catalog_mapped"]==1
 print("PASS: sync outage does not erase valid mapped anime or fresh EPG")
