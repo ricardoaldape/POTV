@@ -42,12 +42,21 @@ extension LiveTvCategoryInfo on LiveTvCategory {
 /// not a claim that the video stream is available or currently playing.
 class LiveTvGuide {
   final Map<String, List<EpgProgram>> _byChannel = {};
+  // A display-name alias must resolve to one channel id: generic aliases
+  // such as 'HD' cannot silently associate a programme with another feed.
+  final Map<String, Set<String>> _displayNames = {};
 
   LiveTvGuide(Iterable<EpgProgram> programs) {
     for (final program in programs) {
       final key = LiveTvOrganizer.normalize(program.channelId);
       if (key.isNotEmpty) {
         _byChannel.putIfAbsent(key, () => []).add(program);
+        for (final name in program.channelNames) {
+          final alias = LiveTvOrganizer.normalize(name);
+          if (alias.isNotEmpty) {
+            _displayNames.putIfAbsent(alias, () => <String>{}).add(key);
+          }
+        }
       }
     }
     for (final list in _byChannel.values) {
@@ -61,14 +70,21 @@ class LiveTvGuide {
     if (epg.isNotEmpty && _byChannel.containsKey(epg)) {
       return _byChannel[epg]!;
     }
-    return _byChannel[name] ?? const [];
+    if (_byChannel.containsKey(name)) return _byChannel[name]!;
+    final matching = _displayNames[name];
+    if (matching == null || matching.length != 1) return const [];
+    return _byChannel[matching.single] ?? const [];
   }
 
   EpgProgram? onAir(LiveChannel channel, DateTime now) {
+    EpgProgram? latest;
     for (final p in _programs(channel)) {
-      if (p.isOnAir(now)) return p;
+      if (p.isOnAir(now) &&
+          (latest == null || p.startsAt.isAfter(latest.startsAt))) {
+        latest = p;
+      }
     }
-    return null;
+    return latest;
   }
 
   EpgProgram? upNext(LiveChannel channel, DateTime now) {
