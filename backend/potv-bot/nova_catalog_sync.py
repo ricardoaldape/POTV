@@ -378,18 +378,19 @@ def progressive_media(service, method, *, category, previous=None,
     return combined, next_offset, len(rows)
 
 
-def sports_guide(service, channels, *, max_channels=160):
-    """Bounded provider EPG, linked to the exact published channel's EPG ID.
+def channel_guide(service, channels, *, max_channels=6000,
+                  sports_only=False, workers=4):
+    """Guide for every published channel with an EPG ID, not just sports.
 
-    No team-match inference, artificial events or upstream media URLs.
-    A missing/malformed program simply does not enter the subscriber guide.
+    NOVA 1.2.9 supports batches of 40 IDs; capped concurrent requests keep
+    the twice-hourly sync bounded. Never invent programs or URLs.
     """
     from datetime import timedelta
 
     eligible = []
     seen = set()
     for row in channels:
-        if not isinstance(row, dict) or not row.get("is_sports"):
+        if not isinstance(row, dict) or (sports_only and not row.get("is_sports")):
             continue
         raw_id, epg_id = str(row.get("id") or ""), str(row.get("epg_id") or "")
         if not raw_id.startswith("nova:") or not epg_id or epg_id in seen:
@@ -415,7 +416,7 @@ def sports_guide(service, channels, *, max_channels=160):
         return (tier, sports, name)
 
     eligible.sort(key=priority)
-    eligible = eligible[:max(0, min(max_channels, 200))]
+    eligible = eligible[:max(0, min(max_channels, 6000))]
     result = []
     now = datetime.now(timezone.utc)
 
@@ -439,7 +440,7 @@ def sports_guide(service, channels, *, max_channels=160):
                 return None
         except (ValueError, TypeError, OverflowError):
             return None
-        description = str(raw.get("description") or "").strip()[:300]
+        description = str(raw.get("description") or "").strip()[:160]
         return {
             "title": title,
             "starts_at": first.isoformat(),
@@ -447,14 +448,14 @@ def sports_guide(service, channels, *, max_channels=160):
             **({"description": description} if description else {}),
         }
 
-    for index in range(0, len(eligible), 40):
-        batch = eligible[index:index + 40]
+    def fetch_batch(batch):
         try:
             responses = service.sports_now_next([up_id for _, up_id in batch])
         except (NovaPartnerError, ValueError, TypeError):
-            # Guide is supplementary; lack of it must not destroy live TV.
-            continue
+            # EPG is supplementary; an absent provider must not take TV down.
+            return []
         by_id = {str(upstream_id): row for row, upstream_id in batch}
+        clean = []
         for raw in responses:
             if not isinstance(raw, dict):
                 continue
@@ -465,12 +466,31 @@ def sports_guide(service, channels, *, max_channels=160):
             next_program = safe_program(raw.get("next"))
             if not current and not next_program:
                 continue
-            result.append({
+            clean.append({
                 "channel_id": str(row["epg_id"]),
                 **({"now": current} if current else {}),
                 **({"next": next_program} if next_program else {}),
             })
+        return clean
+
+    batches = [eligible[i:i + 40] for i in range(0,len(eligible),40)]
+    if not batches:
+        return []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1,min(workers,4))) as pool:
+        for rows in pool.map(fetch_batch,batches):
+            result.extend(rows)
     return result
+
+
+def sports_guide(service, channels, *, max_channels=160):
+    """Compatibility wrapper for sports-only clients and tests."""
+    return channel_guide(service, channels,
+                         max_channels=max_channels, sports_only=True)
+
+
+def all_channel_guide(service, channels, *, max_channels=6000):
+    return channel_guide(service, channels,max_channels=max_channels)
 
 
 def snapshot_revision(channels, movies, series, anime, guide=()):
@@ -584,7 +604,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         except (NovaPartnerError, OSError, ValueError, TypeError):
             # Keep TV, movies and series synchronized if AniList is down.
             pass
-    guide = sports_guide(service, rows)
+    guide = all_channel_guide(service, rows)
     body = {
         "source": "nova",
         "format_probe_version": 2,
@@ -621,7 +641,7 @@ def synchronize(*, service, destination, limit=4500, anime_map_file=None):
         "movie_page_received": movie_received,
         "series_page_received": series_received,
         "anime_catalog_mapped": len(anime),
-        "sports_guide_channels": len(guide),
+        "guide_channels": len(guide),
         **counts,
         "revision": body["revision"],
     }

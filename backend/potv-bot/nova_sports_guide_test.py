@@ -6,7 +6,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 from nova_partner import NovaPartner, NovaPartnerError
-from nova_catalog_sync import sports_guide
+from nova_catalog_sync import sports_guide, all_channel_guide
 
 
 class Bytes(io.BytesIO):
@@ -36,7 +36,7 @@ class FakeOpener:
         end = (now + timedelta(minutes=45)).isoformat()
         result = []
         for cid in body["channel_ids"]:
-            if cid == 100:
+            if cid in (100, 104):
                 result.append({
                     "channel_id": cid,
                     "now": {"title": "América vs Pumas",
@@ -80,6 +80,8 @@ snapshot=[
      "is_sports":True},
     {"id":"nova:102","epg_id":"779","name":"Drama","country":"MX",
      "is_sports":False},
+    {"id":"nova:104","epg_id":"780","name":"Canal 5","country":"MX",
+     "is_sports":False},
     {"id":"nova:9999","epg_id":"","name":"Missing EPG","country":"MX",
      "is_sports":True},
 ]
@@ -102,3 +104,11 @@ except NovaPartnerError as error:
     assert error.code=="upstream_denied"
 assert sports_guide(service,snapshot)==[]
 print("PASS: upstream entitlement denial fails closed and does not affect channels")
+
+
+opener.deny=False
+all_rows=all_channel_guide(service,snapshot,max_channels=120)
+assert len(all_rows)==2,all_rows
+assert {r["channel_id"] for r in all_rows}=={"777","780"}
+assert not any(r["channel_id"]=="779" for r in all_rows)
+print("PASS: NOVA guide serves non-sports TV channels without invented data")
