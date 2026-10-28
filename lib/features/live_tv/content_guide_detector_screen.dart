@@ -108,7 +108,7 @@ class _ContentGuideDetectorScreenState
     try {
       if (item.event case final SportsEvent event) {
         // Rehydrate signed event links at click-time.
-        final latest = await ref.read(partnerContentRepositoryProvider).load();
+        final latest = await ref.read(partnerContentRepositoryProvider).load(forceRefresh: true);
         if (!mounted) return;
         final matches = latest.sportsEvents.where((e) => e.id == event.id &&
             e.isLive && e.streams.isNotEmpty);
@@ -128,7 +128,7 @@ class _ContentGuideDetectorScreenState
 
       var channel = item.channel!;
       if (channel.id.startsWith('partner:')) {
-        final latest = await ref.read(partnerContentRepositoryProvider).load();
+        final latest = await ref.read(partnerContentRepositoryProvider).load(forceRefresh: true);
         if (!mounted) return;
         final matches = [
           ...latest.channels,

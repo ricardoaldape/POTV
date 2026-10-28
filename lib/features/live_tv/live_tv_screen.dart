@@ -92,10 +92,12 @@ class _LiveTvScreenState extends ConsumerState<LiveTvScreen>
       var channel = selected;
       if (selected.id.startsWith('partner:')) {
         // Signed partner URLs may expire while the user browses the grid.
-        // Resolve the latest catalog immediately before opening a channel.
+        // Revalidate the signed URLs immediately before playback, bypassing
+        // the two-minute in-memory metadata cache. The gateway re-signs live
+        // streams on each response, and the user must remain entitled.
         final snapshot = await ref
             .read(partnerContentRepositoryProvider)
-            .load();
+            .load(forceRefresh: true);
         if (!mounted) return;
         final matches = [
           ...snapshot.channels,
