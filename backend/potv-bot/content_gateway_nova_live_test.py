@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 from unittest.mock import patch
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit,parse_qs
 from content_gateway import ContentGateway
 from nova_catalog_sync import normalize_channels
@@ -23,12 +24,12 @@ with tempfile.TemporaryDirectory() as tmp:
              "title":"Cyberpunk: Edgerunners 2","year":"2026"}
         ],"now_next":[
             {"channel_id":"nfl","now":{"title":"Football previo",
-             "starts_at":"2026-10-28T04:00:00+00:00",
-             "ends_at":"2026-10-28T05:00:00+00:00"}},
+             "starts_at":(datetime.now(timezone.utc)-timedelta(minutes=10)).isoformat(),
+             "ends_at":(datetime.now(timezone.utc)+timedelta(minutes=50)).isoformat()}},
             {"channel_id":"orphan-from-removed-channel","now":{
              "title":"Never show",
-             "starts_at":"2026-10-28T04:00:00+00:00",
-             "ends_at":"2026-10-28T05:00:00+00:00"}},
+             "starts_at":(datetime.now(timezone.utc)-timedelta(minutes=10)).isoformat(),
+             "ends_at":(datetime.now(timezone.utc)+timedelta(minutes=50)).isoformat()}},
         ],"channels":[
             {"id":"nova:1", "name":"NFL Network", "url":"https://nova.example/nfl.m3u8",
              "group":"Deportes", "epg_id":"nfl", "format":"hls", "backup_urls":[

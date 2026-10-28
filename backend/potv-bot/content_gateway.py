@@ -19,7 +19,7 @@ from contextlib import closing
 import threading
 import time
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
@@ -1416,7 +1416,13 @@ class ContentGateway:
         except (OSError, ValueError):
             return {}
 
-    def _guide_payload(self, metadata):
+    def _guide_payload(self, metadata, *, now=None):
+        """Normalize only currently relevant, timezone-aware NOW/NEXT slots.
+
+        Partner snapshots and in-memory caches can outlive their EPG data.
+        A stale programme must not remain marked as live when sync fails.
+        """
+        now = now or datetime.now(timezone.utc)
         raw = metadata.get("now_next") or metadata.get("guide") or []
         result = []
         if not isinstance(raw, list):
@@ -1434,20 +1440,43 @@ class ContentGateway:
                 value = row.get(slot)
                 if not isinstance(value, dict):
                     continue
-                title = str(value.get("title") or value.get("name") or "").strip()
+                title = str(value.get("title") or value.get("name") or "").strip()[:160]
                 start = str(value.get("starts_at") or value.get("start") or "").strip()
                 end = str(value.get("ends_at") or value.get("end") or "").strip()
-                if title and start and end:
-                    clean["current" if slot in ("current", "now") else "next"] = {
-                        "title": title,
-                        "starts_at": start,
-                        "ends_at": end,
-                        **(
-                            {"description": str(value.get("description")).strip()}
-                            if value.get("description")
-                            else {}
-                        ),
-                    }
+                if not title or not start or not end:
+                    continue
+                try:
+                    starts = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                    ends = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    if starts.tzinfo is None or ends.tzinfo is None:
+                        continue
+                    starts = starts.astimezone(timezone.utc)
+                    ends = ends.astimezone(timezone.utc)
+                    if not (starts < ends <= starts + timedelta(hours=16)):
+                        continue
+                    if ends <= now or starts > now + timedelta(hours=36):
+                        continue
+                    if slot in ("current", "now") and starts > now + timedelta(minutes=2):
+                        continue
+                except (ValueError, TypeError, OverflowError):
+                    continue
+                key = "current" if slot in ("current", "now") else "next"
+                # A provider's real NEXT programme may begin between the
+                # 30-minute catalog syncs. Promote its published schedule to
+                # NOW when it is currently on, without inventing a title.
+                if key == "next" and starts <= now:
+                    if "current" in clean:
+                        continue
+                    key = "current"
+                clean[key] = {
+                    "title": title,
+                    "starts_at": starts.isoformat(),
+                    "ends_at": ends.isoformat(),
+                    **(
+                        {"description": str(value.get("description")).strip()[:160]}
+                        if value.get("description") else {}
+                    ),
+                }
             if len(clean) > 1:
                 result.append(clean)
         return result
@@ -1836,6 +1865,9 @@ class ContentGateway:
         # contacting a provider, so a temporary upstream outage never makes
         # the previously published channel guide unusable.
         result = copy.deepcopy(payload)
+        data = result.get("data") or {}
+        if isinstance(data.get("now_next"), list):
+            data["now_next"] = self._guide_payload({"now_next": data["now_next"]})
         prefix = "/api/v1/content/stream/"
 
         def resign(url):
@@ -1873,6 +1905,9 @@ class ContentGateway:
     def _refresh_catalog_background(self):
         try:
             payload = self._build_catalog()
+            payload["data"]["now_next"] = self._guide_payload(
+                {"now_next": payload["data"].get("now_next") or []}
+            )
             with self._lock:
                 # Do not erase a useful cached catalog when the upstream
                 # momentarily stops responding during a refresh.
@@ -1917,6 +1952,9 @@ class ContentGateway:
         # A subsequent request is served from memory even when the provider
         # becomes unreachable.
         payload = self._build_catalog()
+        payload["data"]["now_next"] = self._guide_payload(
+            {"now_next": payload["data"].get("now_next") or []}
+        )
         with self._lock:
             latest_guide = list(self._sports_guide_cache)
             if latest_guide:
@@ -1938,7 +1976,9 @@ class ContentGateway:
                     if key not in seen:
                         existing.append(row)
                         seen.add(key)
-                payload["data"]["now_next"] = existing
+                payload["data"]["now_next"] = self._guide_payload(
+                    {"now_next": existing}
+                )
             self._catalog = payload
             self._catalog_at = time.monotonic()
         return payload
