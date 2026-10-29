@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh POTV licensed AirTV channels from developer-approved Firestore
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/potv-bot
+EnvironmentFile=/opt/potv-bot/.env
+ExecStart=/usr/bin/python3 /opt/potv-bot/airtv_firestore_sync.py
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/potv-bot/secrets
+PrivateTmp=true
+MemoryMax=128M
+TimeoutStartSec=105

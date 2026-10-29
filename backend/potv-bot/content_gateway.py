@@ -221,6 +221,14 @@ class ContentGateway:
             self.nova is not None
             and os.getenv("POTV_NOVA_VOD_ENABLED", "").strip().lower() == "true"
         )
+        # AirTV Firestore is a separately licensed, opt-in subscriber source.
+        # A root-owned sync process polls the provider and publishes a
+        # private snapshot, never its Google account into the Android app.
+        self.airtv_sync_file = os.getenv("POTV_AIRTV_SYNC_FILE", "").strip()
+        self.airtv_live_enabled = (
+            bool(self.airtv_sync_file)
+            and os.getenv("POTV_AIRTV_LIVE_ENABLED", "").strip().lower() == "true"
+        )
         self.nova_sync_file = os.getenv("POTV_NOVA_SYNC_FILE", "").strip()
         self.nova_live_enabled = (
             self.nova is not None
@@ -257,7 +265,7 @@ class ContentGateway:
 
     @property
     def configured(self):
-        return bool(self.sources) or self.lmhd is not None
+        return bool(self.sources) or self.lmhd is not None or self.airtv_live_enabled
 
     def _allowed_upstream(self, raw):
         try:
@@ -1812,6 +1820,84 @@ class ContentGateway:
             },
         }
 
+    def _merge_airtv_entitled(self, payload):
+        """Add only fresh, authorized AirTV channels AFTER account entitlement.
+
+        No upstream URL or Firestore credentials appear in the client catalog.
+        The private synchronizer must have completed a current successful
+        read from the provider before the first channel is exposed.
+        """
+        if not self.airtv_live_enabled or not self.airtv_sync_file:
+            return payload
+        try:
+            stat = os.stat(self.airtv_sync_file)
+            if not (0 <= time.time() - stat.st_mtime <= 1800
+                    and 0 < stat.st_size <= 8 * 1024 * 1024):
+                return payload
+            with open(self.airtv_sync_file, "r", encoding="utf-8") as stream:
+                snapshot = json.load(stream)
+            rows = snapshot.get("channels")
+            if (snapshot.get("version") != 1
+                    or snapshot.get("provider") != "airtv"
+                    or not isinstance(rows, list)):
+                return payload
+        except (OSError, ValueError, TypeError, AttributeError):
+            return payload
+        data = payload.get("data") or {}
+        original = data.get("channels") or []
+        all_channels = list(original)
+        known_ids = {str(r.get("id") or "") for r in original if isinstance(r, dict)}
+        seen = {(str(r.get("name") or "").casefold().strip(),
+                 str(r.get("epg_id") or "").casefold().strip())
+                for r in original if isinstance(r, dict)}
+        digests = []
+        for row in rows[:5000]:
+            if not isinstance(row, dict):
+                continue
+            ident = str(row.get("id") or "")
+            name = str(row.get("name") or "").strip()
+            group = str(row.get("group") or "").strip()
+            if (not re.fullmatch(r"airtv:[a-f0-9]{20}", ident)
+                    or not name or self._is_adult_entry(name, group)
+                    or ident in known_ids):
+                continue
+            key = (name.casefold(), str(row.get("epg_id") or "").casefold().strip())
+            if key in seen:
+                continue
+            try:
+                channel = self._channel_payload(row)
+                channel["id"] = ident
+                backups = []
+                for url in (row.get("backup_urls") or [])[:4]:
+                    try:
+                        target = self._register_target(url)
+                    except (ContentGatewayError, TypeError, ValueError):
+                        continue
+                    backups.append(self._proxy_url(target))
+                if backups:
+                    channel["backup_urls"] = backups
+            except (ContentGatewayError, ValueError, TypeError):
+                continue
+            all_channels.append(channel)
+            known_ids.add(ident)
+            seen.add(key)
+            digests.append(hashlib.sha256((
+                ident + "|" + str(row.get("url") or "") + "|" +
+                json.dumps(row.get("backup_urls") or [], sort_keys=True)
+            ).encode("utf-8")).hexdigest()[:20])
+        if not digests:
+            return payload
+        sports_rows = [r for r in all_channels if _SPORTS.search(
+            str(r.get("name") or "") + " " + str(r.get("group") or ""))]
+        sports = self._merge_sports_variants(sports_rows)
+        data["sports_channels"] = sports
+        data["channels"] = [r for r in all_channels if r not in sports_rows] + sports
+        data["revision"] = hashlib.sha256((
+            str(data.get("revision") or "") + "|AIRTV|" +
+            str(snapshot.get("revision") or "") + "|" + "|".join(sorted(digests))
+        ).encode("utf-8")).hexdigest()[:20]
+        return payload
+
     def _merge_lmhd_entitled(self, payload):
         """Add approved LMHD channels ONLY after POTV account entitlement.
 
@@ -1971,7 +2057,7 @@ class ContentGateway:
         Never expose this snapshot from the public content/catalog route.
         """
         public = self.catalog()
-        if not self.nova_live_enabled and not (
+        if not self.nova_live_enabled and not self.airtv_live_enabled and not (
             self.lmhd is not None and self.lmhd_live_catalog_enabled
         ):
             return public
@@ -1983,7 +2069,8 @@ class ContentGateway:
             ):
                 return self._resign_cached_catalog(self._nova_subscriber_catalog)
         if not self.nova_live_enabled:
-            result = self._merge_lmhd_entitled(copy.deepcopy(public))
+            result = self._merge_airtv_entitled(
+                self._merge_lmhd_entitled(copy.deepcopy(public)))
             with self._lock:
                 self._nova_subscriber_catalog = result
                 self._nova_subscriber_catalog_at = now
@@ -2001,7 +2088,8 @@ class ContentGateway:
             with self._lock:
                 if self._nova_subscriber_catalog is not None:
                     return self._resign_cached_catalog(self._nova_subscriber_catalog)
-            return self._merge_lmhd_entitled(copy.deepcopy(public))
+            return self._merge_airtv_entitled(
+                self._merge_lmhd_entitled(copy.deepcopy(public)))
 
         payload = copy.deepcopy(public)
         data = payload["data"]
@@ -2094,7 +2182,7 @@ class ContentGateway:
             str(data.get("revision") or "") +
             str(snapshot.get("revision") or "") + str(appended)
         ).encode("utf-8")).hexdigest()[:20]
-        payload = self._merge_lmhd_entitled(payload)
+        payload = self._merge_airtv_entitled(self._merge_lmhd_entitled(payload))
         with self._lock:
             self._nova_subscriber_catalog = payload
             self._nova_subscriber_catalog_at = now
