@@ -2358,7 +2358,22 @@ class ContentGateway:
     def _rewrite_hls(self, body, base_url, headers):
         def proxied(value):
             upstream = urljoin(base_url, value.strip())
-            target_id = self._register_target(upstream, headers)
+            # A manifest can refer to a different public CDN. Never replay
+            # provider credentials, cookies or referrers to that origin.
+            origin = urlsplit(base_url)
+            destination = urlsplit(upstream)
+            same_origin = (
+                origin.scheme == destination.scheme
+                and origin.netloc.lower() == destination.netloc.lower()
+            )
+            safe_headers = dict(headers) if same_origin else {
+                key: val for key, val in headers.items()
+                if key.lower() not in (
+                    "authorization", "proxy-authorization", "cookie",
+                    "x-api-key", "referer", "origin",
+                )
+            }
+            target_id = self._register_target(upstream, safe_headers)
             return self._proxy_url(target_id)
 
         output = []
@@ -2439,6 +2454,27 @@ class ContentGateway:
             if range_header:
                 forwarded["Range"] = range_header
             with self._fetch(url, headers=forwarded, timeout=30) as response:
+                # Redirected HLS playlists resolve relative segments against
+                # the *final* CDN URL, not the original provider URL.
+                final_url = response.geturl() if hasattr(response, "geturl") else url
+                final_parts = urlsplit(final_url)
+                if (
+                    not self._allowed_upstream(final_url)
+                    or final_parts.username is not None
+                    or final_parts.password is not None
+                    or (urlsplit(url).scheme == "https" and final_parts.scheme != "https")
+                ):
+                    raise ContentGatewayError(400, "upstream_not_allowed")
+                final_headers = dict(headers) if (
+                    urlsplit(url).scheme == final_parts.scheme
+                    and urlsplit(url).netloc.lower() == final_parts.netloc.lower()
+                ) else {
+                    key: val for key, val in headers.items()
+                    if key.lower() not in (
+                        "authorization", "proxy-authorization", "cookie",
+                        "x-api-key", "referer", "origin",
+                    )
+                }
                 content_type = (
                     response.headers.get("Content-Type")
                     or "application/octet-stream"
@@ -2461,7 +2497,7 @@ class ContentGateway:
                     if len(body) > limit:
                         raise ContentGatewayError(413, "playlist_too_large")
                     text = body.decode("utf-8-sig", errors="replace")
-                    rewritten = self._rewrite_hls(text, url, headers).encode("utf-8")
+                    rewritten = self._rewrite_hls(text, final_url, final_headers).encode("utf-8")
                     handler.send_response(200)
                     handler.send_header(
                         "Content-Type", "application/vnd.apple.mpegurl"
