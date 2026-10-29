@@ -1623,6 +1623,51 @@ class ContentGateway:
             )
         return result
 
+    @staticmethod
+    def _public_catalog_revision(channels, guide, events):
+        """Change revision when real programme/source data changes, not just counts.
+
+        Strip expiring POTV proxy query signatures before hashing. This keeps
+        revisions stable across signing refreshes but detects source rotation,
+        channel metadata changes, and NOW/NEXT programme changes.
+        No upstream URL or credential is returned in the revision.
+        """
+        def normalized(row):
+            copy_row = dict(row)
+            if "hls_url" in copy_row:
+                copy_row["hls_url"] = urlsplit(
+                    str(copy_row["hls_url"] or "")).path
+            if "backup_urls" in copy_row:
+                copy_row["backup_urls"] = [
+                    urlsplit(str(url or "")).path
+                    for url in (copy_row["backup_urls"] or [])
+                ]
+            if "streams" in copy_row:
+                copy_row["streams"] = [
+                    {**stream, "url": urlsplit(
+                        str(stream.get("url") or "")).path}
+                    if isinstance(stream, dict) else
+                    urlsplit(str(stream or "")).path
+                    for stream in (copy_row["streams"] or [])
+                ]
+            return copy_row
+
+        def sorted_rows(rows):
+            return sorted(
+                (normalized(row) for row in rows if isinstance(row, dict)),
+                key=lambda row: json.dumps(
+                    row, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            )
+
+        material = {
+            "channels": sorted_rows(channels),
+            "guide": sorted_rows(guide),
+            "events": sorted_rows(events),
+        }
+        return hashlib.sha256(json.dumps(
+            material, sort_keys=True, ensure_ascii=False,
+            separators=(",", ":")).encode("utf-8")).hexdigest()[:20]
+
     def _build_catalog(self):
         all_channels = []
         with self._lock:
@@ -1681,9 +1726,7 @@ class ContentGateway:
             *xtream_guide,
         ]
         events = self._events_payload(metadata, sports_channels=sports)
-        revision_material = "|".join(sorted(channel["id"] for channel in all_channels))
-        revision_material += f"|{len(guide)}|{len(events)}"
-        revision = hashlib.sha256(revision_material.encode("utf-8")).hexdigest()[:20]
+        revision = self._public_catalog_revision(all_channels, guide, events)
         return {
             "data": {
                 "revision": revision,
