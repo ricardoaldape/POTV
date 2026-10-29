@@ -43,6 +43,7 @@ jobs:
           python content_gateway_transport_test.py
           python kino_archive_partner_test.py
           python kino_archive_signed_proxy_test.py
+          python qa_signed_stream_decode_test.py
           python content_gateway_hls_secret_test.py
           python content_gateway_redirect_test.py
           python content_gateway_hls_sniff_test.py
