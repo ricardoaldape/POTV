@@ -31,3 +31,28 @@ assert original != revision([channel], guide, [updated_event])
 assert len(original) == 20 and original.isalnum()
 assert "opaque-id" not in original and "sig" not in original
 print("PASS: public EPG revision changes on programme/source/event metadata, not proxy signature")
+
+# End-to-end public catalog builder must actually use the revision helper.
+class CatalogFixture(ContentGateway):
+    def _m3u_inventory(self, source):
+        return {"live": [{"name": "Canal Uno", "group": "General",
+                          "url": "https://media.example.com/live.m3u8",
+                          "epg_id": "epg-1"}]}
+
+    def _metadata(self):
+        return {"now_next": self.rows}
+
+
+fixture = CatalogFixture(
+    sources=["https://provider.example.com/playlist.m3u"],
+    public_base="https://potv.example",
+    signing_secret=b"public-revision-integration",
+)
+fixture.rows = guide
+first = fixture._build_catalog()["data"]
+fixture.rows = updated_guide
+second = fixture._build_catalog()["data"]
+assert len(first["now_next"]) == len(second["now_next"]) == 1
+assert first["revision"] != second["revision"], (
+    "A same-size programme update must invalidate public catalog cache")
+print("PASS: public catalog builder integrates real EPG revision")
