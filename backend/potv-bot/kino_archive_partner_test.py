@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import time
 from unittest.mock import patch
 from urllib.parse import urlsplit, parse_qs
 from content_gateway import ContentGateway
@@ -76,6 +77,29 @@ assert parse_qs(urlsplit(uri).query)["format"] == ["mp4"]
 assert urlsplit(uri).path.startswith("/api/v1/content/stream/")
 assert "archive.org" not in json.dumps(payload)
 assert "licensed_archive_film" not in json.dumps(payload)
+# Feature-length progressive movies need fresh HTTP Range requests after
+# 15 minutes (seeking, buffering and player reconnects). Their signed URL
+# remains valid for 3 hours; ordinary live sources keep the 15-minute cap.
+now_wall = int(time.time())
+now_mono = time.monotonic()
+expiry = int(parse_qs(urlsplit(uri).query)["e"][0])
+assert 10790 <= expiry - now_wall <= 10800
+archive_target = urlsplit(uri).path.rsplit("/", 1)[-1]
+assert gateway._validate_signature(archive_target, urlsplit(uri).query)
+with patch("content_gateway.time.time", return_value=now_wall + 3601):
+    assert gateway._validate_signature(archive_target, urlsplit(uri).query)
+with gateway._lock:
+    gateway._prune_expired_targets_locked(now_mono + 1500)
+    assert archive_target in gateway._targets, "movie seek target evicted too early"
+
+ordinary = gateway._register_target("https://example.org/short-lived.mp4")
+short_url = gateway._proxy_url(ordinary, lifetime=10800)
+short_expiry = int(parse_qs(urlsplit(short_url).query)["e"][0])
+assert 0 < short_expiry - int(time.time()) <= 900
+assert ordinary not in gateway._target_keep_until
+with gateway._lock:
+    gateway._prune_expired_targets_locked(now_mono + 11000)
+    assert archive_target not in gateway._targets, "expired movie target leaked"
 assert gateway.resolve_movie(title="No licensed film") == {"sources": []}
 
 with patch.dict(os.environ, {
@@ -85,4 +109,4 @@ with patch.dict(os.environ, {
     disabled = ContentGateway(sources=[], signing_secret=b"kino-archive-test")
 assert disabled.kino_archive is None
 assert not requires_vod_subscription(disabled, {})
-print("PASS: Kino Archive title, domain, license, source pin, expiry, cache and subscription")
+print("PASS: Kino Archive license, signed 3h MP4 seeks, short live TTL, target cleanup, subscription")

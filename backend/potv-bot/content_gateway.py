@@ -260,6 +260,10 @@ class ContentGateway:
         # HLS segments create ephemeral signed targets. Keep memory bounded
         # without interrupting already-started media transfers.
         self._target_last_signed = {}
+        # Keep explicitly licensed, progressive Archive movies available for
+        # seeks during a feature-length film; live/HLS targets still expire
+        # on their short default schedule.
+        self._target_keep_until = {}
         self._new_target_counter = 0
         self._catalog = None
         self._catalog_at = 0.0
@@ -875,7 +879,7 @@ class ContentGateway:
                     target = self._register_target(source["url"])
                     sources.append({
                         "provider": "POTV",
-                        "real_url": self._proxy_url(target),
+                        "real_url": self._proxy_url(target, lifetime=10800),
                         "language": source.get("language") or "und",
                         "quality": source.get("quality"),
                     })
@@ -1043,10 +1047,11 @@ class ContentGateway:
         cutoff = now - 1200.0
         expired = [
             key for key, signed_at in self._target_last_signed.items()
-            if signed_at < cutoff
+            if signed_at < cutoff and self._target_keep_until.get(key, 0) <= now
         ]
         for key in expired:
             self._target_last_signed.pop(key, None)
+            self._target_keep_until.pop(key, None)
             self._targets.pop(key, None)
 
     def _signature(self, target_id, expires):
@@ -1054,7 +1059,28 @@ class ContentGateway:
         return hmac.new(self.secret, raw, hashlib.sha256).hexdigest()
 
     def _proxy_url(self, target_id, *, lifetime=900):
-        expires = int(time.time()) + int(lifetime)
+        # Only Kino's explicitly public-domain progressive Archive files get
+        # a longer seek window. All other sources retain 15-minute URLs.
+        lifetime = max(1, min(int(lifetime), 10800))
+        with self._lock:
+            target = self._targets.get(target_id)
+            upstream = urlsplit(target[0]) if target else None
+            is_archive_movie = bool(
+                upstream and upstream.scheme == "https"
+                and upstream.hostname == "archive.org"
+                and upstream.path.startswith("/download/")
+                and upstream.path.lower().endswith((".mp4", ".m4v", ".webm"))
+            )
+            if lifetime > 900 and not is_archive_movie:
+                lifetime = 900
+            if target is not None:
+                self._target_last_signed[target_id] = time.monotonic()
+                if lifetime > 900:
+                    keep_until = time.monotonic() + lifetime + 60
+                    self._target_keep_until[target_id] = max(
+                        self._target_keep_until.get(target_id, 0), keep_until
+                    )
+        expires = int(time.time()) + lifetime
         sig = self._signature(target_id, expires)
         url = (
             f"{self.public_base}/api/v1/content/stream/{quote(target_id)}"
@@ -1064,10 +1090,6 @@ class ContentGateway:
         # whether to construct an HLS, DASH or progressive media source from
         # the proxy path alone. Include a harmless transport hint, NEVER the
         # upstream URL or credentials. The signature still validates target_id.
-        with self._lock:
-            target = self._targets.get(target_id)
-            if target is not None:
-                self._target_last_signed[target_id] = time.monotonic()
         if target is not None:
             path = urlsplit(target[0]).path.lower()
             if path.endswith(".m3u8"):
@@ -1087,7 +1109,9 @@ class ContentGateway:
         except ValueError:
             return False
         signature = (values.get("s") or [""])[0]
-        if expires < int(time.time()) or expires > int(time.time()) + 3600:
+        # A signed Archive feature film may seek for up to three hours.
+        # The HMAC still prevents extending a short-lived live token.
+        if expires < int(time.time()) or expires > int(time.time()) + 10860:
             return False
         expected = self._signature(target_id, expires)
         return bool(signature) and hmac.compare_digest(signature, expected)
