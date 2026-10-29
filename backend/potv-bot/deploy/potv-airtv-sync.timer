@@ -1,0 +1,12 @@
+[Unit]
+Description=Synchronize AirTV's licensed channel catalog every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+RandomizedDelaySec=60s
+Persistent=true
+Unit=potv-airtv-sync.service
+
+[Install]
+WantedBy=timers.target
