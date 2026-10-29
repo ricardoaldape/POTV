@@ -37,6 +37,8 @@ def requires_vod_subscription(gateway, environment):
         return True
     if getattr(gateway, "nova_vod_enabled", False):
         return True
+    if getattr(gateway, "kino_archive", None) is not None:
+        return True
     return str(environment.get("POTV_REQUIRE_VOD_SUBSCRIPTION") or "").strip().lower() in {
         "true", "1", "yes"
     }

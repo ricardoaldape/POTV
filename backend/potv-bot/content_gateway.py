@@ -34,6 +34,7 @@ from lmhd_partner import LmhdPartner, LmhdLoginPartner, PartnerApiError
 from partner_lmhd_api import PartnerAccessError
 from nova_partner import NovaPartner, NovaPartnerError
 from nova_snapshot_limits import MAX_NOVA_SNAPSHOT_BYTES
+from kino_archive_partner import KinoArchivePartner
 
 _EXTINF_ATTR = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
 _HLS_URI_ATTR = re.compile(r'URI="([^"]+)"')
@@ -234,6 +235,13 @@ class ContentGateway:
             self.nova is not None
             and bool(self.nova_sync_file)
             and os.getenv("POTV_NOVA_LIVE_ENABLED", "").strip().lower() == "true"
+        )
+        # Kino's public-domain Archive plugin is a separate optional
+        # native-video source; it does not depend on LMHD or AirTV.
+        self.kino_archive = (
+            KinoArchivePartner()
+            if os.getenv("POTV_KINO_ARCHIVE_ENABLED", "").strip().lower() == "true"
+            else None
         )
         self._nova_subscriber_catalog = None
         self._nova_subscriber_catalog_at = 0.0
@@ -861,6 +869,18 @@ class ContentGateway:
         sources.extend(self._lmhd_candidates(
             "movie", title=title, year=year
         ))
+        if self.kino_archive is not None and title:
+            for source in self.kino_archive.movie_sources(title=title, year=year)[:2]:
+                try:
+                    target = self._register_target(source["url"])
+                    sources.append({
+                        "provider": "POTV",
+                        "real_url": self._proxy_url(target),
+                        "language": source.get("language") or "und",
+                        "quality": source.get("quality"),
+                    })
+                except (ContentGatewayError, TypeError, KeyError):
+                    continue
         return {"sources": sources}
 
     def resolve_series_episode(
