@@ -31,11 +31,19 @@ jobs:
         working-directory: .
         run: python3 tool/verify_subscription_contract.py
       - name: Compile backend
-        run: python -m py_compile app.py account_store.py potv_ops.py group_config.py content_gateway.py
-      - name: Account lifecycle smoke test
-        run: python account_store_smoke.py
-      - name: Bot operations smoke test
-        run: python qa_smoke.py
+        run: python -m py_compile app.py account_store.py email_verification.py potv_ops.py potv_payments.py potv_inbox.py potv_stats.py group_config.py content_gateway.py
+      - name: Account lifecycle, ownership and Telegram link regression
+        run: |
+          python account_store_smoke.py
+          python test_subscriptions.py
+          python test_email_verification.py
+          python qa_account_store.py
+          python qa_link_claim.py
+      - name: Bot, payment and operator regression
+        run: |
+          python qa_smoke.py
+          python qa_operator_inbox.py
+          python qa_stats.py
       - name: Authorized content gateway smoke test
         run: |
           python content_gateway_smoke.py
