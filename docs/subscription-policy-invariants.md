@@ -8,7 +8,7 @@ puede quitar ni modificar estas reglas sin una decisión explícita del propieta
 ## Reglas de producto
 
 1. Una prueba gratuita por cuenta/correo, de **cinco días exactos (120 horas)**
-   desde la creación de la cuenta. El servidor registra el instante UTC.
+   desde la confirmación del correo para cuentas nuevas con verificación habilitada. El servidor registra el instante UTC. Las cuentas antiguas conservan su vigencia original.
 2. Al vencer la prueba o la suscripción, se bloquea el acceso a POTV.
    Perfiles, historial y preferencias no se eliminan.
 3. Los pagos nunca activan automáticamente el servicio. Una persona autorizada

@@ -16,6 +16,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _name = TextEditingController();
+  final _verificationCode = TextEditingController();
+  bool _awaitingEmailVerification = false;
   bool _register = false;
   bool _loading = false;
   bool _obscure = true;
@@ -26,6 +28,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _email.dispose();
     _password.dispose();
     _name.dispose();
+    _verificationCode.dispose();
     super.dispose();
   }
 
@@ -37,6 +40,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       'invalid_password' => 'La contraseña debe tener al menos 8 caracteres.',
       'invalid_name' => 'Escribe un nombre para tu perfil.',
       'invalid_credentials' => 'Correo o contraseña incorrectos.',
+      'invalid_verification_code' => 'Código incorrecto. Revisa tu correo.',
+      'verification_expired' => 'El código venció. Vuelve a iniciar el registro.',
+      'verification_rate_limited' => 'Espera un minuto para solicitar otro código.',
+      'verification_attempts_exceeded' => 'Demasiados intentos. Solicita un nuevo código.',
+      'verification_unavailable' => 'La verificación por correo no está disponible.',
+      'verification_delivery_failed' => 'No pudimos enviar el correo. Inténtalo nuevamente.',
       'invalid_recovery_code' => 'El código no es válido.',
       'expired_recovery_code' => 'El código venció. Solicita uno nuevo.',
       _ => 'No pudimos conectar con POTV. Revisa tu conexión e inténtalo de nuevo.',
@@ -59,17 +68,48 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     });
     try {
       if (_register) {
-        await ref.read(userAccountProvider.notifier).register(
-              email: email,
-              password: password,
-              name: name,
+        await ref.read(accountAuthServiceProvider).requestEmailRegistration(
+              email: email, password: password, name: name,
             );
+        if (mounted) setState(() => _awaitingEmailVerification = true);
       } else {
         await ref.read(userAccountProvider.notifier).login(
               email: email,
               password: password,
             );
       }
+    } catch (error) {
+      if (mounted) setState(() => _error = _message(error));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _confirmRegistration() async {
+    if (!RegExp(r'^\d{6}$').hasMatch(_verificationCode.text.trim())) {
+      setState(() => _error = 'Introduce el código de 6 dígitos recibido en tu correo.');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await ref.read(accountAuthServiceProvider).verifyRegistrationEmail(
+        email: _email.text.trim(), code: _verificationCode.text.trim(),
+      );
+      await ref.read(userAccountProvider.notifier).login(
+        email: _email.text.trim(), password: _password.text,
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = _message(error));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _resendRegistration() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      await ref.read(accountAuthServiceProvider).resendRegistrationEmail(_email.text.trim());
+      if (mounted) setState(() => _error = 'Enviamos un código nuevo a tu correo.');
     } catch (error) {
       if (mounted) setState(() => _error = _message(error));
     } finally {
@@ -214,7 +254,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _register ? 'Crea tu cuenta' : 'Bienvenido de nuevo',
+                          _awaitingEmailVerification ? 'Confirma tu correo' : (_register ? 'Crea tu cuenta' : 'Bienvenido de nuevo'),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 21,
@@ -222,7 +262,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        if (_register) ...[
+                        if (_awaitingEmailVerification) ...[
+                          Text('Enviamos un código a ${_email.text.trim()}. La prueba gratis comenzará cuando confirmes el correo.'),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: _verificationCode,
+                            keyboardType: TextInputType.number,
+                            maxLength: 6,
+                            decoration: const InputDecoration(labelText: 'Código de 6 dígitos'),
+                          ),
+                        ] else if (_register) ...[
                           TextField(
                             controller: _name,
                             textInputAction: TextInputAction.next,
@@ -234,6 +283,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           ),
                           const SizedBox(height: 12),
                         ],
+                        if (!_awaitingEmailVerification) ...[
                         TextField(
                           controller: _email,
                           keyboardType: TextInputType.emailAddress,
@@ -272,6 +322,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                             ),
                           ),
                         ),
+                        ],
                         if (_error != null) ...[
                           const SizedBox(height: 12),
                           Text(
@@ -283,7 +334,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         ],
                         const SizedBox(height: 18),
                         FilledButton(
-                          onPressed: _loading ? null : _submit,
+                          onPressed: _loading ? null : (_awaitingEmailVerification ? _confirmRegistration : _submit),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4),
                             child: _loading
@@ -291,10 +342,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                     dimension: 22,
                                     child: PotvLoadingFlag(width: 44),
                                   )
-                                : Text(_register ? 'Crear cuenta' : 'Entrar'),
+                                : Text(_awaitingEmailVerification ? 'Verificar correo' : (_register ? 'Crear cuenta' : 'Entrar')),
                           ),
                         ),
-                        if (!_register)
+                        if (_awaitingEmailVerification)
+                          TextButton(onPressed: _loading ? null : _resendRegistration,
+                            child: const Text('Reenviar código')),
+                        if (!_register && !_awaitingEmailVerification)
                           TextButton(
                             onPressed: _loading ? null : _recover,
                             child: const Text('Olvidé mi contraseña'),
@@ -304,13 +358,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           onPressed: _loading
                               ? null
                               : () => setState(() {
-                                    _register = !_register;
+                                    if (_awaitingEmailVerification) {
+                                      _awaitingEmailVerification = false;
+                                    } else {
+                                      _register = !_register;
+                                    }
                                     _error = null;
                                   }),
                           child: Text(
-                            _register
-                                ? 'Ya tengo una cuenta'
-                                : 'Crear una cuenta',
+                            _awaitingEmailVerification
+                                ? 'Corregir correo o contraseña'
+                                : (_register ? 'Ya tengo una cuenta' : 'Crear una cuenta'),
                           ),
                         ),
                       ],

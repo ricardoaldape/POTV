@@ -4,6 +4,8 @@ class SubscriptionEndpoint {
   static const String verifyUrl = '$_base/link/claim';
   static const String registerUrl = '$_base/account/register';
   static const String loginUrl = '$_base/account/login';
+  static const String verifyEmailUrl = '$_base/account/email/verify';
+  static const String resendEmailUrl = '$_base/account/email/resend';
   static const String sessionUrl = '$_base/account/session';
   static const String logoutUrl = '$_base/account/logout';
   static const String recoverUrl = '$_base/account/recover';
