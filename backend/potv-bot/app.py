@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from account_store import AccountStore, AccountError
+from email_verification import PendingRegistrations, smtp_ready
 from content_gateway import ContentGateway, ContentGatewayError
 from content_access import has_active_subscription, requires_vod_subscription, catalog_access_status
 from catalog_json_transport import encode_catalog
@@ -217,10 +218,13 @@ def parse(v): return datetime.fromisoformat(v) if v else None
 def dbc():
     c=sqlite3.connect(DB,timeout=20); c.row_factory=sqlite3.Row; return c
 ACCOUNT_STORE=AccountStore(DB)
+PENDING_EMAIL=PendingRegistrations(DB)
+EMAIL_VERIFICATION_ENABLED=os.getenv("POTV_EMAIL_VERIFICATION_ENABLED", "false").lower() in ("1", "true", "yes")
 CONTENT_GATEWAY=ContentGateway()
 
 def init_db():
     ACCOUNT_STORE.init()
+    PENDING_EMAIL.init()
     with dbc() as c:
         c.executescript("""
         PRAGMA journal_mode=WAL;
@@ -281,6 +285,19 @@ def upsert_user(u):
     return tid
 
 def subscription(tid):
+    # The POTV account is authoritative once Telegram has been linked.
+    # An older inactive bot subscription must never override an active
+    # customer trial, paid term or permanent owner entitlement.
+    if not supabase_enabled():
+        with dbc() as c:
+            linked=c.execute("""SELECT subscription_status,subscription_expires_at
+                FROM app_accounts WHERE telegram_id=?""",(int(tid),)).fetchone()
+        if linked:
+            from subscription_policy import subscription_state
+            state=subscription_state(linked["subscription_status"],
+                                     linked["subscription_expires_at"])
+            return {"status":state["subscription_status"],"plan":"POTV",
+                    "expires_at":state["subscription_expires_at"]}
     if supabase_enabled():
         r=sb_account(tid)
         if not r:
@@ -385,12 +402,29 @@ def handle_message(m):
         send(cid,f"📺 {PLAN_TEXT}\n\nPrecio y vigencia se configuran desde el servidor.")
     elif text=="👤 Mi cuenta":
         s=subscription(tid)
-        send(cid,f"👤 Cuenta POTV\nEstado: {s['status']}\nPlan: {s['plan']}\nVence: {s['expires_at'] or '—'}")
+        with dbc() as c:
+            linked=c.execute("""SELECT email FROM app_accounts
+                WHERE telegram_id=?""",(tid,)).fetchone()
+        status_label={"active":"Activa","trial":"Prueba de 5 días",
+                      "expired":"Vencida","inactive":"Sin activar",
+                      "free":"Sin suscripción"}.get(s["status"],s["status"])
+        expires=s["expires_at"] or "—"
+        if s["status"]=="active" and str(expires).startswith("9999-"):
+            expires="Acceso permanente"
+        send(cid,"👤 Cuenta POTV\nEstado: "+status_label+
+             "\nTelegram: "+("Vinculado" if linked else "Aún no vinculado")+
+             (("\nCorreo: "+linked["email"]) if linked else "")+
+             "\nVencimiento: "+str(expires))
     elif text=="💳 Reportar pago":
         send(cid,f"💳 Pago / renovación\n\n{PAYMENT_TEXT}\n\nDespués envía aquí la imagen del comprobante.")
     elif text=="🔗 Vincular app":
         code=make_link_code(tid)
-        send(cid,f"🔗 Código: {code}\nVálido 10 minutos.\n\nCuando habilitemos cuentas en POTV, introduce este código en la app.")
+        send(cid,"🔗 Código temporal de Telegram: "+code+
+             "\nVálido durante 10 minutos. Solo se puede utilizar una vez.\n\n"
+             "1. Abre POTV e inicia sesión con tu correo.\n"
+             "2. Entra a «Mi cuenta» → «Vincular Telegram».\n"
+             "3. Introduce el código anterior.\n\n"
+             "La vinculación no cambia tus días de prueba ni tu suscripción.")
     elif text=="🆘 Soporte":
         send(cid,"🆘 Soporte POTV\nDescribe aquí tu problema. Después conectaremos este flujo al panel de soporte.")
     elif text.startswith("/pending") and ADMIN and str(tid)==ADMIN:
@@ -434,9 +468,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         # The authenticated NOVA catalog can exceed 4 MB. Compress it only
         # when the client explicitly accepts gzip; never compress login,
         # entitlement, payment or source-resolution responses.
-        catalog = urlsplit(self.path).path in (
-            "/api/v1/content/catalog", "/api/v1/content/media"
-        )
+        catalog = urlsplit(self.path).path in ("/api/v1/content/catalog", "/api/v1/content/media")
         if catalog:
             raw, compressed = encode_catalog(
                 obj, self.headers.get("Accept-Encoding", "")
@@ -566,8 +598,6 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.out(exc.status,{"ok":False,"error":exc.code})
             return
         if path=="/api/v1/content/media":
-            # A VOD metadata page is still private subscriber content. Reuse
-            # the same entitlement gate as the signed live-TV catalog.
             token=self._bearer()
             account=ACCOUNT_STORE.session(token) if token else None
             status=catalog_access_status(token, account)
@@ -639,7 +669,35 @@ class ApiHandler(BaseHTTPRequestHandler):
         if data is None:
             self.out(400,{"ok":False,"error":"bad_json"}); return
 
+        if self.path=="/api/v1/account/email/verify":
+            if not EMAIL_VERIFICATION_ENABLED:
+                self.out(409,{"ok":False,"error":"verification_disabled"}); return
+            try:
+                payload=PENDING_EMAIL.verify(str(data.get("email","")),str(data.get("code","")))
+            except AccountError as exc:
+                self.out(400,{"ok":False,"error":exc.code}); return
+            self.out(200,payload); return
+
+        if self.path=="/api/v1/account/email/resend":
+            if not EMAIL_VERIFICATION_ENABLED:
+                self.out(409,{"ok":False,"error":"verification_disabled"}); return
+            try:
+                payload=PENDING_EMAIL.resend(str(data.get("email","")))
+            except AccountError as exc:
+                self.out(429 if exc.code=="verification_rate_limited" else 400,
+                         {"ok":False,"error":exc.code}); return
+            self.out(202,payload); return
+
         if self.path=="/api/v1/account/register":
+            if EMAIL_VERIFICATION_ENABLED:
+                try:
+                    payload=PENDING_EMAIL.begin(
+                        str(data.get("email","")), str(data.get("password","")),
+                        str(data.get("name") or data.get("username") or ""))
+                except AccountError as exc:
+                    code=503 if exc.code in ("verification_unavailable","verification_delivery_failed") else (429 if exc.code=="verification_rate_limited" else 400)
+                    self.out(code,{"ok":False,"error":exc.code}); return
+                self.out(202,payload); return
             try:
                 account=ACCOUNT_STORE.register(
                     str(data.get("email","")),
@@ -705,13 +763,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not code or not device_id or len(device_id)>200:
             self.out(400,{"ok":False,"error":"code_and_device_required"}); return
 
-        auth_account_id=None
+        # Linking without a signed-in POTV account previously consumed the
+        # Telegram code but created only a device license. Require the email
+        # account session BEFORE touching any code or license.
         bearer=self._bearer()
-        if bearer:
-            session_account=ACCOUNT_STORE.session(bearer)
-            if not session_account:
-                self.out(401,{"ok":False,"error":"invalid_session"}); return
-            auth_account_id=session_account["id"]
+        if not bearer:
+            self.out(401,{"ok":False,"error":"account_login_required"}); return
+        session_account=ACCOUNT_STORE.session(bearer)
+        if not session_account:
+            self.out(401,{"ok":False,"error":"invalid_session"}); return
+        auth_account_id=session_account["id"]
 
         linked_account=None
         if supabase_enabled():
@@ -742,30 +803,46 @@ class ApiHandler(BaseHTTPRequestHandler):
                 token_hash=excluded.token_hash,last_seen=excluded.last_seen""",
                 (telegram_id,device_id,token_hash,ts,ts))
         else:
+            # Claim, app-account association and license must commit together.
+            # Never burn a one-time code without linking the signed-in email.
             with dbc() as c:
+                c.execute("BEGIN IMMEDIATE")
                 row=c.execute("""SELECT * FROM link_codes
                 WHERE code=? AND used_at IS NULL""",(code,)).fetchone()
                 if not row or parse(row["expires_at"])<=now():
                     self.out(400,{"ok":False,"error":"invalid_or_expired_code"}); return
                 telegram_id=int(row["telegram_id"])
+                target=c.execute("SELECT * FROM app_accounts WHERE id=?",
+                                 (auth_account_id,)).fetchone()
+                if not target:
+                    self.out(404,{"ok":False,"error":"account_not_found"}); return
+                bot=c.execute("""SELECT status,expires_at FROM subscriptions
+                                 WHERE telegram_id=?""",(telegram_id,)).fetchone()
+                bot_status=bot["status"] if bot else "inactive"
+                bot_expiry=bot["expires_at"] if bot else None
+                merged_status,merged_expiry=ACCOUNT_STORE._merge_telegram_entitlement(
+                    target,bot_status,bot_expiry)
+                ts=iso(now())
+                c.execute("""UPDATE link_codes SET used_at=?
+                    WHERE code=? AND used_at IS NULL""",(ts,code))
+                c.execute("""UPDATE app_accounts SET telegram_id=NULL,updated_at=?
+                    WHERE telegram_id=? AND id<>?""",
+                    (ts,telegram_id,auth_account_id))
+                c.execute("""UPDATE app_accounts SET telegram_id=?,
+                    subscription_status=?,subscription_expires_at=?,
+                    updated_at=? WHERE id=?""",
+                    (telegram_id,merged_status,merged_expiry,ts,auth_account_id))
                 token=secrets.token_urlsafe(32)
                 token_hash=hashlib.sha256(token.encode()).hexdigest()
-                ts=iso(now())
-                c.execute("UPDATE link_codes SET used_at=? WHERE code=?",(ts,code))
                 c.execute("""INSERT INTO licenses
                 (telegram_id,device_id,token_hash,created_at,last_seen)
                 VALUES(?,?,?,?,?)
                 ON CONFLICT(telegram_id,device_id) DO UPDATE SET
                 token_hash=excluded.token_hash,last_seen=excluded.last_seen""",
                 (telegram_id,device_id,token_hash,ts,ts))
-
-        if auth_account_id and linked_account is None:
-            sub=subscription(telegram_id)
-            try:
-                linked_account=ACCOUNT_STORE.link_telegram(
-                    auth_account_id,telegram_id,sub["status"],sub["expires_at"])
-            except AccountError:
-                self.out(404,{"ok":False,"error":"account_not_found"}); return
+                linked=c.execute("SELECT * FROM app_accounts WHERE id=?",
+                                 (auth_account_id,)).fetchone()
+                linked_account=ACCOUNT_STORE._payload(linked)
 
         if linked_account:
             status=linked_account.get("subscription_status") or "free"
@@ -905,18 +982,27 @@ def main():
     print(f"POTV @{BOT_USER} + API {HOST}:{PORT}",flush=True)
     while True:
         try:
+            # New account alerts are drained privately from the committed
+            # outbox; the HTTP registration endpoint stays nonblocking.
+            try:
+                deliver_registration_notifications()
+            except Exception as exc:
+                print("POTV account notification worker:",type(exc).__name__,
+                      flush=True)
             if time.monotonic()-last_ota_check>=300:
                 announce_new_version()
                 last_ota_check=time.monotonic()
             result=tg("getUpdates",{
                 "timeout":30,
                 "offset":offset,
-                "allowed_updates":json.dumps(["message"])
+                "allowed_updates":json.dumps(["message","callback_query"])
             })
             for upd in result.get("result",[]):
                 offset=upd["update_id"]+1
                 if upd.get("message"):
                     handle_message(upd["message"])
+                elif upd.get("callback_query"):
+                    handle_callback(upd["callback_query"])
         except KeyboardInterrupt:
             return 0
         except Exception as exc:

@@ -101,6 +101,27 @@ class AccountStore:
                 ON app_manual_activations(payment_reference)
                 WHERE payment_reference IS NOT NULL
             """)
+            con.executescript("""
+                CREATE TABLE IF NOT EXISTS bot_account_registration_events (
+                    account_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    delivered_at TEXT,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_account_events_pending
+                    ON bot_account_registration_events(delivered_at,created_at);
+                CREATE TABLE IF NOT EXISTS app_account_activity (
+                    account_id TEXT PRIMARY KEY,
+                    last_seen_at TEXT NOT NULL
+                );
+            """)
+            # Older app sessions can establish historic login activity. Do not
+            # mistake a still-valid session for a fresh active session.
+            con.execute("""INSERT OR IGNORE INTO app_account_activity
+                (account_id,last_seen_at)
+                SELECT account_id,MAX(created_at)
+                FROM app_sessions GROUP BY account_id""")
 
     def _payload(self, row):
         if row is None:
@@ -152,6 +173,10 @@ class AccountStore:
                 row = con.execute(
                     "SELECT * FROM app_accounts WHERE id=?", (account_id,)
                 ).fetchone()
+                # Durable and private: notify only after successful registration.
+                con.execute("""INSERT INTO bot_account_registration_events
+                    (account_id,created_at) VALUES(?,?)""",
+                    (account_id,stamp))
         except sqlite3.IntegrityError as exc:
             raise AccountError("account_exists") from exc
         return self._payload(row)
@@ -184,6 +209,10 @@ class AccountStore:
                 VALUES(?,?,?,?)""",
                 (_token_hash(token), row["id"], _iso(expires), _iso(stamp)),
             )
+            con.execute("""INSERT INTO app_account_activity(account_id,last_seen_at)
+                VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET
+                last_seen_at=excluded.last_seen_at""",
+                (row["id"],_iso(stamp)))
             return {
                 "access_token": token,
                 "expires_at": _iso(expires),
@@ -209,6 +238,14 @@ class AccountStore:
                     (_token_hash(token),),
                 )
                 return None
+            stamp=_now()
+            # A valid app session request counts as recent activity.
+            # Throttle writes to one per account per five minutes.
+            con.execute("""INSERT INTO app_account_activity(account_id,last_seen_at)
+                VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET
+                last_seen_at=excluded.last_seen_at
+                WHERE app_account_activity.last_seen_at<?""",
+                (row["id"],_iso(stamp),_iso(stamp-timedelta(minutes=5))))
             return self._payload(row)
 
     def logout(self, token):

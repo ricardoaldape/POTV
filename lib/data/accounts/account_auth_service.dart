@@ -22,6 +22,40 @@ class AccountAuthService {
 
   Future<String?> sessionToken() => _secure.read(key: _sessionKey);
 
+  Future<bool> requestEmailRegistration({
+    required String email,
+    required String password,
+    required String name,
+  }) async {
+    try {
+      final response = await _dio.post(SubscriptionEndpoint.registerUrl,
+          data: {'email': email.trim(), 'password': password, 'name': name.trim()});
+      final body = Map<String, dynamic>.from(response.data as Map);
+      if (body['verification_required'] == true) return true;
+      // Never log into an unverified account created by a legacy backend.
+      throw const AccountAuthException('verification_unavailable');
+    } on DioException catch (error) {
+      throw AccountAuthException(_errorCode(error));
+    }
+  }
+
+  Future<void> verifyRegistrationEmail({required String email, required String code}) async {
+    try {
+      await _dio.post(SubscriptionEndpoint.verifyEmailUrl,
+          data: {'email': email.trim(), 'code': code.trim()});
+    } on DioException catch (error) {
+      throw AccountAuthException(_errorCode(error));
+    }
+  }
+
+  Future<void> resendRegistrationEmail(String email) async {
+    try {
+      await _dio.post(SubscriptionEndpoint.resendEmailUrl, data: {'email': email.trim()});
+    } on DioException catch (error) {
+      throw AccountAuthException(_errorCode(error));
+    }
+  }
+
   Future<UserAccount> register({
     required String email,
     required String password,
